@@ -1,7 +1,7 @@
 import harden from '@agoric/harden';
 import { makeMarshal, QCLASS } from '@agoric/marshal';
 import Nat from '@agoric/nat';
-import evaluateProgram from '@agoric/evaluate';
+import { evaluateProgram } from '@agoric/evaluate';
 import makeVatManager from './vatManager';
 import { makeLiveSlots } from './liveSlots';
 import { makeDeviceSlots } from './deviceSlots';
