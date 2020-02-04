@@ -185,6 +185,9 @@ function buildNonSESKernel(endowments) {
 }
 
 export async function buildVatController(config, withSES = true, argv = []) {
+  if (!withSES) {
+    throw Error('SES is now mandatory');
+  }
   // todo: move argv into the config
 
   // sesEvaluator is only valid when withSES === true. It might be nice to
