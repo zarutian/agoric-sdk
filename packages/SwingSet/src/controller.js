@@ -175,31 +175,15 @@ function buildSESKernel(sesEvaluator, endowments) {
   return buildKernel(endowments);
 }
 
-function buildNonSESKernel(endowments) {
-  // Evaluate shims to produce desired globals.
-  const evaluateOptions = makeDefaultEvaluateOptions();
-  // eslint-disable-next-line no-eval
-  (evaluateOptions.shims || []).forEach(shim => (1, eval)(shim));
-
-  return buildKernelNonSES(endowments);
-}
-
 export async function buildVatController(config, withSES = true, argv = []) {
   if (!withSES) {
     throw Error('SES is now mandatory');
   }
   // todo: move argv into the config
 
-  // sesEvaluator is only valid when withSES === true. It might be nice to
-  // untangle this so we don't have to check withSES in three different places.
-  let sesEvaluator;
-  if (withSES) {
-    sesEvaluator = makeSESEvaluator();
-  }
+  const sesEvaluator = makeSESEvaluator();
 
-  // Evaluate source to produce a setup function. This binds withSES from the
-  // enclosing context and evaluates it either in a SES context, or without SES
-  // by directly calling require().
+  // Evaluate source in a SES context to produce a setup function.
   async function evaluateToSetup(sourceIndex) {
     if (!(sourceIndex[0] === '.' || path.isAbsolute(sourceIndex))) {
       throw Error(
@@ -211,15 +195,9 @@ export async function buildVatController(config, withSES = true, argv = []) {
     // two symbols from each Vat: 'start' and 'dispatch'. The code in
     // bootstrap.js gets a 'controller' object which can invoke start()
     // (which is expected to initialize some state and export some facetIDs)
-    let setup;
-    if (withSES) {
-      const { source, sourceMap } = await bundleSource(`${sourceIndex}`);
-      const actualSource = `(${source})\n${sourceMap}`;
-      setup = sesEvaluator(actualSource);
-    } else {
-      // eslint-disable-next-line global-require,import/no-dynamic-require
-      setup = require(`${sourceIndex}`).default;
-    }
+    const { source, sourceMap } = await bundleSource(`${sourceIndex}`);
+    const actualSource = `(${source})\n${sourceMap}`;
+    const setup = sesEvaluator(actualSource);
     return setup;
   }
 
@@ -232,9 +210,7 @@ export async function buildVatController(config, withSES = true, argv = []) {
     vatAdminVatSetup: await evaluateToSetup(ADMIN_VAT_PATH),
   };
 
-  const kernel = withSES
-    ? buildSESKernel(sesEvaluator, kernelEndowments)
-    : buildNonSESKernel(kernelEndowments);
+  const kernel = buildSESKernel(sesEvaluator, kernelEndowments);
 
   async function addGenesisVat(name, sourceIndex, options = {}) {
     console.log(`= adding vat '${name}' from ${sourceIndex}`);
