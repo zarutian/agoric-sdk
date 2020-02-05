@@ -20,7 +20,8 @@ export default async function bundleSource(
   const bundle = await rollup({
     input: resolvedPath,
     treeshake: false,
-    external: ['@agoric/evaluate', '@agoric/nat', '@agoric/harden'],
+    //external: ['@agoric/evaluate', '@agoric/nat', '@agoric/harden'],
+    external: [],
     plugins: [resolvePlugin({ preferBuiltins: true })],
     acornInjectPlugins: [eventualSend(acorn)],
   });
