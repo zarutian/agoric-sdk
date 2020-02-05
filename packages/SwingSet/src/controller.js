@@ -1,11 +1,13 @@
 // eslint-disable-next-line no-redeclare
-/* global setImmediate */
+// global setImmediate Compartment harden process
+// we have 'setImmediate' here because we know we're running under Node.js
+// 'Compartment' and 'harden' show up once we call lockdown()
+
 import fs from 'fs';
 import path from 'path';
-// import { rollup } from 'rollup';
-import harden from '@agoric/harden';
+import { rollup } from 'rollup';
 import Nat from '@agoric/nat';
-import SES from 'ses';
+import { lockdown } from './ses.esm.js';
 
 import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
 import bundleSource from '@agoric/bundle-source';
@@ -85,94 +87,17 @@ export function loadBasedir(basedir) {
   return { vats, bootstrapIndexJS };
 }
 
-function getKernelSource() {
-  return `(${kernelSourceFunc})`;
-}
-
-// this feeds the SES realm's (real/safe) confine*() back into the Realm
-// when it does require('@agoric/evaluate'), so we can get the same
-// functionality both with and without SES
-// To support makeEvaluators, we create a new Compartment.
-function makeEvaluate(e) {
-  const { makeCompartment, rootOptions, confine, confineExpr } = e;
-  const makeEvaluators = (realmOptions = {}) => {
-    // Realm transforms need to be vetted by global transforms.
-    const transforms = (realmOptions.transforms || []).concat(
-      rootOptions.transforms || [],
-    );
-
-    const c = makeCompartment({
-      ...rootOptions,
-      ...realmOptions,
-      transforms,
-    });
-    transforms.forEach(t => t.closeOverSES && t.closeOverSES(c));
-    // Global shims need to take effect before realm shims.
-    const shims = (rootOptions.shims || []).concat(realmOptions.shims || []);
-    shims.forEach(shim => c.evaluate(shim));
-    return {
-      evaluateExpr(source, endowments = {}, options = {}) {
-        return c.evaluate(`(${source}\n)`, endowments, options);
-      },
-      evaluateProgram(source, endowments = {}, options = {}) {
-        return c.evaluate(`${source}`, endowments, options);
-      },
-    };
-  };
-
-  // As an optimization, do not create a new compartment unless
-  // they call makeEvaluators explicitly.
-  const evaluateExpr = (source, endowments = {}, options = {}) =>
-    confineExpr(source, endowments, options);
-  const evaluateProgram = (source, endowments = {}, options = {}) =>
-    confine(source, endowments, options);
-  return Object.assign(evaluateExpr, {
-    evaluateExpr,
-    evaluateProgram,
-    makeEvaluators,
-  });
-}
-
 function makeSESEvaluator() {
-  const evaluateOptions = makeDefaultEvaluateOptions();
-  const { transforms, ...otherOptions } = evaluateOptions;
-  const s = SES.makeSESRootRealm({
-    ...otherOptions,
-    transforms,
-    consoleMode: 'allow',
-    errorStackMode: 'allow',
-  });
-  transforms.forEach(t => {
-    t.closeOverSES && t.closeOverSES(s);
-  });
-
-  // TODO: if the 'require' we provide here supplies a non-pure module,
-  // that could open a communication channel between otherwise isolated
-  // Vats. For now that's just harden and Nat, but others might get added
-  // in the future, so pay attention to what we allow in. We could build
-  // a new makeRequire for each Vat, but 1: performance and 2: the same
-  // comms problem exists between otherwise-isolated code within a single
-  // Vat so it doesn't really help anyways
-  const r = s.makeRequire({
-    '@agoric/evaluate': {
-      attenuatorSource: `${makeEvaluate}`,
-      confine: s.global.SES.confine,
-      confineExpr: s.global.SES.confineExpr,
-      rootOptions: evaluateOptions,
-      makeCompartment: s.global.Realm.makeCompartment,
-    },
-    '@agoric/harden': true,
-    '@agoric/nat': Nat,
-  });
-  return src => {
-    return s.evaluate(src, { require: r })().default;
+  lockdown(); // creates Compartment
+  const endowments = {
+    console: console, // lazy for now
   };
-}
-
-function buildSESKernel(sesEvaluator, endowments) {
-  const kernelSource = getKernelSource();
-  const buildKernel = sesEvaluator(kernelSource);
-  return buildKernel(endowments);
+  // todo: makeDefaultEvaluateOptions and transforms and stuff
+  const c = new Compartment(endowments);
+  return src => {
+    //return c.evaluate(src, { require: r })().default;
+    return c.evaluate(src);
+  };
 }
 
 export async function buildVatController(config, withSES = true, argv = []) {
@@ -180,6 +105,12 @@ export async function buildVatController(config, withSES = true, argv = []) {
     throw Error('SES is now mandatory');
   }
   // todo: move argv into the config
+
+  process.on('unhandledRejection', (error, p) => {
+    console.log('unhandled rejection, boo');
+    console.log('error is', error.toString());
+    return true;
+  });
 
   const sesEvaluator = makeSESEvaluator();
 
@@ -197,7 +128,7 @@ export async function buildVatController(config, withSES = true, argv = []) {
     // (which is expected to initialize some state and export some facetIDs)
     const { source, sourceMap } = await bundleSource(`${sourceIndex}`);
     const actualSource = `(${source})\n${sourceMap}`;
-    const setup = sesEvaluator(actualSource);
+    const setup = sesEvaluator(actualSource)().default;
     return setup;
   }
 
@@ -206,11 +137,15 @@ export async function buildVatController(config, withSES = true, argv = []) {
   const kernelEndowments = {
     setImmediate,
     hostStorage,
-    vatAdminDevSetup: await evaluateToSetup(ADMIN_DEVICE_PATH),
-    vatAdminVatSetup: await evaluateToSetup(ADMIN_VAT_PATH),
+    //vatAdminDevSetup: await evaluateToSetup(ADMIN_DEVICE_PATH),
+    //vatAdminVatSetup: await evaluateToSetup(ADMIN_VAT_PATH),
   };
 
-  const kernel = buildSESKernel(sesEvaluator, kernelEndowments);
+  const kernelSource = `(${kernelSourceFunc})`;
+  console.log("BK HERE 1");
+  const buildKernel = sesEvaluator(kernelSource)().default;
+  console.log("BK HERE 2");
+  const kernel = buildKernel(kernelEndowments);
 
   async function addGenesisVat(name, sourceIndex, options = {}) {
     console.log(`= adding vat '${name}' from ${sourceIndex}`);
