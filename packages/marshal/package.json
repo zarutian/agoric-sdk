@@ -2,6 +2,7 @@
   "name": "@agoric/marshal",
   "version": "0.1.2",
   "description": "marshal",
+  "type": "module",
   "main": "marshal.js",
   "directories": {
     "test": "test"
