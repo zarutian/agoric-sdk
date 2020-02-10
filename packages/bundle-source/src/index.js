@@ -37,7 +37,10 @@ export default async function bundleSource(
     external: ['@agoric/harden'],
 
     plugins: [resolvePlugin({ preferBuiltins: true })],
-    acornInjectPlugins: [eventualSend(acorn)],
+    // the eventualSend(acorn) call causes a "TokenType is not a constructor"
+    // error in acorn-eventual-send/index.js makeCurryOptions() that I don't
+    // understand
+    //acornInjectPlugins: [eventualSend(acorn)],
   });
   const { output } = await bundle.generate({
     exports: 'named',
