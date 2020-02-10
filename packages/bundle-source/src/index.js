@@ -1,4 +1,7 @@
-import { rollup as rollup0 } from 'rollup';
+// we'd prefer to do this, but node's ESM support has problems:
+//import { rollup as rollup0 } from 'rollup';
+import rollupNS from 'rollup';
+const { rollup: rollup0 } = rollupNS;
 import path from 'path';
 import resolve0 from 'rollup-plugin-node-resolve';
 import eventualSend from '@agoric/acorn-eventual-send';
