@@ -23,8 +23,19 @@ export default async function bundleSource(
   const bundle = await rollup({
     input: resolvedPath,
     treeshake: false,
-    //external: ['@agoric/evaluate', '@agoric/nat', '@agoric/harden'],
-    external: [],
+    //inlineDynamicImports: true, // prevent use of Math.random
+    //preserveModules: true, // avoid units.sort and Math.random
+
+    // SES provides `harden()` as a global, but it's not easy to code against
+    // that. Swingset makes `@agoric/harden` importable as a module (by
+    // putting a minimal `require()` in the environment), so when we bundle
+    // source for a Swingset environment mark `@agoric/harden` as an
+    // external/exit/"hole" in the module graph. Note that we cannot allow
+    // the real NPM-published `@agoric/harden` to appear in our source graph,
+    // because it imports `@agoric/make-hardener` which has a comment that
+    // SES rejects for looking too much like a direct eval.
+    external: ['@agoric/harden'],
+
     plugins: [resolvePlugin({ preferBuiltins: true })],
     acornInjectPlugins: [eventualSend(acorn)],
   });
