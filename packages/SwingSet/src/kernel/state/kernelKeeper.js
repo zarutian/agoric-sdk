@@ -1,17 +1,17 @@
 import harden from '@agoric/harden';
 import Nat from '@agoric/nat';
-import { initializeVatState, makeVatKeeper } from './vatKeeper';
-import { initializeDeviceState, makeDeviceKeeper } from './deviceKeeper';
-import { insist } from '../../insist';
-import { insistEnhancedStorageAPI } from '../../storageAPI';
+import { initializeVatState, makeVatKeeper } from './vatKeeper.js';
+import { initializeDeviceState, makeDeviceKeeper } from './deviceKeeper.js';
+import { insist } from '../../insist.js';
+import { insistEnhancedStorageAPI } from '../../storageAPI.js';
 import {
   insistKernelType,
   makeKernelSlot,
   parseKernelSlot,
-} from '../parseKernelSlots';
-import { insistCapData } from '../../capdata';
-import { insistDeviceID, insistVatID, makeDeviceID, makeVatID } from '../id';
-import kdebug from '../kdebug';
+} from '../parseKernelSlots.js';
+import { insistCapData } from '../../capdata.js';
+import { insistDeviceID, insistVatID, makeDeviceID, makeVatID } from '../id.js';
+import kdebug from '../kdebug.js';
 
 // This holds all the kernel state, including that of each Vat and Device, in
 // a single JSON-serializable object. At any moment (well, really only

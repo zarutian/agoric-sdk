@@ -1,12 +1,12 @@
 import Nat from '@agoric/nat';
-import { makeVatSlot, parseVatSlot, insistVatType } from '../../parseVatSlots';
+import { makeVatSlot, parseVatSlot, insistVatType } from '../../parseVatSlots.js';
 import {
   flipRemoteSlot,
   insistRemoteType,
   makeRemoteSlot,
   parseRemoteSlot,
-} from './parseRemoteSlot';
-import { getRemote } from './remote';
+} from './parseRemoteSlot.js';
+import { getRemote } from './remote.js';
 import {
   allocateUnresolvedPromise,
   insistPromiseIsUnresolved,
@@ -16,8 +16,8 @@ import {
   trackUnresolvedPromise,
   setPromiseDecider,
   setPromiseSubscriber,
-} from './state';
-import { insist } from '../../insist';
+} from './state.js';
+import { insist } from '../../insist.js';
 
 export function getOutbound(state, remoteID, target) {
   const remote = getRemote(state, remoteID);

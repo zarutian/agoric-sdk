@@ -1,11 +1,11 @@
 import harden from '@agoric/harden';
-import djson from './djson';
-import { insist } from '../insist';
-import { insistKernelType, parseKernelSlot } from './parseKernelSlots';
-import { insistVatType, parseVatSlot } from '../parseVatSlots';
-import { insistCapData } from '../capdata';
-import { insistMessage } from '../message';
-import kdebug from './kdebug';
+import djson from './djson.js';
+import { insist } from '../insist.js';
+import { insistKernelType, parseKernelSlot } from './parseKernelSlots.js';
+import { insistVatType, parseVatSlot } from '../parseVatSlots.js';
+import { insistCapData } from '../capdata.js';
+import { insistMessage } from '../message.js';
+import kdebug from './kdebug.js';
 
 export default function makeVatManager(
   vatID,

@@ -1,5 +1,5 @@
 import harden from '@agoric/harden';
-import { insist } from '../insist';
+import { insist } from '../insist.js';
 
 // See ../../docs/delivery.md for a description of the architecture of the
 // comms system.

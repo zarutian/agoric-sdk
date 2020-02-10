@@ -1,22 +1,21 @@
 import harden from '@agoric/harden';
 import { makeMarshal, QCLASS } from '@agoric/marshal';
 import Nat from '@agoric/nat';
-import evaluateProgram from '@agoric/evaluate';
-import makeVatManager from './vatManager';
-import { makeLiveSlots } from './liveSlots';
-import { makeDeviceSlots } from './deviceSlots';
-import makePromise from '../makePromise';
-import makeDeviceManager from './deviceManager';
-import { wrapStorage } from './state/storageWrapper';
-import makeKernelKeeper from './state/kernelKeeper';
-import kdebug from './kdebug';
-import { insistKernelType, parseKernelSlot } from './parseKernelSlots';
-import { makeVatSlot, parseVatSlot } from '../parseVatSlots';
-import { insist } from '../insist';
-import { insistStorageAPI } from '../storageAPI';
-import { insistCapData } from '../capdata';
-import { insistMessage } from '../message';
-import { insistDeviceID, insistVatID } from './id';
+import makeVatManager from './vatManager.js';
+import { makeLiveSlots } from './liveSlots.js';
+import { makeDeviceSlots } from './deviceSlots.js';
+import makePromise from '../makePromise.js';
+import makeDeviceManager from './deviceManager.js';
+import { wrapStorage } from './state/storageWrapper.js';
+import makeKernelKeeper from './state/kernelKeeper.js';
+import kdebug from './kdebug.js';
+import { insistKernelType, parseKernelSlot } from './parseKernelSlots.js';
+import { makeVatSlot, parseVatSlot } from '../parseVatSlots.js';
+import { insist } from '../insist.js';
+import { insistStorageAPI } from '../storageAPI.js';
+import { insistCapData } from '../capdata.js';
+import { insistMessage } from '../message.js';
+import { insistDeviceID, insistVatID } from './id.js';
 
 function abbreviateReviver(_, arg) {
   if (typeof arg === 'string' && arg.length >= 40) {

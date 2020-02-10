@@ -4,11 +4,11 @@
 
 import harden from '@agoric/harden';
 import Nat from '@agoric/nat';
-import { insist } from '../../insist';
-import { parseKernelSlot } from '../parseKernelSlots';
-import { makeVatSlot, parseVatSlot } from '../../parseVatSlots';
-import { insistVatID } from '../id';
-import kdebug from '../kdebug';
+import { insist } from '../../insist.js';
+import { parseKernelSlot } from '../parseKernelSlots.js';
+import { makeVatSlot, parseVatSlot } from '../../parseVatSlots.js';
+import { insistVatID } from '../id.js';
+import kdebug from '../kdebug.js';
 
 // makeVatKeeper is a pure function: all state is kept in the argument object
 

@@ -26,7 +26,7 @@
 
 import harden from '@agoric/harden';
 import Nat from '@agoric/nat';
-import { insist } from '../insist';
+import { insist } from '../insist.js';
 
 // Since we use harden when saving the state, we need to copy the arrays so they
 // will continue to be mutable. each record inside handlers is immutable, so we

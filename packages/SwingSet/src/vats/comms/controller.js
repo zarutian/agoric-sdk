@@ -1,8 +1,8 @@
 import Nat from '@agoric/nat';
 import harden from '@agoric/harden';
-import { addRemote } from './remote';
-import { addEgress, addIngress } from './clist';
-import { insist } from '../../insist';
+import { addRemote } from './remote.js';
+import { addEgress, addIngress } from './clist.js';
+import { insist } from '../../insist.js';
 
 const UNDEFINED = harden({
   body: JSON.stringify({ '@qclass': 'undefined' }),

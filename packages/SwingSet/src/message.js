@@ -1,5 +1,5 @@
-import { insist } from './insist';
-import { insistCapData } from './capdata';
+import { insist } from './insist.js';
+import { insistCapData } from './capdata.js';
 
 /**
  * Assert function to ensure that something expected to be a message object

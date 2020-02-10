@@ -1,6 +1,6 @@
 import harden from '@agoric/harden';
 import Nat from '@agoric/nat';
-import { insist } from '../insist';
+import { insist } from '../insist.js';
 
 function build(E, D) {
   const repeaters = new Map();

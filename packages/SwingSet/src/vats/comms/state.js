@@ -1,6 +1,6 @@
-import { insist } from '../../insist';
-import { insistCapData } from '../../capdata';
-import { makeVatSlot } from '../../parseVatSlots';
+import { insist } from '../../insist.js';
+import { insistCapData } from '../../capdata.js';
+import { makeVatSlot } from '../../parseVatSlots.js';
 
 export function makeState() {
   const state = {

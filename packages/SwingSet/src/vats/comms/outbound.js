@@ -1,15 +1,15 @@
-import { insistVatType } from '../../parseVatSlots';
-import { insistRemoteType } from './parseRemoteSlot';
-import { getOutbound, mapOutbound, mapOutboundResult } from './clist';
+import { insistVatType } from '../../parseVatSlots.js';
+import { insistRemoteType } from './parseRemoteSlot.js';
+import { getOutbound, mapOutbound, mapOutboundResult } from './clist.js';
 import {
   getPromiseSubscriber,
   insistPromiseDeciderIsMe,
   insistPromiseIsUnresolved,
   markPromiseAsResolved,
-} from './state';
-import { insistRemoteID } from './remote';
-import { insist } from '../../insist';
-import { insistCapData } from '../../capdata';
+} from './state.js';
+import { insistRemoteID } from './remote.js';
+import { insist } from '../../insist.js';
+import { insistCapData } from '../../capdata.js';
 
 function getRemoteFor(state, target) {
   if (state.objectTable.has(target)) {

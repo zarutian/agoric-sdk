@@ -14,12 +14,12 @@ import bundleSource from '@agoric/bundle-source';
 
 // eslint-disable-next-line import/extensions
 import kernelSourceFunc from './bundles/kernel';
-import buildKernelNonSES from './kernel/index';
-import { insist } from './insist';
-import { insistStorageAPI } from './storageAPI';
-import { insistCapData } from './capdata';
-import { parseVatSlot } from './parseVatSlots';
-import { buildStorageInMemory } from './hostStorage';
+import buildKernelNonSES from './kernel/index.js';
+import { insist } from './insist.js';
+import { insistStorageAPI } from './storageAPI.js';
+import { insistCapData } from './capdata.js';
+import { parseVatSlot } from './parseVatSlots.js';
+import { buildStorageInMemory } from './hostStorage.js';
 
 const ADMIN_DEVICE_PATH = require.resolve('./kernel/vatAdmin/vatAdmin-src');
 const ADMIN_VAT_PATH = require.resolve('./kernel/vatAdmin/vatAdminWrapper');

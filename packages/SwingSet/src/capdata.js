@@ -1,4 +1,4 @@
-import { insist } from './insist';
+import { insist } from './insist.js';
 
 /**
  * Assert function to ensure that something expected to be a capdata object

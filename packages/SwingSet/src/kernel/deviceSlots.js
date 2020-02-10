@@ -1,9 +1,9 @@
 import harden from '@agoric/harden';
 import Nat from '@agoric/nat';
 import { QCLASS, mustPassByPresence, makeMarshal } from '@agoric/marshal';
-import { insist } from '../insist';
-import { insistVatType, makeVatSlot, parseVatSlot } from '../parseVatSlots';
-import { insistCapData } from '../capdata';
+import { insist } from '../insist.js';
+import { insistVatType, makeVatSlot, parseVatSlot } from '../parseVatSlots.js';
+import { insistCapData } from '../capdata.js';
 
 // 'makeDeviceSlots' is a subset of makeLiveSlots, for device code
 

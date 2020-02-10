@@ -1,12 +1,12 @@
 import harden from '@agoric/harden';
-import { makeVatSlot } from '../../parseVatSlots';
-import { getRemote } from './remote';
-import { makeState } from './state';
-import { deliverToRemote, resolvePromiseToRemote } from './outbound';
-import { deliverFromRemote } from './inbound';
-import { deliverToController } from './controller';
-import { insist } from '../../insist';
-import { insistCapData } from '../../capdata';
+import { makeVatSlot } from '../../parseVatSlots.js';
+import { getRemote } from './remote.js';
+import { makeState } from './state.js';
+import { deliverToRemote, resolvePromiseToRemote } from './outbound.js';
+import { deliverFromRemote } from './inbound.js';
+import { deliverToController } from './controller.js';
+import { insist } from '../../insist.js';
+import { insistCapData } from '../../capdata.js';
 
 function transmit(syscall, state, remoteID, msg) {
   const remote = getRemote(state, remoteID);

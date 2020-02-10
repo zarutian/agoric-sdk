@@ -4,10 +4,10 @@
 
 import harden from '@agoric/harden';
 import Nat from '@agoric/nat';
-import { insist } from '../../insist';
-import { parseKernelSlot } from '../parseKernelSlots';
-import { makeVatSlot, parseVatSlot } from '../../parseVatSlots';
-import { insistDeviceID } from '../id';
+import { insist } from '../../insist.js';
+import { parseKernelSlot } from '../parseKernelSlots.js';
+import { makeVatSlot, parseVatSlot } from '../../parseVatSlots.js';
+import { insistDeviceID } from '../id.js';
 
 /**
  * Establish a device's state.

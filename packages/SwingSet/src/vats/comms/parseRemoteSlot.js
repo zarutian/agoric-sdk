@@ -1,5 +1,5 @@
 import Nat from '@agoric/nat';
-import { insist } from '../../insist';
+import { insist } from '../../insist.js';
 
 // Object/promise references (in remote messages) contain a three-tuple of
 // (type, allocator flag, index). The allocator flag inside an inbound

@@ -1,12 +1,12 @@
 import harden from '@agoric/harden';
-import { insistRemoteType } from './parseRemoteSlot';
-import { getInbound, mapInbound, mapInboundResult } from './clist';
+import { insistRemoteType } from './parseRemoteSlot.js';
+import { getInbound, mapInbound, mapInboundResult } from './clist.js';
 import {
   insistPromiseIsUnresolved,
   insistPromiseDeciderIs,
   markPromiseAsResolved,
-} from './state';
-import { insist } from '../../insist';
+} from './state.js';
+import { insist } from '../../insist.js';
 
 export function deliverFromRemote(syscall, state, remoteID, message) {
   const command = message.split(':', 1)[0];
