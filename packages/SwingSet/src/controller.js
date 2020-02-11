@@ -94,12 +94,24 @@ export function loadBasedir(basedir) {
 }
 
 function makeSESEvaluator() {
-  lockdown(); // creates Compartment
+  let c;
+  function evaluate(src) {
+    return c.evaluate(src);
+  }
+  function req(what) {
+    if (what === '@agoric/harden') {
+      return harden;
+    }
+    throw Error(`unknown require(${what})`);
+  }
   const endowments = {
     console: console, // lazy for now
+    require: req,
+    evaluate,
   };
   // todo: makeDefaultEvaluateOptions and transforms and stuff
-  const c = new Compartment(endowments);
+  c = new Compartment(endowments);
+  // TODO: harden(c.global);
   return src => {
     //return c.evaluate(src, { require: r })().default;
     return c.evaluate(src);
@@ -117,6 +129,25 @@ export async function buildVatController(config, withSES = true, argv = []) {
     console.log('error is', error.toString());
     return true;
   });
+
+  // currently-necessary lockdown() options:
+
+  // noTameMath: true
+  // bundleSource>rollup>assignChunkColouringHashes uses Math.random
+  // unless --preserveModules or --inlineDynamicImports is used
+
+  // noTameError: true
+  // if false, any unhandled-Promise-reject errors will kill the process
+
+  // noTameDate: true
+  // was needed to avoid "TypeError: units.sort is not a function" in rollup
+  // fixed in SES-beta #9, can turn off once that's incorporated
+
+  lockdown({
+    noTameError: true,
+    noTameMath: true,
+    noTameDate: true,
+  }); // creates Compartment
 
   const sesEvaluator = makeSESEvaluator();
 
