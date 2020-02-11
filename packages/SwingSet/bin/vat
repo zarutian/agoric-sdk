@@ -36,12 +36,7 @@ async function main() {
   const ldSrcPath = resolvePath('../src/devices/loopbox-src');
   config.devices = [['loopbox', ldSrcPath, {}]];
 
-  try {
   const controller = await buildVatController(config, withSES, vatArgv);
-   } catch (e) {
-      console.log("error in buildVatController", e.toString());
-      return;
-    }
   
   if (command === 'run') {
     await controller.run();
