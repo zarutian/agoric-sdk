@@ -5,7 +5,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import { rollup } from 'rollup';
 import Nat from '@agoric/nat';
 import { lockdown } from './ses.esm.js';
 
