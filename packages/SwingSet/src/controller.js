@@ -174,14 +174,12 @@ export async function buildVatController(config, withSES = true, argv = []) {
   const kernelEndowments = {
     setImmediate,
     hostStorage,
-    //vatAdminDevSetup: await evaluateToSetup(ADMIN_DEVICE_PATH),
-    //vatAdminVatSetup: await evaluateToSetup(ADMIN_VAT_PATH),
+    vatAdminDevSetup: await evaluateToSetup(ADMIN_DEVICE_PATH),
+    vatAdminVatSetup: await evaluateToSetup(ADMIN_VAT_PATH),
   };
 
   const kernelSource = `(${kernelSourceFunc})`;
-  console.log("BK HERE 1");
   const buildKernel = sesEvaluator(kernelSource)().default;
-  console.log("BK HERE 2");
   const kernel = buildKernel(kernelEndowments);
 
   async function addGenesisVat(name, sourceIndex, options = {}) {
