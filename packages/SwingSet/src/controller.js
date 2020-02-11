@@ -3,6 +3,25 @@
 // we have 'setImmediate' here because we know we're running under Node.js
 // 'Compartment' and 'harden' show up once we call lockdown()
 
+// TODO
+
+// * reintroduce require(), but simpler this time than makeRequire because
+//   there's only one Realm. It only handles `@agoric/harden` and just returns
+//   the global 'harden'.
+// * later we can change `@agoric/harden` to pull from the global, if that helps
+// * new SES-beta should fix the incorrectly-enumerable toLocaleString which
+//   broke rollup, so we can re-disable noTameDate
+// * new SES-beta should fix stack traces, so noTameError will be useful
+// * no plan for noTameMath and the random() that rollup calls
+// * stop using `esm`:
+//   * put 'type: "module"' in all package.json
+//   * put 'main: "src/main.js"' in all package.json
+//   * all relative import (import X from './path') must be path.js
+//     * module imports (import X from 'name') is not: that looks for type/main in package.json
+//     * cannot(?) do import X from './path' to mean './path/index.js'
+//   that should remove need for '-r esm' or require(esm)
+
+
 import fs from 'fs';
 import path from 'path';
 import url from 'url';
