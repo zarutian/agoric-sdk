@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 
-const process = require('process');
-const repl = require('repl');
-require = require('esm')(module);
-const util = require('util');
+import process from 'process';
+import repl from 'repl';
+import util from 'util';
 
-const { loadBasedir, buildVatController } = require('../src/index.js');
+import { loadBasedir, buildVatController } from '../src/index.js';
 
 function deepLog(item) {
   console.log(util.inspect(item, false, null, true));
