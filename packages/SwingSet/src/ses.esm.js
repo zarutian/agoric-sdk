@@ -2345,14 +2345,6 @@ function repairLegacyAccessors() {
  * This block replaces the original Function constructor, and the original
  * %GeneratorFunction% %AsyncFunction% and %AsyncGeneratorFunction%, with
  * safe replacements that throw if invoked.
- *
- * These are all reachable via syntax, so it isn't sufficient to just
- * replace global properties with safe versions. Our main goal is to prevent
- * access to the Function constructor through these starting points.
- *
- * After this block is done, the originals must no longer be reachable, unless
- * a copy has been made, and funtions can only be created by syntax (using eval)
- * or by invoking a previously saved reference to the originals.
  */
 
 function tameFunctionConstructors() {
@@ -2412,19 +2404,6 @@ function tameFunctionConstructors() {
       },
     });
 
-    // (new Error()).constructors does not inherit from Function, because Error
-    // was defined before ES6 classes. So we don't need to repair it too.
-
-    // (Error()).constructor inherit from Function, which gets a tamed
-    // constructor here.
-
-    // todo: in an ES6 class that does not inherit from anything, what does its
-    // constructor inherit from? We worry that it inherits from Function, in
-    // which case instances could give access to unsafeFunction. markm says
-    // we're fine: the constructor inherits from Object.prototype
-
-    // This line replaces the original constructor in the prototype chain
-    // with the tamed one. No copy of the original is peserved.
     defineProperties(FunctionPrototype, {
       constructor: { value: constructor },
     });
@@ -2446,12 +2425,6 @@ function tameFunctionConstructors() {
   // first since the other repaired constructors need to inherit from the tamed
   // Function function constructor.
 
-  // note: this really wants to be part of the standard, because new
-  // constructors may be added in the future, reachable from syntax, and this
-  // list must be updated to match.
-
-  // "plain arrow functions" inherit from Function.prototype
-
   repairFunction('Function', '(function(){})');
   repairFunction('GeneratorFunction', '(function*(){})');
   repairFunction('AsyncFunction', '(async function(){})');
@@ -2459,23 +2432,33 @@ function tameFunctionConstructors() {
 }
 
 /* globals globalThis */
-const {
-  defineProperties,
-  defineProperty,
-  getOwnPropertyDescriptors,
-  getOwnPropertyDescriptor: getOwnPropertyDescriptor$2,
-} = Object;
+const { defineProperties, getOwnPropertyDescriptors } = Object;
 
 function tameGlobalDateObject() {
   // Capture the original constructor.
   const unsafeDate = Date; // TODO freeze
+
+  // Tame the %Date% and %DatePrototype% intrinsic.
+  const { now } = {
+    now() {
+      return NaN;
+    },
+  };
+  unsafeDate.now = now;
+
+  const { toLocaleString: toLocaleString1 } = {
+    toLocaleString() {
+      return NaN;
+    },
+  };
+  unsafeDate.prototype.toLocaleString = toLocaleString1;
 
   // Date(anything) gives a string with the current time
   // new Date(x) coerces x into a number and then returns a Date
   // new Date() returns the current time, as a Date object
   // new Date(undefined) returns a Date object which stringifies to 'Invalid Date'
 
-  // Tame Date constructor.
+  // Tame the Date constructor.
   const safeDate = function Date() {
     if (new.target === undefined) {
       // We were not called as a constructor
@@ -2493,84 +2476,61 @@ function tameGlobalDateObject() {
   };
 
   // Copy static properties.
-  const safeDateDescs = getOwnPropertyDescriptors({
-    now() {
-      return NaN;
-    },
-  });
-
   const dateDescs = getOwnPropertyDescriptors(unsafeDate);
-  dateDescs.now = safeDateDescs.now;
   defineProperties(safeDate, dateDescs);
 
   // Copy prototype properties.
-  const safeDatePrototypeDescs = getOwnPropertyDescriptors({
-    toLocaleString() {
-      return NaN;
-    },
-  });
-  const datePrototypeDescs = getOwnPropertyDescriptors(
-    unsafeDate.prototype,
-  );
+  const datePrototypeDescs = getOwnPropertyDescriptors(unsafeDate.prototype);
   datePrototypeDescs.constructor.value = safeDate;
-  datePrototypeDescs.toLocaleString = safeDatePrototypeDescs.toLocaleString;
   defineProperties(safeDate.prototype, datePrototypeDescs);
 
   // Done with Date
   globalThis.Date = safeDate;
 
-  // eslint-disable-next-line no-extend-native
-  const safeObjectPrototypeDescs = getOwnPropertyDescriptors({
+  // Tame the %ObjectPrototype% intrinsic.
+  const { toLocaleString: toLocaleString2 } = {
     toLocaleString() {
-      throw new Error('suppressed');
+      throw new Error('Object.prototype.toLocaleString is suppressed');
     },
-  });
+  };
 
-  defineProperties(Object.prototype, safeObjectPrototypeDescs);
+  // eslint-disable-next-line no-extend-native
+  Object.prototype.toLocaleString = toLocaleString2;
 }
 
-const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$3 } = Object;
+const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$2 } = Object;
 
 function tameGlobalErrorObject() {
   // Tame static properties.
   delete Error.captureStackTrace;
 
-  if (getOwnPropertyDescriptor$3(Error, 'captureStackTrace')) {
+  if (getOwnPropertyDescriptor$2(Error, 'captureStackTrace')) {
     throw Error('Cannot remove Error.captureStackTrace');
   }
 
   delete Error.stackTraceLimit;
 
-  if (getOwnPropertyDescriptor$3(Error, 'stackTraceLimit')) {
+  if (getOwnPropertyDescriptor$2(Error, 'stackTraceLimit')) {
     throw Error('Cannot remove Error.stackTraceLimit');
   }
 }
 
-const { defineProperties: defineProperties$1, getOwnPropertyDescriptors: getOwnPropertyDescriptors$1 } = Object;
-
 function tameGlobalMathObject() {
-  const safeMathDescs = getOwnPropertyDescriptors$1({
+  // Tame the %Math% intrinsic.
+  const { random } = {
     random() {
-      throw Error('disabled');
+      throw Error('Math.random() is disabled');
     },
-  });
+  };
 
-  defineProperties$1(Math, {
-    random: {
-      value: safeMathDescs.random.value,
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    },
-  });
+  Math.random = random;
 }
 
 /* globals globalThis */
 const {
-  defineProperties: defineProperties$2,
-  defineProperty: defineProperty$1,
-  getOwnPropertyDescriptors: getOwnPropertyDescriptors$2,
-  getOwnPropertyDescriptor: getOwnPropertyDescriptor$4,
+  defineProperties: defineProperties$1,
+  getOwnPropertyDescriptors: getOwnPropertyDescriptors$1,
+  getOwnPropertyDescriptor: getOwnPropertyDescriptor$3,
 } = Object;
 
 function tameGlobalRegExpObject() {
@@ -2586,13 +2546,13 @@ function tameGlobalRegExpObject() {
   };
 
   // Whitelist static properties.
-  const desc = getOwnPropertyDescriptor$4(unsafeRegExp, Symbol.species);
-  defineProperties$2(safeRegExp, Symbol.species, desc);
+  const desc = getOwnPropertyDescriptor$3(unsafeRegExp, Symbol.species);
+  defineProperties$1(safeRegExp, Symbol.species, desc);
 
   // Copy prototype properties.
-  const prototypeDescs = getOwnPropertyDescriptors$2(unsafeRegExp.prototype);
+  const prototypeDescs = getOwnPropertyDescriptors$1(unsafeRegExp.prototype);
   prototypeDescs.constructor.value = safeRegExp;
-  defineProperties$2(safeRegExp.prototype, prototypeDescs);
+  defineProperties$1(safeRegExp.prototype, prototypeDescs);
 
   globalThis.RegExp = safeRegExp;
 
@@ -2699,10 +2659,10 @@ var enablements = {
 // Adapted from SES/Caja
 
 const {
-  defineProperties: defineProperties$3,
+  defineProperties: defineProperties$2,
   getOwnPropertyNames,
-  getOwnPropertyDescriptor: getOwnPropertyDescriptor$5,
-  getOwnPropertyDescriptors: getOwnPropertyDescriptors$3,
+  getOwnPropertyDescriptor: getOwnPropertyDescriptor$4,
+  getOwnPropertyDescriptors: getOwnPropertyDescriptors$2,
 } = Object;
 
 const { ownKeys: ownKeys$1 } = Reflect;
@@ -2751,7 +2711,7 @@ function enablePropertyOverrides(intrinsics) {
         if (hasOwnProperty.call(this, prop)) {
           this[prop] = newValue;
         } else {
-          defineProperties$3(this, {
+          defineProperties$2(this, {
             [prop]: {
               value: newValue,
               writable: true,
@@ -2762,7 +2722,7 @@ function enablePropertyOverrides(intrinsics) {
         }
       }
 
-      defineProperties$3(obj, {
+      defineProperties$2(obj, {
         [prop]: {
           get: getter,
           set: setter,
@@ -2774,7 +2734,7 @@ function enablePropertyOverrides(intrinsics) {
   }
 
   function enableProperty(path, obj, prop) {
-    const desc = getOwnPropertyDescriptor$5(obj, prop);
+    const desc = getOwnPropertyDescriptor$4(obj, prop);
     if (!desc) {
       return;
     }
@@ -2782,7 +2742,7 @@ function enablePropertyOverrides(intrinsics) {
   }
 
   function enableAllProperties(path, obj) {
-    const descs = getOwnPropertyDescriptors$3(obj);
+    const descs = getOwnPropertyDescriptors$2(obj);
     if (!descs) {
       return;
     }
@@ -2791,7 +2751,7 @@ function enablePropertyOverrides(intrinsics) {
 
   function enableProperties(path, obj, plan) {
     for (const prop of getOwnPropertyNames(plan)) {
-      const desc = getOwnPropertyDescriptor$5(obj, prop);
+      const desc = getOwnPropertyDescriptor$4(obj, prop);
       if (!desc || desc.get || desc.set) {
         // No not a value property, nothing to do.
         // eslint-disable-next-line no-continue
@@ -3031,8 +2991,8 @@ const {
   freeze: objectFreeze,
   // Object.defineProperty is allowed to fail silentlty
   // so we use Object.defineProperties instead.
-  defineProperties: defineProperties$4,
-  getOwnPropertyDescriptor: getOwnPropertyDescriptor$6,
+  defineProperties: defineProperties$3,
+  getOwnPropertyDescriptor: getOwnPropertyDescriptor$5,
   getOwnPropertyNames: getOwnPropertyNames$1,
   getPrototypeOf: getPrototypeOf$2,
   setPrototypeOf,
@@ -3233,7 +3193,7 @@ function isValidIdentifierName(name) {
  */
 
 function isImmutableDataProperty(obj, name) {
-  const desc = getOwnPropertyDescriptor$6(obj, name);
+  const desc = getOwnPropertyDescriptor$5(obj, name);
   return (
     //
     // The getters will not have .writable, don't let the falsyness of
@@ -3369,7 +3329,7 @@ function createScopeHandler(
     set(shadow, prop, value) {
       // Properties of the endowments.
       if (prop in endowments) {
-        const desc = getOwnPropertyDescriptor$6(endowments, prop);
+        const desc = getOwnPropertyDescriptor$5(endowments, prop);
         if ('value' in desc) {
           // Work around a peculiar behavior in the specs, where
           // value properties are defined on the receiver.
@@ -3694,7 +3654,7 @@ const makeEvalFunction = (realmRec, globalObject, options = {}) => {
     },
   }.eval;
 
-  defineProperties$4(newEval, {
+  defineProperties$3(newEval, {
     toString: {
       value: () => `function eval() { [native code] }`,
       writable: false,
@@ -3745,7 +3705,7 @@ function makeFunctionConstructor(realmRec, globaObject, options = {}) {
     return performEval(realmRec, src, globaObject, {}, options);
   };
 
-  defineProperties$4(newFunction, {
+  defineProperties$3(newFunction, {
     // Ensure that any function created in any evaluator in a realm is an
     // instance of Function in any evaluator of the same realm.
     prototype: {
@@ -3914,7 +3874,7 @@ function createGlobalObject(realmRec, { globalTransforms }) {
   }
 
   // Define properties all at once.
-  defineProperties$4(globalObject, descs);
+  defineProperties$3(globalObject, descs);
 
   assert$1(
     globalObject.eval !== realmRec.intrinsics.eval,
@@ -3928,7 +3888,7 @@ function createGlobalObject(realmRec, { globalTransforms }) {
   return globalObject;
 }
 
-const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$7 } = Object;
+const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$6 } = Object;
 
 /**
  * globalIntrinsicNames
@@ -4024,7 +3984,7 @@ function getGlobalIntrinsics() {
   const global = Function('return this')(); // TODO replace global with globalThis
 
   for (const name of globalIntrinsicNames) {
-    const desc = getOwnPropertyDescriptor$7(global, name);
+    const desc = getOwnPropertyDescriptor$6(global, name);
     if (desc) {
       // Abort if an accessor is found on the unsafe global object
       // instead of a data property. We should never get into this
