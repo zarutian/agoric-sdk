@@ -5,6 +5,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import url from 'url';
 import Nat from '@agoric/nat';
 import { lockdown } from './ses.esm.js';
 
@@ -20,8 +21,14 @@ import { insistCapData } from './capdata.js';
 import { parseVatSlot } from './parseVatSlots.js';
 import { buildStorageInMemory } from './hostStorage.js';
 
-const ADMIN_DEVICE_PATH = require.resolve('./kernel/vatAdmin/vatAdmin-src');
-const ADMIN_VAT_PATH = require.resolve('./kernel/vatAdmin/vatAdminWrapper');
+function resolvePath(what) {
+  const filename = url.fileURLToPath(import.meta.url);
+  const dirname = path.dirname(filename);
+  return path.resolve(dirname, what);
+}
+
+const ADMIN_DEVICE_PATH = resolvePath('./kernel/vatAdmin/vatAdmin-src');
+const ADMIN_VAT_PATH = resolvePath('./kernel/vatAdmin/vatAdminWrapper');
 
 function byName(a, b) {
   if (a.name < b.name) {
