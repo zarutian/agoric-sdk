@@ -525,22 +525,6 @@ export default function buildKernel(kernelEndowments) {
     );
   }
 
-  // This kernel (and the genesis vats) will have been evaluated in a context in
-  // which these canonical symbols were available. That was achieved by running
-  // makeRequire() in controller.js. We want to provide the same context when we
-  // evaluate dynamic vats.
-  function kernelRequire(nameArg) {
-    const name = `${nameArg}`;
-    switch (name) {
-      case '@agoric/harden':
-        return harden;
-      case '@agoric/evaluate':
-        return evaluateProgram;
-      default:
-        throw Error(`require "${name}" is not supported`);
-    }
-  }
-
   // Enqueue a message to the adminVat giving it the new vat's root object
   function notifyAdminVatOfNewVat(vatID) {
     const vatSlot = makeVatRootObjectSlot();
@@ -579,8 +563,7 @@ export default function buildKernel(kernelEndowments) {
    * error message for the problem.
    */
   function createVatDynamically(buildFnSrc) {
-    const endowments = { require: kernelRequire };
-    const buildFn = evaluateProgram(buildFnSrc, endowments);
+    const buildFn = evaluate(buildFnSrc);
     try {
       const vatID = createVat(buildFn);
       notifyAdminVatOfNewVat(vatID);

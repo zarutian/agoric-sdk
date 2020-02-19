@@ -1,10 +1,12 @@
 // eslint-disable-next-line no-redeclare
-/* global setImmediate */
+/* global setImmediate process Compartment harden */
+// we have 'setImmediate' and 'process' because we know we're running under
+// Node.js. Compartment and harden become available after calling lockdown()
+
 import fs from 'fs';
 import path from 'path';
-// import { rollup } from 'rollup';
 import harden from '@agoric/harden';
-import SES from 'ses';
+import { lockdown } from './ses.esm.js';
 import { assert } from '@agoric/assert';
 
 import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
@@ -96,134 +98,29 @@ export function loadBasedir(basedir) {
   return { vats, bootstrapIndexJS };
 }
 
-function getKernelSource() {
-  return `(${kernelSourceFunc})`;
-}
-
-// this feeds the SES realm's (real/safe) confine*() back into the Realm
-// when it does require('@agoric/evaluate'), so we can get the same
-// functionality both with and without SES
-// To support makeEvaluators, we create a new Compartment.
-function makeEvaluate(e) {
-  const { makeCompartment, rootOptions, confine, confineExpr } = e;
-  const makeEvaluators = (realmOptions = {}) => {
-    // Realm transforms need to be vetted by global transforms.
-    const transforms = (realmOptions.transforms || []).concat(
-      rootOptions.transforms || [],
-    );
-
-    const c = makeCompartment({
-      ...rootOptions,
-      ...realmOptions,
-      transforms,
-    });
-    transforms.forEach(t => t.closeOverSES && t.closeOverSES(c));
-    return {
-      evaluateExpr(source, endowments = {}, options = {}) {
-        return c.evaluate(`(${source}\n)`, endowments, options);
-      },
-      evaluateProgram(source, endowments = {}, options = {}) {
-        return c.evaluate(`${source}`, endowments, options);
-      },
-    };
-  };
-
-  // As an optimization, do not create a new compartment unless
-  // they call makeEvaluators explicitly.
-  const evaluateExpr = (source, endowments = {}, options = {}) =>
-    confineExpr(source, endowments, options);
-  const evaluateProgram = (source, endowments = {}, options = {}) =>
-    confine(source, endowments, options);
-  return Object.assign(evaluateExpr, {
-    evaluateExpr,
-    evaluateProgram,
-    makeEvaluators,
-  });
-}
-
-function makeSESEvaluator(registerEndOfCrank) {
-  const evaluateOptions = makeDefaultEvaluateOptions();
-  const { transforms = [], shims = [], ...otherOptions } = evaluateOptions;
-  // The metering transform only activates when a getMeter endowment
-  // is provided.
-  const meteringTransformer = makeMeteringTransformer(babelCore);
-  const s = SES.makeSESRootRealm({
-    ...otherOptions,
-    transforms: [...transforms, meteringTransformer],
-    consoleMode: 'allow',
-    errorStackMode: 'allow',
-    shims: [SES1TameMeteringShim, ...shims],
-    configurableGlobals: true,
-  });
-  const replaceGlobalMeter = SES1ReplaceGlobalMeter(s);
-  transforms.forEach(t => {
-    t.closeOverSES && t.closeOverSES(s);
-  });
-
-  // TODO: if the 'require' we provide here supplies a non-pure module,
-  // that could open a communication channel between otherwise isolated
-  // Vats. For now that's just harden, but others might get added in the
-  // future, so pay attention to what we allow in. We could build a new
-  // makeRequire for each Vat, but 1: performance and 2: the same comms
-  // problem exists between otherwise-isolated code within a single Vat
-  // so it doesn't really help anyways
-  const r = s.makeRequire({
-    '@agoric/evaluate': {
-      attenuatorSource: `${makeEvaluate}`,
-      confine: s.global.SES.confine,
-      confineExpr: s.global.SES.confineExpr,
-      rootOptions: evaluateOptions,
-      makeCompartment: (...args) => {
-        const c = s.global.Realm.makeCompartment(...args);
-        // FIXME: This call should be unnecessary.
-        // We currently need it because fresh Compartments
-        // do not inherit the configured stable globals.
-        Object.defineProperties(
-          c.global,
-          Object.getOwnPropertyDescriptors(s.global),
-        );
-        return c;
-      },
-    },
-    '@agoric/harden': true,
-  });
-
-  const realmRegisterEndOfCrank = s.evaluate(
-    `\
-function realmRegisterEndOfCrank(fn) {
-  try {
-    registerEndOfCrank(fn);
-  } catch (e) {
-    // do nothing.
+function makeSESEvaluator() {
+  let c;
+  function evaluate(src) {
+    return c.evaluate(src);
   }
-}`,
-    { registerEndOfCrank },
-  );
-
-  return (src, filePrefix = '/SwingSet-bundled-source') => {
-    const nestedEvaluate = source =>
-      s.evaluate(source, {
-        // Support both getExport and nestedEvaluate module format.
-        require: r,
-        nestedEvaluate,
-
-        // FIXME: Note that this replaceGlobalMeter endowment is not any
-        // worse than before metering existed.  However, it probably is
-        // only necessary to be added to the kernel, rather than all
-        // static vats once we add metering support to the dynamic vat
-        // implementation.
-        // FIXME: Same for registerEndOfCrank.
-        registerEndOfCrank: realmRegisterEndOfCrank,
-        replaceGlobalMeter,
-      });
-    return nestedEvaluate(src)(filePrefix).default;
+  function req(what) {
+    if (what === '@agoric/harden') {
+      return harden;
+    }
+    throw Error(`unknown require(${what})`);
+  }
+  const endowments = {
+    console: console, // lazy for now
+    require: req,
+    evaluate,
   };
-}
-
-function buildSESKernel(sesEvaluator, endowments) {
-  const kernelSource = getKernelSource();
-  const buildKernel = sesEvaluator(kernelSource, '/SwingSet-kernel');
-  return buildKernel(endowments);
+  // todo: makeDefaultEvaluateOptions and transforms and stuff
+  c = new Compartment(endowments);
+  // TODO: harden(c.global);
+  return src => {
+    //return c.evaluate(src, { require: r })().default;
+    return c.evaluate(src);
+  };
 }
 
 export async function buildVatController(config, withSES = true, argv = []) {
@@ -250,7 +147,32 @@ export async function buildVatController(config, withSES = true, argv = []) {
     endOfCrankHooks.clear();
   };
 
-  const sesEvaluator = makeSESEvaluator(registerEndOfCrank);
+  process.on('unhandledRejection', (error, p) => {
+    console.log('unhandled rejection, boo');
+    console.log('error is', error.toString());
+    return true;
+  });
+
+  // currently-necessary lockdown() options:
+
+  // noTameMath: true
+  // bundleSource>rollup>assignChunkColouringHashes uses Math.random
+  // unless --preserveModules or --inlineDynamicImports is used
+
+  // noTameError: true
+  // if false, any unhandled-Promise-reject errors will kill the process
+
+  // noTameDate: true
+  // was needed to avoid "TypeError: units.sort is not a function" in rollup
+  // fixed in SES-beta #9, can turn off once that's incorporated
+
+  lockdown({
+    noTameError: true,
+    noTameMath: true,
+    noTameDate: true,
+  }); // creates Compartment
+
+  const sesEvaluator = makeSESEvaluator();
 
   // Evaluate source to produce a setup function. This binds withSES from the
   // enclosing context and evaluates it either in a SES context, or without SES
@@ -271,7 +193,7 @@ export async function buildVatController(config, withSES = true, argv = []) {
       'nestedEvaluate',
     );
     const actualSource = `(${source})\n${sourceMap}`;
-    const setup = sesEvaluator(actualSource, filePrefix);
+    const setup = sesEvaluator(actualSource, filePrefix)().default;
     return setup;
   }
 
@@ -285,7 +207,9 @@ export async function buildVatController(config, withSES = true, argv = []) {
     vatAdminVatSetup: await evaluateToSetup(ADMIN_VAT_PATH, '/SwingSet/src'),
   };
 
-  const kernel = buildSESKernel(sesEvaluator, kernelEndowments);
+  const kernelSource = `(${kernelSourceFunc})`;
+  const buildKernel = sesEvaluator(kernelSource)().default;
+  const kernel = buildKernel(kernelEndowments);
 
   async function addGenesisVat(name, sourceIndex, options = {}) {
     console.log(`= adding vat '${name}' from ${sourceIndex}`);
