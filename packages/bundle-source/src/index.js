@@ -28,9 +28,27 @@ export default async function bundleSource(
     input: resolvedPath,
     treeshake: false,
     preserveModules: moduleFormat === 'nestedEvaluate',
+
+    // SES provides `harden()` as a global, but it's not easy to code against
+    // that. Swingset makes `@agoric/harden` importable as a module (by
+    // putting a minimal `require()` in the environment), so when we bundle
+    // source for a Swingset environment mark `@agoric/harden` as an
+    // external/exit/"hole" in the module graph. Note that we cannot allow
+    // the real NPM-published `@agoric/harden` to appear in our source graph,
+    // because it imports `@agoric/make-hardener` which has a comment that
+    // SES rejects for looking too much like a direct eval.
     external: ['@agoric/evaluate', '@agoric/harden'],
+
+    //inlineDynamicImports: true, // prevent use of Math.random
+    //preserveModules: true, // avoid units.sort and Math.random
+
+
     plugins: [resolvePlugin({ preferBuiltins: true }), commonjsPlugin()],
-    acornInjectPlugins: [eventualSend(acorn)],
+
+    // the eventualSend(acorn) call causes a "TokenType is not a constructor"
+    // error in acorn-eventual-send/index.js makeCurryOptions() that I don't
+    // understand
+    //acornInjectPlugins: [eventualSend(acorn)],
   });
   const { output } = await bundle.generate({
     exports: 'named',
