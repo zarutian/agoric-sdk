@@ -12,10 +12,7 @@ import { assert } from '@agoric/assert';
 import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
 import bundleSource from '@agoric/bundle-source';
 import { initSwingStore } from '@agoric/swing-store-simple';
-import {
-  SES1ReplaceGlobalMeter,
-  SES1TameMeteringShim,
-} from '@agoric/tame-metering';
+import { HandledPromise } from '@agoric/eventual-send';
 
 import { makeMeteringTransformer } from '@agoric/transform-metering';
 import * as babelCore from '@babel/core';
@@ -103,16 +100,36 @@ function makeSESEvaluator() {
   function evaluate(src) {
     return c.evaluate(src);
   }
+  function evaluateWithEndowments(src, endowments) {
+    return c.evaluate(src, { endowments });
+  }
   function req(what) {
     if (what === '@agoric/harden') {
       return harden;
     }
+    if (what === '@agoric/evaluate') {
+      return evaluateWithEndowments;
+    }
     throw Error(`unknown require(${what})`);
   }
+
+  // The '@agoric/eventual-send' module (which provides the E() wrapper) also
+  // creates+uses HandledPromise, and will shim one into place if there isn't
+  // already one on the global. Each shim closes over a separate WeakMap, and
+  // HandledPromises from separate shims are not interoperable. liveslots.js
+  // (loaded by the kernel and made available to vats via the 'helper'
+  // object) registers handles on HandledPromises. Vats may import "E" from
+  // eventual-send and use it to make calls, which uses HandledPromise
+  // internally. If these two versions get different copies of
+  // HandledPromise, E(x).foo() will fail with a "o['foo'] is not a function"
+  // error. We provide HandledPromise as an endowment here so that both vats
+  // and the kernel (via liveslots.js) get the same one.
+
   const endowments = {
     console: console, // lazy for now
     require: req,
     evaluate,
+    HandledPromise,
   };
   // todo: makeDefaultEvaluateOptions and transforms and stuff
   c = new Compartment(endowments);
