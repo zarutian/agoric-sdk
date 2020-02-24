@@ -140,35 +140,13 @@ function makeSESEvaluator() {
   };
 }
 
+var did_lockdown = false;
+
 export async function buildVatController(config, withSES = true, argv = []) {
   if (!withSES) {
     throw Error('SES is now mandatory');
   }
   // todo: move argv into the config
-
-  const endOfCrankHooks = new Set();
-  const registerEndOfCrank = hook => endOfCrankHooks.add(hook);
-
-  const runEndOfCrank = () => {
-    endOfCrankHooks.forEach(h => {
-      try {
-        h();
-      } catch (e) {
-        try {
-          console.log('cannot run hook:', e);
-        } catch (e2) {
-          // Nothing to do.
-        }
-      }
-    });
-    endOfCrankHooks.clear();
-  };
-
-  process.on('unhandledRejection', (error, p) => {
-    console.log('unhandled rejection, boo');
-    console.log('error is', error.toString());
-    return true;
-  });
 
   // currently-necessary lockdown() options:
 
@@ -183,11 +161,19 @@ export async function buildVatController(config, withSES = true, argv = []) {
   // was needed to avoid "TypeError: units.sort is not a function" in rollup
   // fixed in SES-beta #9, can turn off once that's incorporated
 
-  lockdown({
-    noTameError: true,
-    noTameMath: true,
-    noTameDate: true,
-  }); // creates Compartment
+  if (!did_lockdown) {
+    lockdown({
+      noTameError: true,
+      noTameMath: true,
+      noTameDate: true,
+    }); // creates Compartment
+    process.on('unhandledRejection', (error, p) => {
+      console.log('unhandled rejection, boo');
+      console.log('error is', error.toString());
+      return true;
+    });
+    did_lockdown = true;
+  }
 
   const sesEvaluator = makeSESEvaluator();
 
