@@ -43,7 +43,7 @@ export default async function bundleSource(
     //preserveModules: true, // avoid units.sort and Math.random
 
 
-    plugins: [resolvePlugin({ preferBuiltins: true }), commonjsPlugin()],
+    plugins: [resolvePlugin({ preferBuiltins: true })],
 
     // the eventualSend(acorn) call causes a "TokenType is not a constructor"
     // error in acorn-eventual-send/index.js makeCurryOptions() that I don't
