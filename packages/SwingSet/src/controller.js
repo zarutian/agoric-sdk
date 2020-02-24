@@ -23,6 +23,7 @@ import buildKernelNonSES from './kernel/index';
 import { insistStorageAPI } from './storageAPI';
 import { insistCapData } from './capdata';
 import { parseVatSlot } from './parseVatSlots';
+import makeConsole from './makeConsole';
 
 // FIXME: Put this somewhere better.
 process.on('unhandledRejection', e =>
@@ -126,14 +127,14 @@ function makeSESEvaluator() {
   // and the kernel (via liveslots.js) get the same one.
 
   const endowments = {
-    console: console, // lazy for now
+    console: makeConsole(console),
     require: req,
     evaluate,
     HandledPromise,
   };
   // todo: makeDefaultEvaluateOptions and transforms and stuff
   c = new Compartment(endowments);
-  // TODO: harden(c.global);
+  harden(c.global);
   return src => {
     //return c.evaluate(src, { require: r })().default;
     return c.evaluate(src);
