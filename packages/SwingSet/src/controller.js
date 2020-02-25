@@ -109,7 +109,11 @@ function makeSESEvaluator() {
       return harden;
     }
     if (what === '@agoric/evaluate') {
+      // what precisely should this return?
       return evaluateWithEndowments;
+      //return { default: evaluateWithEndowments,
+      //         evaluateProgram: evaluateWithEndowments,
+      //       };
     }
     throw Error(`unknown require(${what})`);
   }
@@ -132,8 +136,10 @@ function makeSESEvaluator() {
     evaluate,
     HandledPromise,
   };
-  // todo: makeDefaultEvaluateOptions and transforms and stuff
-  c = new Compartment(endowments);
+  const modules = undefined; // unimplemented too
+  //const transforms = makeDefaultEvaluateOptions().transforms;
+  const transforms = [];
+  c = new Compartment(endowments, modules, { transforms });
   harden(c.global);
   return src => {
     //return c.evaluate(src, { require: r })().default;
