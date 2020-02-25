@@ -1,5 +1,6 @@
 /* global window */
 import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
+import { HandledPromise } from '@agoric/eventual-send';
 
 // The evaluate maker, which curries the makerOptions.
 export const makeEvaluators = (makerOptions = {}) => {
@@ -117,6 +118,6 @@ export const makeEvaluators = (makerOptions = {}) => {
 // Export the default evaluators.
 export const defaultEvaluateOptions = makeDefaultEvaluateOptions(require);
 export const { evaluateExpr, evaluateProgram, evaluateModule } = makeEvaluators(
-  defaultEvaluateOptions,
+  { endowments: { HandledPromise }, ...defaultEvaluateOptions },
 );
 export default evaluateExpr;
