@@ -149,25 +149,18 @@ export async function buildVatController(config, withSES = true, argv = []) {
   }
   // todo: move argv into the config
 
-  // currently-necessary lockdown() options:
-
-  // noTameMath: true
+  // We currently set noTameMath because
   // bundleSource>rollup>assignChunkColouringHashes uses Math.random
   // unless --preserveModules or --inlineDynamicImports is used
 
-  // noTameError: true
-  // if false, any unhandled-Promise-reject errors will kill the process
-
-  // noTameDate: true
-  // was needed to avoid "TypeError: units.sort is not a function" in rollup
-  // fixed in SES-beta #9, can turn off once that's incorporated
-
   if (!did_lockdown) {
     lockdown({
-      noTameError: true,
       noTameMath: true,
-      noTameDate: true,
     }); // creates Compartment
+
+    // we must either set this handler, or use noTameError, because Node's
+    // default handler attempts to get a stack-trace-free Error object by
+    // modifying the Error object
     process.on('unhandledRejection', (error, p) => {
       console.log('unhandled rejection, boo');
       console.log('error is', error.toString());
