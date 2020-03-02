@@ -1,15 +1,273 @@
-const { getOwnPropertyDescriptor, getPrototypeOf } = Object;
+function assert(condition, errorMessage) {
+  if (!condition) {
+    throw new TypeError(errorMessage);
+  }
+}
 
-const { apply } = Reflect;
-const uncurryThis = fn => (thisArg, ...args) => apply(fn, thisArg, args);
-const hasOwnProperty$1 = uncurryThis(Object.prototype.hasOwnProperty);
+const { getPrototypeOf } = Object;
+
+/**
+ * checkAnonIntrinsics()
+ * Ensure that the rootAnonIntrinsics are consistent with specs. These
+ * tests are necesary to ensure that sampling was correctly done.
+ */
+
+function checkAnonIntrinsics(intrinsics) {
+  const {
+    FunctionPrototypeConstructor,
+    ArrayIteratorPrototype,
+    AsyncFunction,
+    AsyncGenerator,
+    AsyncGeneratorFunction,
+    AsyncGeneratorPrototype,
+    AsyncIteratorPrototype,
+    Generator,
+    GeneratorFunction,
+    IteratorPrototype,
+    MapIteratorPrototype,
+    RegExpStringIteratorPrototype,
+    SetIteratorPrototype,
+    StringIteratorPrototype,
+    ThrowTypeError,
+    TypedArray,
+  } = intrinsics;
+
+  // 9.2.4.1 %ThrowTypeError%
+
+  assert(
+    getPrototypeOf(ThrowTypeError) === Function.prototype,
+    'ThrowTypeError.__proto__ should be Function.prototype',
+  );
+
+  // 21.1.5.2 The %StringIteratorPrototype% Object
+
+  assert(
+    getPrototypeOf(StringIteratorPrototype) === IteratorPrototype,
+    'StringIteratorPrototype.__proto__ should be IteratorPrototype',
+  );
+
+  // 21.2.7.1 The %RegExpStringIteratorPrototype% Object
+
+  assert(
+    getPrototypeOf(RegExpStringIteratorPrototype) === IteratorPrototype,
+    'RegExpStringIteratorPrototype.__proto__ should be IteratorPrototype',
+  );
+
+  // 22.2.1 The %TypedArray% Intrinsic Object
+
+  // http://bespin.cz/~ondras/html/classv8_1_1ArrayBufferView.html
+  // has me worried that someone might make such an intermediate
+  // object visible.
+  assert(
+    getPrototypeOf(TypedArray) === Function.prototype,
+
+    'TypedArray.__proto__ should be Function.prototype',
+  );
+
+  // 23.1.5.2 The %MapIteratorPrototype% Object
+
+  assert(
+    getPrototypeOf(MapIteratorPrototype) === IteratorPrototype,
+    'MapIteratorPrototype.__proto__ should be IteratorPrototype',
+  );
+
+  // 23.2.5.2 The %SetIteratorPrototype% Object
+
+  assert(
+    getPrototypeOf(SetIteratorPrototype) === IteratorPrototype,
+    'SetIteratorPrototype.__proto__ should be IteratorPrototype',
+  );
+
+  // 25.1.2 The %IteratorPrototype% Object
+
+  assert(
+    getPrototypeOf(IteratorPrototype) === Object.prototype,
+    'IteratorPrototype.__proto__ should be Object.prototype',
+  );
+
+  // 25.1.3 The %AsyncIteratorPrototype% Object
+
+  assert(
+    getPrototypeOf(AsyncIteratorPrototype) === Object.prototype,
+    'AsyncIteratorPrototype.__proto__ should be Object.prototype',
+  );
+
+  // 22.1.5.2 The %ArrayIteratorPrototype% Object
+
+  assert(
+    getPrototypeOf(ArrayIteratorPrototype) === IteratorPrototype,
+    'AsyncIteratorPrototype.__proto__ should be IteratorPrototype',
+  );
+
+  // 25.2.2 Properties of the GeneratorFunction Constructor
+
+  // Use Function.prototype.constructor in case Function has been tamed
+  assert(
+    getPrototypeOf(GeneratorFunction) === FunctionPrototypeConstructor,
+    'GeneratorFunction.__proto__ should be Function',
+  );
+
+  assert(
+    GeneratorFunction.name === 'GeneratorFunction',
+    'GeneratorFunction.name should be "GeneratorFunction"',
+  );
+
+  // 25.2.3 Properties of the GeneratorFunction Prototype Object
+
+  assert(
+    getPrototypeOf(Generator) === Function.prototype,
+    'Generator.__proto__ should be Function.prototype',
+  );
+
+  // 25.3.1 The AsyncGeneratorFunction Constructor
+
+  // Use Function.prototype.constructor in case Function has been tamed
+  assert(
+    getPrototypeOf(AsyncGeneratorFunction) === FunctionPrototypeConstructor,
+    'AsyncGeneratorFunction.__proto__ should be Function',
+  );
+  assert(
+    AsyncGeneratorFunction.name === 'AsyncGeneratorFunction',
+    'AsyncGeneratorFunction.name should be "AsyncGeneratorFunction"',
+  );
+
+  // 25.3.3 Properties of the AsyncGeneratorFunction Prototype Object
+
+  assert(
+    getPrototypeOf(AsyncGenerator) === Function.prototype,
+    'AsyncGenerator.__proto__ should be Function.prototype',
+  );
+
+  // 25.5.1 Properties of the AsyncGenerator Prototype Object
+
+  assert(
+    getPrototypeOf(AsyncGeneratorPrototype) === AsyncIteratorPrototype,
+    'AsyncGeneratorPrototype.__proto__ should be AsyncIteratorPrototype',
+  );
+
+  // 25.7.1 The AsyncFunction Constructor
+
+  // Use Function.prototype.constructor in case Function has been tamed
+  assert(
+    getPrototypeOf(AsyncFunction) === FunctionPrototypeConstructor,
+    'AsyncFunction.__proto__ should be Function',
+  );
+  assert(
+    AsyncFunction.name === 'AsyncFunction',
+    'AsyncFunction.name should be "AsyncFunction"',
+  );
+}
+
+const { getOwnPropertyDescriptor, getPrototypeOf: getPrototypeOf$1 } = Object;
 
 /**
  * Object.getConstructorOf()
  * Helper function to improve readability, similar to Object.getPrototypeOf().
  */
 function getConstructorOf(obj) {
-  return getPrototypeOf(obj).constructor;
+  return getPrototypeOf$1(obj).constructor;
+}
+
+/**
+ * getAnonymousIntrinsics()
+ * Get the intrinsics not otherwise reachable by named own property
+ * traversal from the global object.
+ */
+function getAnonymousIntrinsics() {
+  const FunctionPrototypeConstructor = Function.prototype.constructor;
+
+  const SymbolIterator = (typeof Symbol && Symbol.iterator) || '@@iterator';
+  const SymbolMatchAll = (typeof Symbol && Symbol.matchAll) || '@@matchAll';
+
+  // 9.2.4.1 %ThrowTypeError%
+
+  // eslint-disable-next-line prefer-rest-params
+  const ThrowTypeError = getOwnPropertyDescriptor(arguments, 'callee').get;
+
+  // 21.1.5.2 The %StringIteratorPrototype% Object
+
+  // eslint-disable-next-line no-new-wrappers
+  const StringIteratorObject = new String()[SymbolIterator]();
+  const StringIteratorPrototype = getPrototypeOf$1(StringIteratorObject);
+
+  // 21.2.7.1 The %RegExpStringIteratorPrototype% Object
+
+  const RegExpStringIterator = new RegExp()[SymbolMatchAll]();
+  const RegExpStringIteratorPrototype = getPrototypeOf$1(RegExpStringIterator);
+
+  // 22.1.5.2 The %ArrayIteratorPrototype% Object
+
+  // eslint-disable-next-line no-array-constructor
+  const ArrayIteratorObject = new Array()[SymbolIterator]();
+  const ArrayIteratorPrototype = getPrototypeOf$1(ArrayIteratorObject);
+
+  // 22.2.1 The %TypedArray% Intrinsic Object
+
+  const TypedArray = getPrototypeOf$1(Float32Array);
+
+  // 23.1.5.2 The %MapIteratorPrototype% Object
+
+  const MapIteratorObject = new Map()[SymbolIterator]();
+  const MapIteratorPrototype = getPrototypeOf$1(MapIteratorObject);
+
+  // 23.2.5.2 The %SetIteratorPrototype% Object
+
+  const SetIteratorObject = new Set()[SymbolIterator]();
+  const SetIteratorPrototype = getPrototypeOf$1(SetIteratorObject);
+
+  // 25.1.2 The %IteratorPrototype% Object
+
+  const IteratorPrototype = getPrototypeOf$1(ArrayIteratorPrototype);
+
+  // 25.2.1 The GeneratorFunction Constructor
+
+  function* GeneratorFunctionInstance() {} // eslint-disable-line no-empty-function
+  const GeneratorFunction = getConstructorOf(GeneratorFunctionInstance);
+
+  // 25.2.3 Properties of the GeneratorFunction Prototype Object
+
+  const Generator = GeneratorFunction.prototype;
+
+  // 25.3.1 The AsyncGeneratorFunction Constructor
+
+  async function* AsyncGeneratorFunctionInstance() {} // eslint-disable-line no-empty-function
+  const AsyncGeneratorFunction = getConstructorOf(
+    AsyncGeneratorFunctionInstance,
+  );
+
+  // 25.3.2.2 AsyncGeneratorFunction.prototype
+  const AsyncGenerator = AsyncGeneratorFunction.prototype;
+  // 25.5.1 Properties of the AsyncGenerator Prototype Object
+  const AsyncGeneratorPrototype = AsyncGenerator.prototype;
+  const AsyncIteratorPrototype = getPrototypeOf$1(AsyncGeneratorPrototype);
+
+  // 25.7.1 The AsyncFunction Constructor
+
+  async function AsyncFunctionInstance() {} // eslint-disable-line no-empty-function
+  const AsyncFunction = getConstructorOf(AsyncFunctionInstance);
+
+  // VALIDATION
+
+  const intrinsics = {
+    FunctionPrototypeConstructor,
+    ArrayIteratorPrototype,
+    AsyncFunction,
+    AsyncGenerator,
+    AsyncGeneratorFunction,
+    AsyncGeneratorPrototype,
+    AsyncIteratorPrototype,
+    Generator,
+    GeneratorFunction,
+    IteratorPrototype,
+    MapIteratorPrototype,
+    RegExpStringIteratorPrototype,
+    SetIteratorPrototype,
+    StringIteratorPrototype,
+    ThrowTypeError,
+    TypedArray,
+  };
+
+  return intrinsics;
 }
 
 /**
@@ -163,266 +421,7 @@ const intrinsicNames = [
   'harden',
 ];
 
-function assert(condition, errorMessage) {
-  if (!condition) {
-    throw new TypeError(errorMessage);
-  }
-}
-
-/**
- * checkAnonIntrinsics()
- * Ensure that the rootAnonIntrinsics are consistent with specs. These
- * tests are necesary to ensure that sampling was correctly done.
- */
-function checkAnonIntrinsics(intrinsics) {
-  const {
-    FunctionPrototypeConstructor,
-    ArrayIteratorPrototype,
-    AsyncFunction,
-    AsyncGenerator,
-    AsyncGeneratorFunction,
-    AsyncGeneratorPrototype,
-    AsyncIteratorPrototype,
-    Generator,
-    GeneratorFunction,
-    IteratorPrototype,
-    MapIteratorPrototype,
-    RegExpStringIteratorPrototype,
-    SetIteratorPrototype,
-    StringIteratorPrototype,
-    ThrowTypeError,
-    TypedArray,
-  } = intrinsics;
-
-  // 9.2.4.1 %ThrowTypeError%
-
-  assert(
-    getPrototypeOf(ThrowTypeError) === Function.prototype,
-    'ThrowTypeError.__proto__ should be Function.prototype',
-  );
-
-  // 21.1.5.2 The %StringIteratorPrototype% Object
-
-  assert(
-    getPrototypeOf(StringIteratorPrototype) === IteratorPrototype,
-    'StringIteratorPrototype.__proto__ should be IteratorPrototype',
-  );
-
-  // 21.2.7.1 The %RegExpStringIteratorPrototype% Object
-
-  assert(
-    getPrototypeOf(RegExpStringIteratorPrototype) === IteratorPrototype,
-    'RegExpStringIteratorPrototype.__proto__ should be IteratorPrototype',
-  );
-
-  // 22.2.1 The %TypedArray% Intrinsic Object
-
-  // http://bespin.cz/~ondras/html/classv8_1_1ArrayBufferView.html
-  // has me worried that someone might make such an intermediate
-  // object visible.
-  assert(
-    getPrototypeOf(TypedArray) === Function.prototype,
-
-    'TypedArray.__proto__ should be Function.prototype',
-  );
-
-  // 23.1.5.2 The %MapIteratorPrototype% Object
-
-  assert(
-    getPrototypeOf(MapIteratorPrototype) === IteratorPrototype,
-    'MapIteratorPrototype.__proto__ should be IteratorPrototype',
-  );
-
-  // 23.2.5.2 The %SetIteratorPrototype% Object
-
-  assert(
-    getPrototypeOf(SetIteratorPrototype) === IteratorPrototype,
-    'SetIteratorPrototype.__proto__ should be IteratorPrototype',
-  );
-
-  // 25.1.2 The %IteratorPrototype% Object
-
-  assert(
-    getPrototypeOf(IteratorPrototype) === Object.prototype,
-    'IteratorPrototype.__proto__ should be Object.prototype',
-  );
-
-  // 25.1.3 The %AsyncIteratorPrototype% Object
-
-  assert(
-    getPrototypeOf(AsyncIteratorPrototype) === Object.prototype,
-    'AsyncIteratorPrototype.__proto__ should be Object.prototype',
-  );
-
-  // 22.1.5.2 The %ArrayIteratorPrototype% Object
-
-  assert(
-    getPrototypeOf(ArrayIteratorPrototype) === IteratorPrototype,
-    'AsyncIteratorPrototype.__proto__ should be IteratorPrototype',
-  );
-
-  // 25.2.2 Properties of the GeneratorFunction Constructor
-
-  // Use Function.prototype.constructor in case Function has been tamed
-  assert(
-    getPrototypeOf(GeneratorFunction) === FunctionPrototypeConstructor,
-    'GeneratorFunction.__proto__ should be Function',
-  );
-
-  assert(
-    GeneratorFunction.name === 'GeneratorFunction',
-    'GeneratorFunction.name should be "GeneratorFunction"',
-  );
-
-  // 25.2.3 Properties of the GeneratorFunction Prototype Object
-
-  assert(
-    getPrototypeOf(Generator) === Function.prototype,
-    'Generator.__proto__ should be Function.prototype',
-  );
-
-  // 25.3.1 The AsyncGeneratorFunction Constructor
-
-  // Use Function.prototype.constructor in case Function has been tamed
-  assert(
-    getPrototypeOf(AsyncGeneratorFunction) === FunctionPrototypeConstructor,
-    'AsyncGeneratorFunction.__proto__ should be Function',
-  );
-  assert(
-    AsyncGeneratorFunction.name === 'AsyncGeneratorFunction',
-    'AsyncGeneratorFunction.name should be "AsyncGeneratorFunction"',
-  );
-
-  // 25.3.3 Properties of the AsyncGeneratorFunction Prototype Object
-
-  assert(
-    getPrototypeOf(AsyncGenerator) === Function.prototype,
-    'AsyncGenerator.__proto__ should be Function.prototype',
-  );
-
-  // 25.5.1 Properties of the AsyncGenerator Prototype Object
-
-  assert(
-    getPrototypeOf(AsyncGeneratorPrototype) === AsyncIteratorPrototype,
-    'AsyncGeneratorPrototype.__proto__ should be AsyncIteratorPrototype',
-  );
-
-  // 25.7.1 The AsyncFunction Constructor
-
-  // Use Function.prototype.constructor in case Function has been tamed
-  assert(
-    getPrototypeOf(AsyncFunction) === FunctionPrototypeConstructor,
-    'AsyncFunction.__proto__ should be Function',
-  );
-  assert(
-    AsyncFunction.name === 'AsyncFunction',
-    'AsyncFunction.name should be "AsyncFunction"',
-  );
-}
-
-/**
- * getAnonymousIntrinsics()
- * Get the intrinsics not otherwise reachable by named own property
- * traversal from the global object.
- */
-function getAnonymousIntrinsics() {
-  const FunctionPrototypeConstructor = Function.prototype.constructor;
-
-  const SymbolIterator = (typeof Symbol && Symbol.iterator) || '@@iterator';
-  const SymbolMatchAll = (typeof Symbol && Symbol.matchAll) || '@@matchAll';
-
-  // 9.2.4.1 %ThrowTypeError%
-
-  // eslint-disable-next-line prefer-rest-params
-  const ThrowTypeError = getOwnPropertyDescriptor(arguments, 'callee').get;
-
-  // 21.1.5.2 The %StringIteratorPrototype% Object
-
-  // eslint-disable-next-line no-new-wrappers
-  const StringIteratorObject = new String()[SymbolIterator]();
-  const StringIteratorPrototype = getPrototypeOf(StringIteratorObject);
-
-  // 21.2.7.1 The %RegExpStringIteratorPrototype% Object
-
-  const RegExpStringIterator = new RegExp()[SymbolMatchAll]();
-  const RegExpStringIteratorPrototype = getPrototypeOf(RegExpStringIterator);
-
-  // 22.1.5.2 The %ArrayIteratorPrototype% Object
-
-  // eslint-disable-next-line no-array-constructor
-  const ArrayIteratorObject = new Array()[SymbolIterator]();
-  const ArrayIteratorPrototype = getPrototypeOf(ArrayIteratorObject);
-
-  // 22.2.1 The %TypedArray% Intrinsic Object
-
-  const TypedArray = getPrototypeOf(Float32Array);
-
-  // 23.1.5.2 The %MapIteratorPrototype% Object
-
-  const MapIteratorObject = new Map()[SymbolIterator]();
-  const MapIteratorPrototype = getPrototypeOf(MapIteratorObject);
-
-  // 23.2.5.2 The %SetIteratorPrototype% Object
-
-  const SetIteratorObject = new Set()[SymbolIterator]();
-  const SetIteratorPrototype = getPrototypeOf(SetIteratorObject);
-
-  // 25.1.2 The %IteratorPrototype% Object
-
-  const IteratorPrototype = getPrototypeOf(ArrayIteratorPrototype);
-
-  // 25.2.1 The GeneratorFunction Constructor
-
-  function* GeneratorFunctionInstance() {} // eslint-disable-line no-empty-function
-  const GeneratorFunction = getConstructorOf(GeneratorFunctionInstance);
-
-  // 25.2.3 Properties of the GeneratorFunction Prototype Object
-
-  const Generator = GeneratorFunction.prototype;
-
-  // 25.3.1 The AsyncGeneratorFunction Constructor
-
-  async function* AsyncGeneratorFunctionInstance() {} // eslint-disable-line no-empty-function
-  const AsyncGeneratorFunction = getConstructorOf(
-    AsyncGeneratorFunctionInstance,
-  );
-
-  // 25.3.2.2 AsyncGeneratorFunction.prototype
-  const AsyncGenerator = AsyncGeneratorFunction.prototype;
-  // 25.5.1 Properties of the AsyncGenerator Prototype Object
-  const AsyncGeneratorPrototype = AsyncGenerator.prototype;
-  const AsyncIteratorPrototype = getPrototypeOf(AsyncGeneratorPrototype);
-
-  // 25.7.1 The AsyncFunction Constructor
-
-  async function AsyncFunctionInstance() {} // eslint-disable-line no-empty-function
-  const AsyncFunction = getConstructorOf(AsyncFunctionInstance);
-
-  // VALIDATION
-
-  const intrinsics = {
-    FunctionPrototypeConstructor,
-    ArrayIteratorPrototype,
-    AsyncFunction,
-    AsyncGenerator,
-    AsyncGeneratorFunction,
-    AsyncGeneratorPrototype,
-    AsyncIteratorPrototype,
-    Generator,
-    GeneratorFunction,
-    IteratorPrototype,
-    MapIteratorPrototype,
-    RegExpStringIteratorPrototype,
-    SetIteratorPrototype,
-    StringIteratorPrototype,
-    ThrowTypeError,
-    TypedArray,
-  };
-
-  checkAnonIntrinsics(intrinsics);
-
-  return intrinsics;
-}
+const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$1 } = Object;
 
 /**
  * getNamedIntrinsic()
@@ -430,7 +429,7 @@ function getAnonymousIntrinsics() {
  */
 function getNamedIntrinsic(root, name) {
   // Assumption: the intrinsic name matches a global object with the same name.
-  const desc = getOwnPropertyDescriptor(root, name);
+  const desc = getOwnPropertyDescriptor$1(root, name);
 
   // Abort if an accessor is found on the object instead of a data property.
   // We should never get into this non standard situation.
@@ -454,6 +453,10 @@ function checkIntrinsics(intrinsics) {
   });
 }
 
+const { apply } = Reflect;
+const uncurryThis = fn => (thisArg, ...args) => apply(fn, thisArg, args);
+const hasOwnProperty$1 = uncurryThis(Object.prototype.hasOwnProperty);
+
 const suffix = 'Prototype';
 
 /**
@@ -470,9 +473,8 @@ const suffix = 'Prototype';
 function getIntrinsics() {
   const intrinsics = { __proto__: null };
 
-  // eslint-disable-next-line no-new-func
-  const global = Function('return this')(); // TODO replace root with globalThis
   const anonIntrinsics = getAnonymousIntrinsics();
+  checkAnonIntrinsics(anonIntrinsics);
 
   for (const name of intrinsicNames) {
     if (hasOwnProperty$1(anonIntrinsics, name)) {
@@ -481,8 +483,8 @@ function getIntrinsics() {
       continue;
     }
 
-    if (hasOwnProperty$1(global, name)) {
-      intrinsics[name] = getNamedIntrinsic(global, name);
+    if (hasOwnProperty$1(globalThis, name)) {
+      intrinsics[name] = getNamedIntrinsic(globalThis, name);
       // eslint-disable-next-line no-continue
       continue;
     }
@@ -498,8 +500,8 @@ function getIntrinsics() {
         continue;
       }
 
-      if (hasOwnProperty$1(global, prefix)) {
-        const intrinsic = getNamedIntrinsic(global, prefix);
+      if (hasOwnProperty$1(globalThis, prefix)) {
+        const intrinsic = getNamedIntrinsic(globalThis, prefix);
         intrinsics[name] = intrinsic.prototype;
         // eslint-disable-next-line no-continue
         continue;
@@ -2049,7 +2051,7 @@ var whitelist = {
 
 // Copyright (C) 2011 Google Inc.
 
-const { getPrototypeOf: getPrototypeOf$1, getOwnPropertyDescriptor: getOwnPropertyDescriptor$1 } = Object;
+const { getPrototypeOf: getPrototypeOf$2, getOwnPropertyDescriptor: getOwnPropertyDescriptor$2 } = Object;
 
 const { apply: apply$1, ownKeys } = Reflect;
 const uncurryThis$1 = fn => (thisArg, ...args) => apply$1(fn, thisArg, args);
@@ -2084,7 +2086,7 @@ function whitelistIntrinsics(intrinsics) {
    * Validate the object's [[prototype]] against a permit.
    */
   function whitelistPrototype(path, obj, protoName) {
-    const proto = getPrototypeOf$1(obj);
+    const proto = getPrototypeOf$2(obj);
 
     // Null prototype.
     if (proto === null && protoName === null) {
@@ -2157,7 +2159,7 @@ function whitelistIntrinsics(intrinsics) {
    * Whitelist a single property against a permit.
    */
   function isWhitelistProperty(path, obj, prop, permit) {
-    const desc = getOwnPropertyDescriptor$1(obj, prop);
+    const desc = getOwnPropertyDescriptor$2(obj, prop);
 
     // Is this a value property?
     if (hasOwnProperty$2(desc, 'value')) {
@@ -2215,7 +2217,7 @@ function whitelistIntrinsics(intrinsics) {
         }
       }
 
-      console.log(`Removing ${subPath}`);
+      // console.log(`Removing ${subPath}`);
       delete obj[prop];
     }
   }
@@ -2245,7 +2247,7 @@ function whitelistIntrinsics(intrinsics) {
 function repairLegacyAccessors() {
   try {
     // Verify that the method is not callable.
-    // eslint-disable-next-line no-restricted-properties, no-underscore-dangle
+    // eslint-disable-next-line no-underscore-dangle
     (0, Object.prototype.__lookupGetter__)('x');
   } catch (ignore) {
     // Throws, no need to patch.
@@ -2431,35 +2433,38 @@ function tameFunctionConstructors() {
   repairFunction('AsyncGeneratorFunction', '(async function*(){})');
 }
 
-/* globals globalThis */
 const { defineProperties, getOwnPropertyDescriptors } = Object;
 
 function tameGlobalDateObject() {
-  // Capture the original constructor.
-  const unsafeDate = Date; // TODO freeze
-
   // Tame the %Date% and %DatePrototype% intrinsic.
-  const { now } = {
+
+  // Use a concise method to obtain a named function without constructor.
+  const DateStatic = {
     now() {
       return NaN;
     },
   };
-  unsafeDate.now = now;
+  Date.now = DateStatic.now;
 
-  const { toLocaleString: toLocaleString1 } = {
+  // Use a concise method to obtain a named function without constructor.
+  const DatePrototype = {
     toLocaleString() {
       return NaN;
     },
   };
-  unsafeDate.prototype.toLocaleString = toLocaleString1;
+  // eslint-disable-next-line no-extend-native
+  Date.prototype.toLocaleString = DatePrototype.toLocaleString;
 
   // Date(anything) gives a string with the current time
   // new Date(x) coerces x into a number and then returns a Date
   // new Date() returns the current time, as a Date object
   // new Date(undefined) returns a Date object which stringifies to 'Invalid Date'
 
+  // Capture the original constructor.
+  const unsafeDate = Date; // TODO freeze
+
   // Tame the Date constructor.
-  const safeDate = function Date() {
+  const tamedDate = function Date() {
     if (new.target === undefined) {
       // We were not called as a constructor
       // this would normally return a string with the current time
@@ -2477,87 +2482,91 @@ function tameGlobalDateObject() {
 
   // Copy static properties.
   const dateDescs = getOwnPropertyDescriptors(unsafeDate);
-  defineProperties(safeDate, dateDescs);
+  defineProperties(tamedDate, dateDescs);
 
   // Copy prototype properties.
   const datePrototypeDescs = getOwnPropertyDescriptors(unsafeDate.prototype);
-  datePrototypeDescs.constructor.value = safeDate;
-  defineProperties(safeDate.prototype, datePrototypeDescs);
+  datePrototypeDescs.constructor.value = tamedDate;
+  defineProperties(tamedDate.prototype, datePrototypeDescs);
 
-  // Done with Date
-  globalThis.Date = safeDate;
+  // Done with Date constructor
+  globalThis.Date = tamedDate;
 
   // Tame the %ObjectPrototype% intrinsic.
-  const { toLocaleString: toLocaleString2 } = {
+
+  // Use a concise method to obtain a named function without constructor.
+  const ObjectPrototype = {
     toLocaleString() {
-      throw new Error('Object.prototype.toLocaleString is suppressed');
+      throw new TypeError('Object.prototype.toLocaleString is disabled');
     },
   };
 
   // eslint-disable-next-line no-extend-native
-  Object.prototype.toLocaleString = toLocaleString2;
+  Object.prototype.toLocaleString = ObjectPrototype.toLocaleString;
 }
 
-const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$2 } = Object;
+const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$3 } = Object;
 
 function tameGlobalErrorObject() {
   // Tame static properties.
   delete Error.captureStackTrace;
 
-  if (getOwnPropertyDescriptor$2(Error, 'captureStackTrace')) {
+  if (getOwnPropertyDescriptor$3(Error, 'captureStackTrace')) {
     throw Error('Cannot remove Error.captureStackTrace');
   }
 
   delete Error.stackTraceLimit;
 
-  if (getOwnPropertyDescriptor$2(Error, 'stackTraceLimit')) {
+  if (getOwnPropertyDescriptor$3(Error, 'stackTraceLimit')) {
     throw Error('Cannot remove Error.stackTraceLimit');
   }
 }
 
 function tameGlobalMathObject() {
   // Tame the %Math% intrinsic.
-  const { random } = {
+
+  // Use a concise method to obtain a named function without constructor.
+  const MathStatic = {
     random() {
-      throw Error('Math.random() is disabled');
+      throw TypeError('Math.random() is disabled');
     },
   };
 
-  Math.random = random;
+  Math.random = MathStatic.random;
 }
 
-/* globals globalThis */
 const {
   defineProperties: defineProperties$1,
   getOwnPropertyDescriptors: getOwnPropertyDescriptors$1,
-  getOwnPropertyDescriptor: getOwnPropertyDescriptor$3,
+  getOwnPropertyDescriptor: getOwnPropertyDescriptor$4,
 } = Object;
 
 function tameGlobalRegExpObject() {
+  // Tame the %RegExp% intrinsic.
+
+  delete RegExp.prototype.compile;
+
   // Capture the original constructor.
   const unsafeRegExp = RegExp; // TODO freeze
 
   // RegExp has non-writable static properties we need to remove.
-
   // Tame RegExp constructor.
-  const safeRegExp = function RegExp() {
+  const tamedRegExp = function RegExp() {
     // eslint-disable-next-line prefer-rest-params
     return Reflect.construct(unsafeRegExp, arguments, new.target);
   };
 
   // Whitelist static properties.
-  const desc = getOwnPropertyDescriptor$3(unsafeRegExp, Symbol.species);
-  defineProperties$1(safeRegExp, Symbol.species, desc);
+  const desc = getOwnPropertyDescriptor$4(unsafeRegExp, Symbol.species);
+  defineProperties$1(tamedRegExp, Symbol.species, desc);
 
   // Copy prototype properties.
   const prototypeDescs = getOwnPropertyDescriptors$1(unsafeRegExp.prototype);
-  prototypeDescs.constructor.value = safeRegExp;
-  defineProperties$1(safeRegExp.prototype, prototypeDescs);
+  prototypeDescs.constructor.value = tamedRegExp;
+  defineProperties$1(tamedRegExp.prototype, prototypeDescs);
 
-  globalThis.RegExp = safeRegExp;
-
-  delete safeRegExp.prototype.compile;
-  delete unsafeRegExp.prototype.compile;
+  // Done with RegExp constructor.
+  globalThis.RegExp = tamedRegExp;
 }
 
 /**
@@ -2661,7 +2670,7 @@ var enablements = {
 const {
   defineProperties: defineProperties$2,
   getOwnPropertyNames,
-  getOwnPropertyDescriptor: getOwnPropertyDescriptor$4,
+  getOwnPropertyDescriptor: getOwnPropertyDescriptor$5,
   getOwnPropertyDescriptors: getOwnPropertyDescriptors$2,
 } = Object;
 
@@ -2734,7 +2743,7 @@ function enablePropertyOverrides(intrinsics) {
   }
 
   function enableProperty(path, obj, prop) {
-    const desc = getOwnPropertyDescriptor$4(obj, prop);
+    const desc = getOwnPropertyDescriptor$5(obj, prop);
     if (!desc) {
       return;
     }
@@ -2751,7 +2760,7 @@ function enablePropertyOverrides(intrinsics) {
 
   function enableProperties(path, obj, plan) {
     for (const prop of getOwnPropertyNames(plan)) {
-      const desc = getOwnPropertyDescriptor$4(obj, prop);
+      const desc = getOwnPropertyDescriptor$5(obj, prop);
       if (!desc || desc.get || desc.set) {
         // No not a value property, nothing to do.
         // eslint-disable-next-line no-continue
@@ -2992,9 +3001,9 @@ const {
   // Object.defineProperty is allowed to fail silentlty
   // so we use Object.defineProperties instead.
   defineProperties: defineProperties$3,
-  getOwnPropertyDescriptor: getOwnPropertyDescriptor$5,
+  getOwnPropertyDescriptor: getOwnPropertyDescriptor$6,
   getOwnPropertyNames: getOwnPropertyNames$1,
-  getPrototypeOf: getPrototypeOf$2,
+  getPrototypeOf: getPrototypeOf$3,
   setPrototypeOf,
   prototype: objectPrototype,
 } = Object;
@@ -3046,7 +3055,7 @@ const weakmapHas = uncurryThis$2(weakmapPrototype.has);
  * Return the constructor from an instance.
  */
 const getConstructorOf$1 = fn =>
-  reflectGet(getPrototypeOf$2(fn), 'constructor');
+  reflectGet(getPrototypeOf$3(fn), 'constructor');
 
 /**
  * immutableObject
@@ -3065,12 +3074,9 @@ function throwTantrum(message, err = undefined) {
   const msg = `please report internal shim error: ${message}`;
 
   // we want to log these 'should never happen' things.
-  // eslint-disable-next-line no-console
   console.error(msg);
   if (err) {
-    // eslint-disable-next-line no-console
     console.error(`${err}`);
-    // eslint-disable-next-line no-console
     console.error(`${err.stack}`);
   }
 
@@ -3193,7 +3199,7 @@ function isValidIdentifierName(name) {
  */
 
 function isImmutableDataProperty(obj, name) {
-  const desc = getOwnPropertyDescriptor$5(obj, name);
+  const desc = getOwnPropertyDescriptor$6(obj, name);
   return (
     //
     // The getters will not have .writable, don't let the falsyness of
@@ -3283,13 +3289,9 @@ function createScopeHandler(
   endowments = {},
   { sloppyGlobalsMode = false } = {},
 ) {
-  // Ensure we use the correct global, associated with the inrinsics.
-  const unsafeGlobal = realmRec.intrinsics.Function('return this;')();
-
   return {
     // The scope handler throws if any trap other than get/set/has are run
     // (e.g. getOwnPropertyDescriptors, apply, getPrototypeOf).
-    // eslint-disable-next-line no-proto
     __proto__: alwaysThrowHandler,
 
     // This flag allow us to determine if the eval() call is an done by the
@@ -3325,11 +3327,10 @@ function createScopeHandler(
       return reflectGet(globalObject, prop);
     },
 
-    // eslint-disable-next-line class-methods-use-this
     set(shadow, prop, value) {
       // Properties of the endowments.
       if (prop in endowments) {
-        const desc = getOwnPropertyDescriptor$5(endowments, prop);
+        const desc = getOwnPropertyDescriptor$6(endowments, prop);
         if ('value' in desc) {
           // Work around a peculiar behavior in the specs, where
           // value properties are defined on the receiver.
@@ -3346,7 +3347,7 @@ function createScopeHandler(
 
     // we need has() to return false for some names to prevent the lookup  from
     // climbing the scope chain and eventually reaching the unsafeGlobal
-    // object, which is bad.
+    // object (globalThis), which is bad.
 
     // todo: we'd like to just have has() return true for everything, and then
     // use get() to raise a ReferenceError for anything not on the safe global.
@@ -3372,7 +3373,7 @@ function createScopeHandler(
         prop === 'eval' ||
         prop in endowments ||
         prop in globalObject ||
-        prop in unsafeGlobal
+        prop in globalThis
       ) {
         return true;
       }
@@ -3695,7 +3696,7 @@ function makeFunctionConstructor(realmRec, globaObject, options = {}) {
     // - parameters doesn't parse as parameters
     // - bodyText doesn't parse as a function body
     // - either contain a call to super() or references a super property.
-    // eslint-disable-next-line no-new, new-cap
+    // eslint-disable-next-line no-new
     new realmRec.intrinsics.Function(parameters, bodyText);
 
     // Safe to be combined. Defeat potential trailing comments.
@@ -3835,7 +3836,7 @@ function createGlobalObject(realmRec, { globalTransforms }) {
   // *** 18.2, 18.3, 18.4 etc.
   for (const name of globalPropertyNames) {
     if (!objectHasOwnProperty(realmRec.intrinsics, name)) {
-      // only create the global is the intrinsic exists.
+      // only create the global if the intrinsic exists.
       // eslint-disable-next-line no-continue
       continue;
     }
@@ -3888,7 +3889,7 @@ function createGlobalObject(realmRec, { globalTransforms }) {
   return globalObject;
 }
 
-const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$6 } = Object;
+const { getOwnPropertyDescriptor: getOwnPropertyDescriptor$7 } = Object;
 
 /**
  * globalIntrinsicNames
@@ -3980,11 +3981,8 @@ const globalIntrinsicNames = [
 function getGlobalIntrinsics() {
   const result = { __proto__: null };
 
-  // eslint-disable-next-line no-new-func
-  const global = Function('return this')(); // TODO replace global with globalThis
-
   for (const name of globalIntrinsicNames) {
-    const desc = getOwnPropertyDescriptor$6(global, name);
+    const desc = getOwnPropertyDescriptor$7(globalThis, name);
     if (desc) {
       // Abort if an accessor is found on the unsafe global object
       // instead of a data property. We should never get into this
@@ -4099,6 +4097,14 @@ class Compartment {
 
 // Copyright (C) 2018 Agoric
 
+let previousOptions;
+
+function assert$2(condition, message) {
+  if (!condition) {
+    throw new TypeError(message);
+  }
+}
+
 function lockdown(options = {}) {
   const {
     noTameDate = false,
@@ -4106,7 +4112,40 @@ function lockdown(options = {}) {
     noTameMath = false,
     noTameRegExp = false,
     registerOnly = false,
+    ...extraOptions
   } = options;
+
+  // Assert that only supported options were passed.
+
+  const extraOptionsNames = Object.keys(extraOptions);
+  assert$2(
+    extraOptionsNames.length === 0,
+    `lockdown(): non supported option ${extraOptionsNames.join(', ')}`,
+  );
+
+  // Asserts for multiple invocation of lockdown().
+
+  const currentOptions = {
+    noTameDate,
+    noTameError,
+    noTameMath,
+    noTameRegExp,
+    registerOnly,
+  };
+  if (previousOptions) {
+    // Assert that multiple invocation have the same value
+    Object.keys(currentOptions).forEach(name => {
+      assert$2(
+        currentOptions[name] === previousOptions[name],
+        `lockdown(): cannot re-invoke with different option ${name}`,
+      );
+    });
+
+    // Returning `false` indicates that lockdown() made no changes because it
+    // was invokes from SES with the same options.
+    return false;
+  }
+  previousOptions = currentOptions;
 
   /**
    * 1. TAME powers first.
@@ -4137,11 +4176,8 @@ function lockdown(options = {}) {
   // Build a harden() with an empty fringe.
   const harden = makeHardener();
 
-  // eslint-disable-next-line no-new-func
-  const global = Function('return this')();
-
   // Add the API to the global object.
-  Object.defineProperties(global, {
+  Object.defineProperties(globalThis, {
     harden: {
       value: harden,
       configurable: true,
@@ -4176,10 +4212,13 @@ function lockdown(options = {}) {
   // Circumvent the override mistake.
   const detachedProperties = enablePropertyOverrides(intrinsics);
 
-  // Finally register and optionally freeze all the primordials. This
+  // Finally register and optionally freeze all the intrinsics. This
   // must be the operation that modifies the intrinsics.
   harden(intrinsics, registerOnly);
   harden(detachedProperties, registerOnly);
+
+  // Returning `true` indicates that this is a JS to SES transition.
+  return true;
 }
 
 export { lockdown };
