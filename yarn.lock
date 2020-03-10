@@ -6915,6 +6915,13 @@ ses@^0.6.5:
     esm "^3.2.25"
     realms-shim "^1.2.2"
 
+ses@^0.7.0:
+  version "0.7.0"
+  resolved "https://registry.yarnpkg.com/ses/-/ses-0.7.0.tgz#6e8f0644b996045d9f82ccbf99eab3bfb0816b64"
+  integrity sha512-anQVa2XtKbiA0qHDwjg6HSHTlPrWBg0VSZBpqKUZMLVZU8iPwHKJGvXBXLWOe6+JtMZXViByQQgeug3/Kzqzxg==
+  dependencies:
+    "@agoric/make-hardener" "^0.0.6"
+
 set-blocking@^2.0.0, set-blocking@~2.0.0:
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/set-blocking/-/set-blocking-2.0.0.tgz#045f9782d011ae9a6803ddd382b24392b3d890f7"
