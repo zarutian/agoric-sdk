@@ -6915,10 +6915,10 @@ ses@^0.6.5:
     esm "^3.2.25"
     realms-shim "^1.2.2"
 
-ses@^0.7.0:
-  version "0.7.0"
-  resolved "https://registry.yarnpkg.com/ses/-/ses-0.7.0.tgz#6e8f0644b996045d9f82ccbf99eab3bfb0816b64"
-  integrity sha512-anQVa2XtKbiA0qHDwjg6HSHTlPrWBg0VSZBpqKUZMLVZU8iPwHKJGvXBXLWOe6+JtMZXViByQQgeug3/Kzqzxg==
+ses@^0.7.1:
+  version "0.7.1"
+  resolved "https://registry.yarnpkg.com/ses/-/ses-0.7.1.tgz#196514d5c0e218a05643d3358f42bad40064bc99"
+  integrity sha512-JlR19AOUko82BvQ1NWMNQPvsfUZWBlQHL8f6hWUWjnE4k9pkHH/3dS3kbOc/LD3Qezn6DHdVn8WOz5V7Jg2ZAw==
   dependencies:
     "@agoric/make-hardener" "^0.0.6"
 
