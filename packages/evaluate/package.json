@@ -20,7 +20,7 @@
   "dependencies": {
     "@agoric/default-evaluate-options": "^0.3.0",
     "esm": "^3.2.5",
-    "ses": "^0.7.0"
+    "ses": "^0.7.1"
   },
   "author": "Agoric",
   "license": "Apache-2.0",
