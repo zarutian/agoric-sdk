@@ -1,7 +1,7 @@
-/* global replaceGlobalMeter */
+/* global replaceGlobalMeter require harden HandledPromise */
 import harden from '@agoric/harden';
 import { makeMarshal } from '@agoric/marshal';
-//import evaluateProgram from '@agoric/evaluate';
+import evaluateProgram from '@agoric/evaluate';
 import { assert, details } from '@agoric/assert';
 import makeVatManager from './vatManager';
 import { makeLiveSlots } from './liveSlots';
@@ -560,8 +560,18 @@ export default function buildKernel(kernelEndowments) {
    * @return { vatID, error } either the vatID for a newly created vat, or the
    * error message for the problem.
    */
+  // TODO: convert this to evaluateBundle
   function createVatDynamically(buildFnSrc) {
-    const buildFn = evaluate(buildFnSrc);
+    // the new vat needs some endowments that are shared with the kernel
+    const endowments = { console,
+                         require, // to import @agoric/harden and ses
+                         HandledPromise,
+                       };
+    const transforms = []; // TODO: metering
+    // TODO: endowments.replaceGlobalMeter
+    // maybe `(${buildFnSrc})`
+    const buildFn = evaluateProgram(buildFnSrc, { endowments, transforms });
+    // TODO .default? probably not
     try {
       const vatID = createVat(buildFn);
       notifyAdminVatOfNewVat(vatID);

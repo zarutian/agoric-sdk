@@ -11,6 +11,7 @@ import { assert } from '@agoric/assert';
 
 import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
 import bundleSource from '@agoric/bundle-source';
+import { evaluateProgram, evaluateBundle } from '@agoric/evaluate';
 import { initSwingStore } from '@agoric/swing-store-simple';
 import { HandledPromise } from '@agoric/eventual-send';
 
@@ -96,55 +97,65 @@ export function loadBasedir(basedir) {
   return { vats, bootstrapIndexJS };
 }
 
-function makeSESEvaluator() {
-  let c;
-  function evaluate(src) {
-    return c.evaluate(src);
-  }
-  function evaluateWithEndowments(src, endowments) {
-    return c.evaluate(src, { endowments });
-  }
+function makeKernelCompartmentEndowments() {
+  // All code in the Agoric environment can use `@agoric/harden` and `SES`,
+  // and this (coupled with bundle-source leaving both as "externals")
+  // ensures they all get the same one
   function req(what) {
     if (what === '@agoric/harden') {
       return harden;
     }
-    if (what === '@agoric/evaluate') {
-      // what precisely should this return?
-      return evaluateWithEndowments;
-      //return { default: evaluateWithEndowments,
-      //         evaluateProgram: evaluateWithEndowments,
-      //       };
+    if (what === 'ses') {
+      // The API contract of `lockdown()` is that `harden` and `Compartment`
+      // will be available your global scope after `lockdown()` returns. All
+      // JS code under SwingSet runs in a SES environment, so those values
+      // are always available, even before calling `lockdown()`, so we can
+      // return a dummy `lockdown` here.
+      function lockdown() {
+        // TODO: compare options, throw if they don't match what we did
+      }
+
+      return harden({ lockdown });
     }
     throw Error(`unknown require(${what})`);
   }
 
-  // The '@agoric/eventual-send' module (which provides the E() wrapper) also
-  // creates+uses HandledPromise, and will shim one into place if there isn't
-  // already one on the global. Each shim closes over a separate WeakMap, and
-  // HandledPromises from separate shims are not interoperable. liveslots.js
-  // (loaded by the kernel and made available to vats via the 'helper'
-  // object) registers handles on HandledPromises. Vats may import "E" from
-  // eventual-send and use it to make calls, which uses HandledPromise
-  // internally. If these two versions get different copies of
-  // HandledPromise, E(x).foo() will fail with a "o['foo'] is not a function"
-  // error. We provide HandledPromise as an endowment here so that both vats
-  // and the kernel (via liveslots.js) get the same one.
-
   const endowments = {
+    // All code in the Agoric environment is allowed to write to the shared
+    // console (which can only be read by privileged external code, and hence
+    // does not provide a communication channel between otherwise isolated
+    // objects)
     console: makeConsole(console),
     require: req,
-    evaluate,
+    // We must put HandledPromise on the kernel compartment, so the same
+    // instance of HandledPromise can copied from the global lexical scope
+    // there into all new Compartments, to keep `@agoric/eventual-send` from
+    // shimming in a new copy (with a distinct WeakMap, causing E(x).foo() to
+    // fail with a "o['foo'] is not a function" error).
     HandledPromise,
   };
+  return harden(endowments);
+}
+
+// The '@agoric/eventual-send' module (which provides the E() wrapper) also
+// creates+uses HandledPromise, and will shim one into place if there isn't
+// already one on the global. Each shim closes over a separate WeakMap, and
+// HandledPromises from separate shims are not interoperable. liveslots.js
+// (loaded by the kernel and made available to vats via the 'helper' object)
+// registers handles on HandledPromises. Vats may import "E" from
+// eventual-send and use it to make calls, which uses HandledPromise
+// internally. If these two versions get different copies of HandledPromise,
+// E(x).foo() will fail with a "o['foo'] is not a function" error. We provide
+// HandledPromise as an endowment here so that both vats and the kernel (via
+// liveslots.js) get the same one.
+
+
+function makeImmutableCompartment(endowments) {
   const modules = undefined; // unimplemented too
-  //const transforms = makeDefaultEvaluateOptions().transforms;
   const transforms = [];
-  c = new Compartment(endowments, modules, { transforms });
+  const c = new Compartment(endowments, modules, { transforms });
   harden(c.global);
-  return src => {
-    //return c.evaluate(src, { require: r })().default;
-    return c.evaluate(src);
-  };
+  return c;
 }
 
 var did_lockdown = false;
@@ -175,11 +186,26 @@ export async function buildVatController(config, withSES = true, argv = []) {
     did_lockdown = true;
   }
 
-  const sesEvaluator = makeSESEvaluator();
+  // The kernel source code neither needs tildot nor metering
+  // transformations. Static vat source code needs tildot, but not metering.
+  // Dynamic vat source code needs both. All three types need endowments for
+  // `console` and `HandledPromise`, as well as the ability to import (via
+  // `require`) `harden` and `ses` (so they can use `@agoric/evaluate`).
 
-  // Evaluate source to produce a setup function. This binds withSES from the
-  // enclosing context and evaluates it either in a SES context, or without SES
-  // by directly calling require().
+  // Both the kernel source code and static vats are processed by
+  // bundle-source when the kernel starts up. Dynamic vats are converted from
+  // on-disk files to a transmissible data artifact by bundle-source on the
+  // developer's machine, during contract deployment.
+
+  // Tildot transformations are done by bundle-source, but metering
+  // transformations must be done locally (in kernel.js createVatDynamically)
+  // because we can't rely upon the developer's machine to enforce the
+  // metering rules correctly.
+
+  const endowments = makeKernelCompartmentEndowments();
+  const c = makeImmutableCompartment(endowments);
+
+  // take a vat/device source path, and return the setup function
   async function evaluateToSetup(sourceIndex, filePrefix = undefined) {
     if (!(sourceIndex[0] === '.' || path.isAbsolute(sourceIndex))) {
       throw Error(
@@ -187,31 +213,33 @@ export async function buildVatController(config, withSES = true, argv = []) {
       );
     }
 
-    // we load the sourceIndex (and everything it imports), and expect to get
-    // two symbols from each Vat: 'start' and 'dispatch'. The code in
-    // bootstrap.js gets a 'controller' object which can invoke start()
-    // (which is expected to initialize some state and export some facetIDs)
-    const { source, sourceMap } = await bundleSource(
-      `${sourceIndex}`,
-      'nestedEvaluate',
-    );
-    const actualSource = `(${source})\n${sourceMap}`;
-    const setup = sesEvaluator(actualSource, filePrefix)().default;
+    // The module which defines the static vat/device is expected to have a
+    // default export (`.default` on the namespace object) which is a setup()
+    // function, called like `dispatch = setup(syscall, state, helpers)`.
+    const sourceBundle = await bundleSource(`${sourceIndex}`, 'nestedEvaluate');
+    const setup = evaluateBundle(sourceBundle, { endowments,
+                                                 filePrefix }).default;
     return setup;
   }
 
   const hostStorage = config.hostStorage || initSwingStore().storage;
   insistStorageAPI(hostStorage);
+
+  // `kernelEndowments` holds authorities that the kernel gets but which vats
+  // do not. These are passed as arguments to the `buildKernel` function,
+  // rather than being added to the global lexical scope.
   const kernelEndowments = {
     setImmediate,
     hostStorage,
-    runEndOfCrank,
+    // runEndOfCrank, //TODO
     vatAdminDevSetup: await evaluateToSetup(ADMIN_DEVICE_PATH, '/SwingSet/src'),
     vatAdminVatSetup: await evaluateToSetup(ADMIN_VAT_PATH, '/SwingSet/src'),
   };
 
-  const kernelSource = `(${kernelSourceFunc})`;
-  const buildKernel = sesEvaluator(kernelSource)().default;
+  const kernelSourcePath = require.resolve('./kernel/index.js');
+  const kernelBundle = await bundleSource(kernelSourcePath, 'nestedEvaluate');
+  const buildKernel = evaluateBundle(kernelBundle, { endowments,
+                                                     filePrefix: kernelSourcePath }).default;
   const kernel = buildKernel(kernelEndowments);
 
   async function addGenesisVat(name, sourceIndex, options = {}) {
