@@ -2,7 +2,7 @@
   "name": "@agoric/evaluate",
   "version": "2.2.0",
   "description": "(unsafe) three-argument evaluator function",
-  "main": "src/main.js",
+  "main": "src/index.js",
   "module": "src/index.js",
   "engines": {
     "node": ">=10.15.1"
@@ -14,12 +14,12 @@
     "lint-check": "eslint '**/*.js'"
   },
   "devDependencies": {
+    "esm": "^3.2.5",
     "tape": "^4.10.0",
     "tape-promise": "^4.0.0"
   },
   "dependencies": {
     "@agoric/default-evaluate-options": "^0.3.0",
-    "esm": "^3.2.5",
     "ses": "^0.7.1"
   },
   "author": "Agoric",
