@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import harden from '@agoric/harden';
-import { lockdown } from './ses.esm.js';
+import { lockdown } from 'ses';
 import { assert } from '@agoric/assert';
 
 import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
