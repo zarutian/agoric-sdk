@@ -1,7 +1,7 @@
 /* global replaceGlobalMeter require harden HandledPromise */
 import harden from '@agoric/harden';
 import { makeMarshal } from '@agoric/marshal';
-import evaluateProgram from '@agoric/evaluate';
+import { evaluateProgram } from '@agoric/evaluate';
 import { assert, details } from '@agoric/assert';
 import makeVatManager from './vatManager';
 import { makeLiveSlots } from './liveSlots';
