@@ -3,6 +3,7 @@ import path from 'path';
 import resolve0 from '@rollup/plugin-node-resolve';
 import commonjs0 from '@rollup/plugin-commonjs';
 import eventualSend from '@agoric/acorn-eventual-send';
+import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
 import * as acorn from 'acorn';
 
 const DEFAULT_MODULE_FORMAT = 'getExport';
@@ -39,6 +40,19 @@ export default async function bundleSource(
   });
   // console.log(output);
 
+  // apply transform-eventual-send on each chunk
+  const { transforms } = makeDefaultEvaluateOptions();
+  const transform = transforms[0].rewrite;
+  function transformTildot(src) {
+    const ss = { src, endowments: {} };
+    const newSS = transform(ss);
+    const newSrc = newSS.src;
+    if (newSrc !== `${newSrc}`) {
+      throw Error(`transform failed`);
+    }
+    return newSrc;
+  }
+
   // Create a source bundle.
   const sourceBundle = {};
   let entrypoint;
@@ -50,7 +64,7 @@ export default async function bundleSource(
     if (isEntry) {
       entrypoint = fileName;
     }
-    sourceBundle[fileName] = code;
+    sourceBundle[fileName] = transformTildot(code);
   }
 
   if (!entrypoint) {
