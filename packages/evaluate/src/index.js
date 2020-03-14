@@ -1,14 +1,16 @@
 /* global harden Compartment */
-import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
-import { HandledPromise } from '@agoric/eventual-send';
+//import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
+//import { HandledPromise } from '@agoric/eventual-send';
 // If we're running inside SwingSet, this SES is synthetic. If not (mostly
 // unit tests), we'll import the real SES.
-import { lockdown } from 'SES';
+//import { lockdown } from 'ses/dist/ses.cjs.js';
+//import { lockdown } from 'ses';
+import { lockdown } from '../../ses.esm.js';
 
 function setup() {
     // eslint-disable-next-line no-undefined
     if (typeof Compartment === 'undefined') {
-        lockdown();
+        lockdown({ noTameError: true });
         // that adds Compartment and harden to the globals
     }
     // eslint-disable-next-line no-undefined
@@ -19,6 +21,7 @@ function setup() {
     return { harden, Compartment };
 }
 
+/*
 function makeEndowments() {
   function req(what) {
     if (what === '@agoric/harden') {
@@ -46,6 +49,7 @@ function makeEndowments() {
   };
   return harden(endowments);
 }
+*/
 
 // This is a basic frozen-globals evaluator-with-endowments, which can be
 // used both inside and outside of SwingSet. If you need something fancier
@@ -53,17 +57,19 @@ function makeEndowments() {
 // inside SwingSet).
 
 export const evaluateProgram = (src, options = {}) => {
-    // options takes: endowments, transforms, sloppyGlobalsMode
-    const { harden, Compartment } = setup();
-    const c = new Compartment();
-    harden(c.global);
-    return c.evaluate(src, options);
+  setup();
+  // options takes: endowments, transforms, sloppyGlobalsMode
+  const { harden, Compartment } = setup();
+  const c = new Compartment();
+  //harden(c.global);
+  return c.evaluate(src, options);
 };
 
-// evaluateBundle takes the output of bundle-source, and returns a namespace
+// importBundle takes the output of bundle-source, and returns a namespace
 // object (with .default, and maybe other properties for named exports)
 
-export function evaluateBundle(bundle, options = {}) {
+export async function importBundle(bundle, options = {}) {
+  setup();
   const { filePrefix, endowments = {}, ...compartmentOptions } = options;
   const { source, sourceMap, moduleFormat } = bundle;
   if (moduleFormat === 'getExport') {
@@ -97,6 +103,7 @@ export function evaluateBundle(bundle, options = {}) {
       return c.evaluate(source);
     }
     c = new Compartment({ nestedEvaluate, ...endowments}, {}, compartmentOptions);
+    harden(c.global);
     const actualSource = `(${source})\n${sourceMap}`;
     const namespace = c.evaluate(actualSource)(filePrefix);
     // namespace.default has the default export
@@ -104,60 +111,3 @@ export function evaluateBundle(bundle, options = {}) {
   }
   throw Error(`unrecognized moduleFormat '${moduleFormat}'`);
 }
-
-
-
-/*
-
-// The evaluate maker, which curries the makerOptions.
-export const makeEvaluators = (makerOptions = {}) => {
-
-    // Work around Babel appending semicolons.
-    // TODO: This belongs only in the individual transforms.
-    const maybeSource = sourceState.src;
-    const actualSource =
-      sourceType === 'expression' &&
-      maybeSource.endsWith(';') &&
-      !source.endsWith(';')
-        ? maybeSource.slice(0, -1)
-        : maybeSource;
-
-    // Generate the expression context, if necessary.
-    const src =
-      sourceType === 'expression' ? `(${actualSource}\n)` : actualSource;
-
-    // This function's first argument is the endowments.
-    // The second argument is the source string to evaluate.
-    // It is in strict mode so that `this` is undefined.
-    //
-    // The eval below is direct, so that we have access to the named endowments.
-    const scopedEval = `(function() {
-      with (arguments[0]) {
-        return function() {
-          'use strict';
-          return eval(arguments[0]);
-        };
-      }
-    })`;
-
-    // The eval below is indirect, so that we are only in the global scope.
-    // eslint-disable-next-line no-eval
-    return (1, eval)(scopedEval)(sourceState.endowments)(src);
-  };
-
-  // We need to make this first so that it is available to the other evaluators.
-  evaluateProgram = makeEvaluator('program');
-  return {
-    evaluateProgram,
-    evaluateExpr: makeEvaluator('expression'),
-    evaluateModule: makeEvaluator('module'),
-  };
-};
-
-// Export the default evaluators.
-export const defaultEvaluateOptions = makeDefaultEvaluateOptions(require);
-export const { evaluateExpr, evaluateProgram, evaluateModule } = makeEvaluators(
-  { endowments: { HandledPromise }, ...defaultEvaluateOptions },
-);
-export default evaluateExpr;
-*/
