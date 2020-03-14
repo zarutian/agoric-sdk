@@ -28,7 +28,7 @@ export default async function bundleSource(
     input: resolvedPath,
     treeshake: false,
     preserveModules: moduleFormat === 'nestedEvaluate',
-    external: ['@agoric/evaluate', '@agoric/harden'],
+    external: ['ses', '@agoric/harden', '../../ses.esm.js'],
     plugins: [resolvePlugin({ preferBuiltins: true }), commonjsPlugin()],
     acornInjectPlugins: [eventualSend(acorn)],
   });
