@@ -11,13 +11,15 @@ function build(E, log) {
         harden2(o1);
         log(Object.isFrozen(o1));
         log(Object.isFrozen(o1.o2));
-      } else if (argv[0] === 'evaluate') {
-        log('evaluate-1');
+      } else if (argv[0] === 'ses') {
+        log('ses-1');
         // eslint-disable-next-line global-require
-        const evaluate = require('@agoric/evaluate');
-        log(evaluate('1+2'));
-        log(evaluate('a+b', { a: 0, b: 4 }));
-        log(evaluate('(a) => a+b', { b: 3 })(2));
+        const { lockdown } = require('ses');
+        if (typeof(lockdown) === 'function') {
+          log('lockdown-is-function');
+        } else {
+          log(`error: lockdown is ${typeof(lockdown)}`);
+        }
       }
     },
   };

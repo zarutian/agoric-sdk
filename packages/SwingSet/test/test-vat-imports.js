@@ -13,14 +13,14 @@ test('vat can require harden with SES', async t => {
   t.end();
 });
 
-async function requireEvaluate(t, withSES) {
+async function requireSES(t, withSES) {
   const config = { bootstrapIndexJS: require.resolve('./vat-imports-1.js') };
-  const c = await buildVatController(config, withSES, ['evaluate']);
+  const c = await buildVatController(config, withSES, ['ses']);
   await c.step();
-  t.deepEqual(c.dump().log, ['evaluate-1', '3', '4', '5']);
+  t.deepEqual(c.dump().log, ['ses-1', 'lockdown-is-function']);
 }
 
-test('vat can require evaluate with SES', async t => {
-  await requireEvaluate(t, true);
+test('vat can require SES', async t => {
+  await requireSES(t, true);
   t.end();
 });
