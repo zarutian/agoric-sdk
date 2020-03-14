@@ -6,20 +6,22 @@
 import fs from 'fs';
 import path from 'path';
 import harden from '@agoric/harden';
-import { lockdown } from 'ses';
+//import { lockdown } from 'ses/dist/ses.cjs.js';
+//import { lockdown } from 'ses';
+import { lockdown } from '../../ses.esm.js';
 import { assert } from '@agoric/assert';
 
 import makeDefaultEvaluateOptions from '@agoric/default-evaluate-options';
 import bundleSource from '@agoric/bundle-source';
-import { evaluateProgram, evaluateBundle } from '@agoric/evaluate';
+//import EvaluateNS from '@agoric/evaluate';
+//const { evaluateProgram, importBundle } = EvaluateNS;
+import { evaluateProgram, importBundle } from '@agoric/evaluate';
 import { initSwingStore } from '@agoric/swing-store-simple';
 import { HandledPromise } from '@agoric/eventual-send';
 
 import { makeMeteringTransformer } from '@agoric/transform-metering';
 import * as babelCore from '@babel/core';
 
-// eslint-disable-next-line import/extensions
-import kernelSourceFunc from './bundles/kernel';
 import buildKernelNonSES from './kernel/index';
 import { insistStorageAPI } from './storageAPI';
 import { insistCapData } from './capdata';
@@ -97,7 +99,7 @@ export function loadBasedir(basedir) {
   return { vats, bootstrapIndexJS };
 }
 
-function makeKernelCompartmentEndowments() {
+function makeKernelCompartmentEndowments(registerEndOfCrank) {
   // All code in the Agoric environment can use `@agoric/harden` and `SES`,
   // and this (coupled with bundle-source leaving both as "externals")
   // ensures they all get the same one
@@ -105,7 +107,7 @@ function makeKernelCompartmentEndowments() {
     if (what === '@agoric/harden') {
       return harden;
     }
-    if (what === 'ses') {
+    if (what === 'ses' || what == 'packages/ses.esm.js') {
       // The API contract of `lockdown()` is that `harden` and `Compartment`
       // will be available your global scope after `lockdown()` returns. All
       // JS code under SwingSet runs in a SES environment, so those values
@@ -133,6 +135,13 @@ function makeKernelCompartmentEndowments() {
     // shimming in a new copy (with a distinct WeakMap, causing E(x).foo() to
     // fail with a "o['foo'] is not a function" error).
     HandledPromise,
+    // registerEndOfCrank is an interim solution to metering, wherein static
+    // vats (specifically Zoe and/or the 'spawner' vat) cooperate in
+    // enforcing meter restrictions on subordinate contract code. They use
+    // this hook to tell the kernel to refill the contract's meter when the
+    // crank is complete (?verify?). It should go away after #534 is done and
+    // we do metering on a per-vat basis rather than within a single vat.
+    registerEndOfCrank,
   };
   return harden(endowments);
 }
@@ -173,6 +182,7 @@ export async function buildVatController(config, withSES = true, argv = []) {
   if (!did_lockdown) {
     lockdown({
       noTameMath: true,
+      noTameError: true,
     }); // creates Compartment
 
     // we must either set this handler, or use noTameError, because Node's
@@ -202,8 +212,11 @@ export async function buildVatController(config, withSES = true, argv = []) {
   // because we can't rely upon the developer's machine to enforce the
   // metering rules correctly.
 
-  const endowments = makeKernelCompartmentEndowments();
-  const c = makeImmutableCompartment(endowments);
+  const endOfCrankHooks = new Set();
+  const registerEndOfCrank = hook => endOfCrankHooks.add(hook);
+
+  const endowments = makeKernelCompartmentEndowments(registerEndOfCrank);
+  //const c = makeImmutableCompartment(endowments);
 
   // take a vat/device source path, and return the setup function
   async function evaluateToSetup(sourceIndex, filePrefix = undefined) {
@@ -217,13 +230,28 @@ export async function buildVatController(config, withSES = true, argv = []) {
     // default export (`.default` on the namespace object) which is a setup()
     // function, called like `dispatch = setup(syscall, state, helpers)`.
     const sourceBundle = await bundleSource(`${sourceIndex}`, 'nestedEvaluate');
-    const setup = evaluateBundle(sourceBundle, { endowments,
-                                                 filePrefix }).default;
+    const setup = (await importBundle(sourceBundle, { endowments,
+                                                      filePrefix })).default;
     return setup;
   }
 
   const hostStorage = config.hostStorage || initSwingStore().storage;
   insistStorageAPI(hostStorage);
+
+  const runEndOfCrank = () => {
+    endOfCrankHooks.forEach(h => {
+      try {
+        h();
+      } catch (e) {
+        try {
+          console.log('cannot run hook:', e);
+        } catch (e2) {
+          // Nothing to do.
+        }
+      }
+    });
+    endOfCrankHooks.clear();
+  };
 
   // `kernelEndowments` holds authorities that the kernel gets but which vats
   // do not. These are passed as arguments to the `buildKernel` function,
@@ -231,15 +259,15 @@ export async function buildVatController(config, withSES = true, argv = []) {
   const kernelEndowments = {
     setImmediate,
     hostStorage,
-    // runEndOfCrank, //TODO
+    runEndOfCrank,
     vatAdminDevSetup: await evaluateToSetup(ADMIN_DEVICE_PATH, '/SwingSet/src'),
     vatAdminVatSetup: await evaluateToSetup(ADMIN_VAT_PATH, '/SwingSet/src'),
   };
 
   const kernelSourcePath = require.resolve('./kernel/index.js');
   const kernelBundle = await bundleSource(kernelSourcePath, 'nestedEvaluate');
-  const buildKernel = evaluateBundle(kernelBundle, { endowments,
-                                                     filePrefix: kernelSourcePath }).default;
+  const buildKernel = (await importBundle(kernelBundle, { endowments,
+                                                          filePrefix: kernelSourcePath })).default;
   const kernel = buildKernel(kernelEndowments);
 
   async function addGenesisVat(name, sourceIndex, options = {}) {
