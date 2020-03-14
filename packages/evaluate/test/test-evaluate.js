@@ -1,43 +1,24 @@
 /* eslint-disable no-await-in-loop */
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { test } from 'tape-promise/tape';
-import evaluate, {
-  evaluateExpr,
+import {
   evaluateProgram,
-  makeEvaluators,
-} from '../src/index';
-
-const evaluators = {
-  evaluate,
-  evaluateExpr,
-  evaluateProgram,
-};
+  evaluateBundle,
+} from '../src/index.js';
 
 test('leakage', t => {
   try {
-    for (const [name, myEval] of Object.entries(evaluators)) {
-      t.throws(
-        () => myEval('scopedEval'),
-        ReferenceError,
-        `${name} does not leak`,
-      );
-      t.throws(
-        () => myEval('makeEvaluator'),
-        ReferenceError,
-        `${name} does not leak`,
-      );
-      t.equal(myEval('this'), undefined, `${name} does not leak this`);
-    }
-    t.equal(
-      evaluate('function myName() { return this; }')(),
-      undefined,
-      `evaluate does not leak nested this`,
+    t.throws(
+      () => evaluateProgram('scopedEval'),
+      ReferenceError,
+      `evaluateProgram does not leak`,
     );
-    t.equal(
-      evaluateExpr('function myName() { return this; }')(),
-      undefined,
-      `evaluateExpr does not leak nested this`,
+    t.throws(
+      () => evaluateProgram('makeEvaluator'),
+      ReferenceError,
+      `evaluateProgram does not leak`,
     );
+    t.equal(evaluateProgram('this'), undefined, `evaluateProgram does not leak this`);
     t.equal(
       evaluateProgram('function myName() { return this; }; myName')(),
       undefined,
@@ -69,7 +50,7 @@ test('defaults', async t => {
   }
 });
 
-test('basic', t => {
+test.only('basic', t => {
   try {
     for (const [name, myEval] of Object.entries(evaluators)) {
       t.equal(myEval('1+2'), 3, `${name} addition`);
