@@ -1,4 +1,8 @@
-const enableKDebug = false;
+let enableKDebug = false;
+
+export function kdebugEnable(flag) {
+  enableKDebug = !!flag;
+}
 
 export function kdebug(...args) {
   if (enableKDebug) {
