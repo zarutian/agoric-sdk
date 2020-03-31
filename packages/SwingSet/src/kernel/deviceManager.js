@@ -94,6 +94,7 @@ export default function makeDeviceManager(
       result: null,
     };
     insistMessage(msg);
+    kdebug(`### doSendOnly: send(${target})`);
     send(target, msg);
   }
 

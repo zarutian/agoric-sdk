@@ -22,7 +22,7 @@ import { insistCapData } from '../capdata';
  * @return an extended dispatcher object for the new vat
  */
 function build(syscall, _state, makeRoot, forVatID) {
-  const enableLSDebug = false;
+  const enableLSDebug = true;
   function lsdebug(...args) {
     if (enableLSDebug) {
       console.log(...args);
@@ -32,9 +32,11 @@ function build(syscall, _state, makeRoot, forVatID) {
   // Make a handled Promise that enqueues kernel messages.
   function makeQueued(slot) {
     /* eslint-disable no-use-before-define */
+    lsdebug(`#### makeQueued(${slot})`)
     const handler = {
       applyMethod(_o, prop, args) {
         // Support: o~.[prop](...args) remote method invocation
+        lsdebug(`#### makeQueued handler (${slot})`)
         return queueMessage(slot, prop, args);
       },
     };
@@ -97,7 +99,7 @@ function build(syscall, _state, makeRoot, forVatID) {
 
   function exportPromise(p) {
     const pid = allocatePromiseID();
-    lsdebug(`ls exporting promise ${pid}`);
+    lsdebug(`Promise allocation ${forVatID}:${pid} in exportPromise`);
     // eslint-disable-next-line no-use-before-define
     p.then(thenResolve(pid), thenReject(pid));
     return pid;
@@ -144,6 +146,7 @@ function build(syscall, _state, makeRoot, forVatID) {
 
   function importPromise(vpid) {
     insistVatType('promise', vpid);
+    lsdebug(`%%%% importPromise: makeQueued(${vpid})`);
     const pr = makeQueued(vpid);
 
     importedPromisesByPromiseID.set(vpid, pr);
@@ -166,6 +169,7 @@ function build(syscall, _state, makeRoot, forVatID) {
         // this is a new import value
         // lsdebug(`assigning new import ${slot}`);
         // prepare a Promise for this Presence, so E(val) can work
+        lsdebug(`%%%% convertSlotToVal: makeQueued(${slot})`);
         const pr = makeQueued(slot); // TODO find a less confusing name than "pr"
         const presence = pr.resPres();
         presence.toString = () => `[Presence ${slot}]`;
@@ -191,8 +195,10 @@ function build(syscall, _state, makeRoot, forVatID) {
   function queueMessage(targetSlot, prop, args) {
     const serArgs = m.serialize(harden(args));
     const result = allocatePromiseID();
+    lsdebug(`Promise allocation ${forVatID}:${result} in queueMessage`);
     const done = makeQueued(result);
     lsdebug(`ls.qm send(${JSON.stringify(targetSlot)}, ${prop}) -> ${result}`);
+    lsdebug(`### queueMessage: syscall.send(${targetSlot})`);
     syscall.send(targetSlot, prop, serArgs, result);
 
     // prepare for notifyFulfillToData/etc
@@ -332,10 +338,16 @@ function build(syscall, _state, makeRoot, forVatID) {
   }
 
   function retirePromiseID(promiseID) {
-    importedPromisesByPromiseID.delete(promiseID);
-    const p = slotToVal.get(promiseID);
-    valToSlot.delete(p);
-    slotToVal.delete(promiseID);
+    const enable = true;
+    if (enable) {
+      lsdebug(`Retiring ${forVatID}:${promiseID}`);
+      importedPromisesByPromiseID.delete(promiseID);
+      const p = slotToVal.get(promiseID);
+      valToSlot.delete(p);
+      slotToVal.delete(promiseID);
+    } else {
+      lsdebug(`Retiring ${forVatID}:${promiseID} (not really)`);
+    }
   }
 
   function notifyFulfillToData(promiseID, data) {

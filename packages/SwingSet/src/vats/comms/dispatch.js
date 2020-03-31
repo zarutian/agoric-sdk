@@ -13,6 +13,7 @@ function transmit(syscall, state, remoteID, msg) {
   // the vat-tp "integrity layer" is a regular vat, so it expects an argument
   // encoded as JSON
   const args = harden({ body: JSON.stringify([msg]), slots: [] });
+  kdebug(`### transmit: syscall.send(${transmitterID})`);
   syscall.send(remote.transmitterID, 'transmit', args); // sendOnly
 }
 

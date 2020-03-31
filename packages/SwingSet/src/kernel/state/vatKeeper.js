@@ -145,9 +145,14 @@ export function makeVatKeeper(
   function deleteCListEntry(kernelSlot, vatSlot) {
     const kernelKey = `${vatID}.c.${kernelSlot}`;
     const vatKey = `${vatID}.c.${vatSlot}`;
-    kdebug(`Delete mapping ${kernelKey}<=>${vatKey}`);
-    storage.delete(kernelKey);
-    storage.delete(vatKey);
+    const enable = true;
+    if (enable) {
+      kdebug(`Delete mapping ${kernelKey}<=>${vatKey}`);
+      storage.delete(kernelKey);
+      storage.delete(vatKey);
+    } else {
+      kdebug(`Delete mapping ${kernelKey}<=>${vatKey} (not really)`);
+    }
   }
 
   /**
