@@ -36,7 +36,7 @@ function build(syscall, _state, makeRoot, forVatID) {
     const handler = {
       applyMethod(_o, prop, args) {
         // Support: o~.[prop](...args) remote method invocation
-        lsdebug(`#### makeQueued handler (${slot})`)
+        lsdebug(`#### makeQueued handler.applyMethod (${slot})`)
         return queueMessage(slot, prop, args);
       },
     };
