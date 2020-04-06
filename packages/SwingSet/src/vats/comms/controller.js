@@ -55,7 +55,6 @@ export function deliverToController(
       body: JSON.stringify([rxArg]),
       slots: [receiverID],
     });
-    kdebug(`### doAddRemote: syscall.send(${setReceiverID})`);
     syscall.send(setReceiverID, 'setReceiver', setReceiverArgs);
     // todo: consider, this leaves one message (setReceiver) on the queue,
     // rather than giving the caller of comms!addRemote() something to

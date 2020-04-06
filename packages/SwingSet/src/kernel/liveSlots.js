@@ -32,11 +32,11 @@ function build(syscall, _state, makeRoot, forVatID) {
   // Make a handled Promise that enqueues kernel messages.
   function makeQueued(slot) {
     /* eslint-disable no-use-before-define */
-    lsdebug(`#### makeQueued(${slot})`)
+    lsdebug(`makeQueued(${slot})`)
     const handler = {
       applyMethod(_o, prop, args) {
         // Support: o~.[prop](...args) remote method invocation
-        lsdebug(`#### makeQueued handler.applyMethod (${slot})`)
+        lsdebug(`makeQueued handler.applyMethod (${slot})`)
         return queueMessage(slot, prop, args);
       },
     };
@@ -146,7 +146,6 @@ function build(syscall, _state, makeRoot, forVatID) {
 
   function importPromise(vpid) {
     insistVatType('promise', vpid);
-    lsdebug(`%%%% importPromise: makeQueued(${vpid})`);
     const pr = makeQueued(vpid);
 
     importedPromisesByPromiseID.set(vpid, pr);
@@ -169,7 +168,6 @@ function build(syscall, _state, makeRoot, forVatID) {
         // this is a new import value
         // lsdebug(`assigning new import ${slot}`);
         // prepare a Promise for this Presence, so E(val) can work
-        lsdebug(`%%%% convertSlotToVal: makeQueued(${slot})`);
         const pr = makeQueued(slot); // TODO find a less confusing name than "pr"
         const presence = pr.resPres();
         presence.toString = () => `[Presence ${slot}]`;
@@ -198,7 +196,6 @@ function build(syscall, _state, makeRoot, forVatID) {
     lsdebug(`Promise allocation ${forVatID}:${result} in queueMessage`);
     const done = makeQueued(result);
     lsdebug(`ls.qm send(${JSON.stringify(targetSlot)}, ${prop}) -> ${result}`);
-    lsdebug(`### queueMessage: syscall.send(${targetSlot})`);
     syscall.send(targetSlot, prop, serArgs, result);
 
     // prepare for notifyFulfillToData/etc

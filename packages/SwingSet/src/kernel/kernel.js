@@ -93,7 +93,6 @@ export default function buildKernel(kernelEndowments) {
       // could maybe look up the resolution *now* and set the correct target
       // early. Doing that might make it easier to remove the Promise Table
       // entry earlier.
-      kdebug(`### notifySubscribersAndQueue: send(${kpid})`);
       send(kpid, msg);
     }
   }
@@ -241,7 +240,6 @@ export default function buildKernel(kernelEndowments) {
     const vatSlot = `${what}`;
     parseVatSlot(vatSlot);
     const vat = ephemeral.vats.get(fromVatID);
-    kdebug(`@@@@ addExport: mapVatSlotToKernelSlot(${vatSlot})`);
     return vat.manager.mapVatSlotToKernelSlot(vatSlot);
   }
 
@@ -272,7 +270,6 @@ export default function buildKernel(kernelEndowments) {
     // we use result=null because this will be json stringified
     const msg = harden({ method, args, result: null });
     const kernelSlot = addExport(vatID, vatSlot);
-    kdebug(`### queueToExport: send(${kernelSlot})`);
     send(kernelSlot, msg);
   }
 
@@ -478,7 +475,6 @@ export default function buildKernel(kernelEndowments) {
         },
       }); // marker
       vatObj0s[name] = vref;
-      kdebug(`@@@@ callBootstrap: mapVatSlotToKernelSlot(${vatSlot})`);
       const kernelSlot = manager.mapVatSlotToKernelSlot(vatSlot);
       vrefs.set(vref, kernelSlot);
       console.log(`adding vref ${name} [${vatID}]`);

@@ -30,7 +30,6 @@ export function deliverFromRemote(syscall, state, remoteID, message) {
     if (result.length) {
       r = mapInboundResult(state, remoteID, result);
     }
-    kdebug(`### deliverFromRemote: syscall.send(${target})`);
     syscall.send(target, method, args, r);
     if (r) {
       // syscall.subscribe() happens after the send(), so it doesn't have to

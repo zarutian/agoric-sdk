@@ -110,20 +110,15 @@ export default function makeVatManager(
     assert(`${targetSlot}` === targetSlot, 'non-string targetSlot');
     insistCapData(args);
     // TODO: disable send-to-self for now, qv issue #43
-    kdebug(`@@@@ doSend: mapVatSlotToKernelSlot(${targetSlot})`);
     const target = mapVatSlotToKernelSlot(targetSlot);
     const argList = legibilizeMessageArgs(args).join(', ');
     // prettier-ignore
     kdebug(`syscall[${vatID}].send(vat:${targetSlot}=ker:${target}).${method}(${argList})`);
-    const kernelSlots = args.slots.map(slot => {
-      kdebug(`@@@@ doSend, mapping: mapVatSlotToKernelSlot(${slot})`);
-      return mapVatSlotToKernelSlot(slot);
-    });
+    const kernelSlots = args.slots.map(slot => mapVatSlotToKernelSlot(slot));
     const kernelArgs = harden({ ...args, slots: kernelSlots });
     let result = null;
     if (resultSlot) {
       insistVatType('promise', resultSlot);
-      kdebug(`@@@@ doSend: mapVatSlotToKernelSlot(${resultSlot})`);
       result = mapVatSlotToKernelSlot(resultSlot);
       insistKernelType('promise', result);
       // The promise must be unresolved, and this Vat must be the decider.
@@ -149,12 +144,10 @@ export default function makeVatManager(
       result,
     });
     insistMessage(msg);
-    kdebug(`### doSend: syscallManager.send(${target})`);
     syscallManager.send(target, msg);
   }
 
   function doSubscribe(promiseID) {
-    kdebug(`@@@@ doSubscribe: mapVatSlotToKernelSlot(${promiseID})`);
     const id = mapVatSlotToKernelSlot(promiseID);
     kdebug(`syscall[${vatID}].subscribe(vat:${promiseID}=ker:${id})`);
     if (!kernelKeeper.hasKernelPromise(id)) {
@@ -165,9 +158,7 @@ export default function makeVatManager(
 
   function doFulfillToPresence(promiseID, slot) {
     insistVatType('promise', promiseID);
-    kdebug(`@@@@ doFulfillToPresence: mapVatSlotToKernelSlot(${promiseID})`);
     const kpid = mapVatSlotToKernelSlot(promiseID);
-    kdebug(`@@@@ doFulfillToPresence: mapVatSlotToKernelSlot(${slot})`);
     const targetSlot = mapVatSlotToKernelSlot(slot);
     kdebug(
       `syscall[${vatID}].fulfillToPresence(${promiseID} / ${kpid}) = ${slot} / ${targetSlot})`,
@@ -178,12 +169,8 @@ export default function makeVatManager(
   function doFulfillToData(promiseID, data) {
     insistVatType('promise', promiseID);
     insistCapData(data);
-    kdebug(`@@@@ doFulfillToData: mapVatSlotToKernelSlot(${promiseID})`);
     const kpid = mapVatSlotToKernelSlot(promiseID);
-    const kernelSlots = data.slots.map(slot => {
-      kdebug(`@@@@ doFulfillToData, mapping: mapVatSlotToKernelSlot(${slot})`);
-      return mapVatSlotToKernelSlot(slot);
-    });
+    const kernelSlots = data.slots.map(slot => mapVatSlotToKernelSlot(slot));
     const kernelData = harden({ ...data, slots: kernelSlots });
     kdebug(
       `syscall[${vatID}].fulfillData(${promiseID}/${kpid}) = ${
@@ -196,12 +183,8 @@ export default function makeVatManager(
   function doReject(promiseID, data) {
     insistVatType('promise', promiseID);
     insistCapData(data);
-    kdebug(`@@@@ doReject: mapVatSlotToKernelSlot(${promiseID})`);
     const kpid = mapVatSlotToKernelSlot(promiseID);
-    const kernelSlots = data.slots.map(slot => {
-      kdebug(`@@@@ doReject, mapping: mapVatSlotToKernelSlot(${slot})`);
-      return mapVatSlotToKernelSlot(slot);
-    });
+    const kernelSlots = data.slots.map(slot => mapVatSlotToKernelSlot(slot));
     const kernelData = harden({ ...data, slots: kernelSlots });
     kdebug(
       `syscall[${vatID}].reject(${promiseID}/${kpid}) = ${
@@ -213,16 +196,12 @@ export default function makeVatManager(
 
   function doCallNow(target, method, args) {
     insistCapData(args);
-    kdebug(`@@@@ doCallNow: mapVatSlotToKernelSlot(${target})`);
     const dev = mapVatSlotToKernelSlot(target);
     const { type } = parseKernelSlot(dev);
     if (type !== 'device') {
       throw new Error(`doCallNow must target a device, not ${dev}`);
     }
-    const kernelSlots = args.slots.map(slot => {
-      kdebug(`@@@@ doCallNow, mapping: mapVatSlotToKernelSlot(${slot})`);
-      return mapVatSlotToKernelSlot(slot);
-    });
+    const kernelSlots = args.slots.map(slot => mapVatSlotToKernelSlot(slot));
     const kernelData = harden({ ...args, slots: kernelSlots });
     // prettier-ignore
     kdebug(`syscall[${vatID}].callNow(${target}/${dev}).${method}(${JSON.stringify(args)})`);
