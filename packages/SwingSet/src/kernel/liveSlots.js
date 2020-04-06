@@ -22,7 +22,7 @@ import { insistCapData } from '../capdata';
  * @return an extended dispatcher object for the new vat
  */
 function build(syscall, _state, makeRoot, forVatID) {
-  const enableLSDebug = true;
+  const enableLSDebug = false;
   function lsdebug(...args) {
     if (enableLSDebug) {
       console.log(...args);
