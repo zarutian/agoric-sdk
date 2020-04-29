@@ -57,10 +57,10 @@ export const makeContract = harden(zcf => {
     exit: { afterDeadline: null },
   });
 
-  return harden({
-    invite: zcf.makeInvitation(
+  return harden(
+    zcf.makeInvitation(
       checkHook(makeCallOptionInvite, writeOptionExpected),
       'makeCallOption',
     ),
-  });
+  );
 });

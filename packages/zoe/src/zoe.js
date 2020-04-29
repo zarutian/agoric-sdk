@@ -163,11 +163,7 @@ import { makeTables } from './state';
 /**
  * @callback MakeContract The type exported from a Zoe contract
  * @param {ContractFacet} zcf The Zoe Contract Facet
- * @returns {ContractInstance} The instantiated contract
- *
- * @typedef {Object} ContractInstance
- * @property {Invite} invite The closely-held administrative invite
- * @property {Object.<string,function>} publicAPI Public functions that can be called on the instance
+ * @returns {Invite} invite The closely-held administrative invite
  */
 
 /**
@@ -214,6 +210,7 @@ import { makeTables } from './state';
  * @property {Complete} complete Complete an offer
  * @property {MakeInvitation} makeInvitation
  * @property {AddNewIssuer} addNewIssuer
+ * @property {UpdatePublicAPI} updatePublicAPI
  * @property {() => ZoeService} getZoeService
  * @property {() => Issuer} getInviteIssuer
  * @property {(sparseKeywords: SparseKeywords) => {[Keyword:string]:AmountMath}} getAmountMaths
@@ -290,13 +287,19 @@ import { makeTables } from './state';
  * @param {OfferHandle} offerHandle
  * @returns {OfferOutcome}
  *
- *
  * @callback AddNewIssuer
  * Informs Zoe about an issuer and returns a promise for acknowledging
  * when the issuer is added and ready.
  * @param {Promise<Issuer>|Issuer} issuerP Promise for issuer
  * @param {Keyword} keyword Keyword for added issuer
  * @returns {Promise<IssuerRecord>} Issuer is added and ready
+ *
+ * @callback UpdatePublicAPI
+ * Update the publicAPI for the contract instance, as stored by Zoe in
+ * the instanceRecord.
+ * @param {Object} newPublicAPI - an object whose methods are the API
+ * available to anyone who knows the instanceHandle
+ * @returns {void}
  */
 
 /**
@@ -514,6 +517,9 @@ const makeZoe = (additionalEndowments = {}) => {
           return removePurse(issuerRecord);
         }),
 
+      updatePublicAPI: newPublicAPI =>
+        instanceTable.update(instanceHandle, { publicAPI: newPublicAPI }),
+
       // eslint-disable-next-line no-use-before-define
       getZoeService: () => zoeService,
 
@@ -657,10 +663,7 @@ const makeZoe = (additionalEndowments = {}) => {
           instanceTable.create(instanceRecord, instanceHandle);
           return Promise.resolve()
             .then(_ => installation.makeContract(contractFacet))
-            .then(({ invite, publicAPI }) => {
-              // Once the contract is made, we add the publicAPI to the
-              // contractRecord
-              instanceTable.update(instanceHandle, { publicAPI });
+            .then(invite => {
               return inviteIssuer.isLive(invite).then(success => {
                 assert(
                   success,

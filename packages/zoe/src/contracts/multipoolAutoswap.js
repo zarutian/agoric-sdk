@@ -548,102 +548,101 @@ export const makeContract = harden(
     const makeAddLiquidityInvite = () =>
       zcf.makeInvitation(addLiquidityHook, 'multipool autoswap add liquidity');
 
-    return harden({
-      invite: makeAddLiquidityInvite(),
-      publicAPI: {
-        getBrandKeywordRecord: () => {
-          const { issuerKeywordRecord } = zcf.getInstanceRecord();
-          const brandKeywordRecord = {};
-          Object.entries(issuerKeywordRecord).forEach(([keyword, issuer]) => {
-            const { brand } = zcf.getIssuerRecord(issuer);
-            brandKeywordRecord[keyword] = brand;
-          });
-          return harden(brandKeywordRecord);
-        },
-        getKeywordForBrand: brand => {
-          assert(
-            liquidityTable.has(brand),
-            details`There is no pool for this brand. To create a pool, call 'addPool'`,
-          );
-          return liquidityTable.get(brand).tokenKeyword;
-        },
-        addPool,
-        getPoolAllocation,
-        getLiquidityIssuer: tokenBrand =>
-          liquidityTable.get(tokenBrand).liquidityIssuer,
-        /**
-         * `getCurrentPrice` calculates the result of a trade, given a certain
-         * amount of digital assets in.
-         * @param {object} amountIn - the amount of digital assets to be
-         * sent in
-         */
-        getCurrentPrice: (amountIn, brandOut) => {
-          const brandIn = amountIn.brand;
-          // brandIn could either be the central token brand, or one of
-          // the secondary token brands
-
-          // CentralToken to SecondaryToken
-          if (brandIn === centralTokenBrand) {
-            assert(
-              liquidityTable.has(brandOut),
-              details`brandOut ${brandOut} was not recognized`,
-            );
-            return doGetCurrentPrice(
-              harden({
-                amountIn,
-                keywordIn: CENTRAL_TOKEN,
-                keywordOut: liquidityTable.get(brandOut).tokenKeyword,
-                secondaryBrand: brandOut,
-              }),
-            );
-            // eslint-disable-next-line no-else-return
-          } else if (brandOut === centralTokenBrand) {
-            // SecondaryToken to CentralToken
-            assert(
-              liquidityTable.has(brandIn),
-              details`amountIn brand ${amountIn} was not recognized`,
-            );
-            return doGetCurrentPrice(
-              harden({
-                amountIn,
-                keywordIn: liquidityTable.get(brandIn).tokenKeyword,
-                keywordOut: CENTRAL_TOKEN,
-                secondaryBrand: brandIn,
-              }),
-            );
-          } else {
-            // SecondaryToken to SecondaryToken
-            assert(
-              liquidityTable.has(brandIn) && liquidityTable.has(brandOut),
-              details`amountIn brand ${brandIn} or brandOut ${brandOut} was not recognized`,
-            );
-
-            // We must do two consecutive `doGetCurrentPrice` calls: from
-            // the brandIn to the central token, then from the central
-            // token to the brandOut
-            const centralTokenAmount = doGetCurrentPrice(
-              harden({
-                amountIn,
-                keywordIn: liquidityTable.get(brandIn).tokenKeyword,
-                keywordOut: CENTRAL_TOKEN,
-                secondaryBrand: brandIn,
-              }),
-            );
-            return doGetCurrentPrice(
-              harden({
-                amountIn: centralTokenAmount,
-                keywordIn: CENTRAL_TOKEN,
-                keywordOut: liquidityTable.get(brandOut).tokenKeyword,
-                secondaryBrand: brandOut,
-              }),
-            );
-          }
-        },
-        makeSwapInvite: () => zcf.makeInvitation(swapHook, 'autoswap swap'),
-        makeAddLiquidityInvite,
-        makeRemoveLiquidityInvite: () =>
-          zcf.makeInvitation(removeLiquidityHook, 'autoswap remove liquidity'),
+    zcf.updatePublicAPI({
+      getBrandKeywordRecord: () => {
+        const { issuerKeywordRecord } = zcf.getInstanceRecord();
+        const brandKeywordRecord = {};
+        Object.entries(issuerKeywordRecord).forEach(([keyword, issuer]) => {
+          const { brand } = zcf.getIssuerRecord(issuer);
+          brandKeywordRecord[keyword] = brand;
+        });
+        return harden(brandKeywordRecord);
       },
+      getKeywordForBrand: brand => {
+        assert(
+          liquidityTable.has(brand),
+          details`There is no pool for this brand. To create a pool, call 'addPool'`,
+        );
+        return liquidityTable.get(brand).tokenKeyword;
+      },
+      addPool,
+      getPoolAllocation,
+      getLiquidityIssuer: tokenBrand =>
+        liquidityTable.get(tokenBrand).liquidityIssuer,
+      /**
+       * `getCurrentPrice` calculates the result of a trade, given a certain
+       * amount of digital assets in.
+       * @param {object} amountIn - the amount of digital assets to be
+       * sent in
+       */
+      getCurrentPrice: (amountIn, brandOut) => {
+        const brandIn = amountIn.brand;
+        // brandIn could either be the central token brand, or one of
+        // the secondary token brands
+
+        // CentralToken to SecondaryToken
+        if (brandIn === centralTokenBrand) {
+          assert(
+            liquidityTable.has(brandOut),
+            details`brandOut ${brandOut} was not recognized`,
+          );
+          return doGetCurrentPrice(
+            harden({
+              amountIn,
+              keywordIn: CENTRAL_TOKEN,
+              keywordOut: liquidityTable.get(brandOut).tokenKeyword,
+              secondaryBrand: brandOut,
+            }),
+          );
+          // eslint-disable-next-line no-else-return
+        } else if (brandOut === centralTokenBrand) {
+          // SecondaryToken to CentralToken
+          assert(
+            liquidityTable.has(brandIn),
+            details`amountIn brand ${amountIn} was not recognized`,
+          );
+          return doGetCurrentPrice(
+            harden({
+              amountIn,
+              keywordIn: liquidityTable.get(brandIn).tokenKeyword,
+              keywordOut: CENTRAL_TOKEN,
+              secondaryBrand: brandIn,
+            }),
+          );
+        } else {
+          // SecondaryToken to SecondaryToken
+          assert(
+            liquidityTable.has(brandIn) && liquidityTable.has(brandOut),
+            details`amountIn brand ${brandIn} or brandOut ${brandOut} was not recognized`,
+          );
+
+          // We must do two consecutive `doGetCurrentPrice` calls: from
+          // the brandIn to the central token, then from the central
+          // token to the brandOut
+          const centralTokenAmount = doGetCurrentPrice(
+            harden({
+              amountIn,
+              keywordIn: liquidityTable.get(brandIn).tokenKeyword,
+              keywordOut: CENTRAL_TOKEN,
+              secondaryBrand: brandIn,
+            }),
+          );
+          return doGetCurrentPrice(
+            harden({
+              amountIn: centralTokenAmount,
+              keywordIn: CENTRAL_TOKEN,
+              keywordOut: liquidityTable.get(brandOut).tokenKeyword,
+              secondaryBrand: brandOut,
+            }),
+          );
+        }
+      },
+      makeSwapInvite: () => zcf.makeInvitation(swapHook, 'autoswap swap'),
+      makeAddLiquidityInvite,
+      makeRemoveLiquidityInvite: () =>
+        zcf.makeInvitation(removeLiquidityHook, 'autoswap remove liquidity'),
     });
+
+    return makeAddLiquidityInvite();
   },
 );

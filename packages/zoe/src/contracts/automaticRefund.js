@@ -22,11 +22,12 @@ export const makeContract = harden(zcf => {
   const makeRefundInvite = () =>
     zcf.makeInvitation(refundOfferHook, 'getRefund');
 
-  return harden({
-    invite: makeRefundInvite(),
-    publicAPI: {
+  zcf.updatePublicAPI(
+    harden({
       getOffersCount: () => offersCount,
       makeInvite: makeRefundInvite,
-    },
-  });
+    }),
+  );
+
+  return harden(makeRefundInvite());
 });

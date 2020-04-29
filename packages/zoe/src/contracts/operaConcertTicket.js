@@ -177,9 +177,8 @@ export const makeContract = harden(zcf => {
           give: { Money: null },
         });
 
-        return harden({
-          invite: zcf.makeInvitation(auditoriumOfferHook, 'auditorium'),
-          publicAPI: {
+        zcf.updatePublicAPI(
+          harden({
             makeBuyerInvite: () =>
               zcf.makeInvitation(
                 checkHook(buyTicketOfferHook, buyTicketExpected),
@@ -193,8 +192,10 @@ export const makeContract = harden(zcf => {
               return zcf.getCurrentAllocation(auditoriumOfferHandle).Ticket
                 .extent;
             },
-          },
-        });
+          }),
+        );
+
+        return zcf.makeInvitation(auditoriumOfferHook, 'auditorium');
       });
   });
 });
