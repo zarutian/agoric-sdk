@@ -548,7 +548,7 @@ export const makeContract = harden(
     const makeAddLiquidityInvite = () =>
       zcf.makeInvitation(addLiquidityHook, 'multipool autoswap add liquidity');
 
-    zcf.updatePublicAPI({
+    zcf.initPublicAPI({
       getBrandKeywordRecord: () => {
         const { issuerKeywordRecord } = zcf.getInstanceRecord();
         const brandKeywordRecord = {};

@@ -272,7 +272,7 @@ export const makeContract = harden(zcf => {
           'autoswap add liquidity',
         );
 
-      zcf.updatePublicAPI(
+      zcf.initPublicAPI(
         harden({
           /**
            * `getCurrentPrice` calculates the result of a trade, given a certain amount
@@ -324,7 +324,7 @@ export const makeContract = harden(zcf => {
         }),
       );
 
-      return harden(makeAddLiquidityInvite());
+      return makeAddLiquidityInvite();
     });
   });
 });

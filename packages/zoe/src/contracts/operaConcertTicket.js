@@ -177,7 +177,7 @@ export const makeContract = harden(zcf => {
           give: { Money: null },
         });
 
-        zcf.updatePublicAPI(
+        zcf.initPublicAPI(
           harden({
             makeBuyerInvite: () =>
               zcf.makeInvitation(

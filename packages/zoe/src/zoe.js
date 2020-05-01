@@ -210,7 +210,7 @@ import { makeTables } from './state';
  * @property {Complete} complete Complete an offer
  * @property {MakeInvitation} makeInvitation
  * @property {AddNewIssuer} addNewIssuer
- * @property {UpdatePublicAPI} updatePublicAPI
+ * @property {InitPublicAPI} initPublicAPI
  * @property {() => ZoeService} getZoeService
  * @property {() => Issuer} getInviteIssuer
  * @property {(sparseKeywords: SparseKeywords) => {[Keyword:string]:AmountMath}} getAmountMaths
@@ -517,8 +517,14 @@ const makeZoe = (additionalEndowments = {}) => {
           return removePurse(issuerRecord);
         }),
 
-      updatePublicAPI: newPublicAPI =>
-        instanceTable.update(instanceHandle, { publicAPI: newPublicAPI }),
+      initPublicAPI: newPublicAPI => {
+        const { publicAPI } = instanceTable.get(instanceHandle);
+        assert(
+          publicAPI === undefined,
+          details`the publicAPI has already been initialized`,
+        );
+        instanceTable.update(instanceHandle, { publicAPI: newPublicAPI });
+      },
 
       // eslint-disable-next-line no-use-before-define
       getZoeService: () => zoeService,

@@ -2,7 +2,7 @@ import harden from '@agoric/harden';
 
 export const makeContract = zcf => {
   const invite = zcf.makeInvitation(() => {}, 'tester');
-  zcf.updatePublicAPI(
+  zcf.initPublicAPI(
     harden({
       doTest: () => {
         new Array(1e7).map(Object.create);

@@ -136,12 +136,12 @@ export const makeContract = harden(
     const makeExchangeInvite = () =>
       zcf.makeInvitation(exchangeOfferHook, 'exchange');
 
-    zcf.updatePublicAPI({
+    zcf.initPublicAPI({
       makeInvite: makeExchangeInvite,
       getOffer,
       getNotifier: () => notifier,
     });
 
-    return harden(makeExchangeInvite());
+    return makeExchangeInvite();
   },
 );

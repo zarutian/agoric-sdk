@@ -71,7 +71,7 @@ export const makeContract = harden(zcf => {
     // A function for making invites to this contract
     const makeInvite = () => zcf.makeInvitation(offerHook, 'mint a payment');
 
-    zcf.updatePublicAPI(
+    zcf.initPublicAPI(
       harden({
         // provide a way for anyone who knows the instanceHandle of
         // the contract to make their own invite.
@@ -83,6 +83,6 @@ export const makeContract = harden(zcf => {
     );
     // return an invite to the creator of the contract instance
     // through Zoe
-    return harden(makeInvite());
+    return makeInvite();
   });
 });

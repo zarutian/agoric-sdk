@@ -96,7 +96,7 @@ export const makeContract = harden(zcf => {
       'sellAssets',
     );
 
-  zcf.updatePublicAPI(
+  zcf.initPublicAPI(
     harden({
       makeInvites: numInvites => {
         if (auctionedAssets === undefined) {
@@ -113,5 +113,5 @@ export const makeContract = harden(zcf => {
     }),
   );
 
-  return harden(makeSellerInvite());
+  return makeSellerInvite();
 });
