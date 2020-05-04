@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@master
+    - name: Save Git revision
+      run: git log -1 --format='%H' > packages/cosmic-swingset/lib/git-revision.txt
     - name: Build Go dependencies image
       uses: elgohr/Publish-Docker-Github-Action@master
       with:
@@ -65,6 +67,22 @@ jobs:
         name: agoric/cosmic-swingset-solo
         dockerfile: packages/cosmic-swingset/lib/ag-solo/Dockerfile
         context: packages/cosmic-swingset/lib/ag-solo
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        snapshot: true
+        tags: latest
+
+  docker-pserver:
+    needs: docker-sdk
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Build ag-pserver image
+      uses: elgohr/Publish-Docker-Github-Action@master
+      with:
+        name: agoric/cosmic-swingset-pserver
+        dockerfile: packages/cosmic-swingset/provisioning-server/Dockerfile
+        context: packages/cosmic-swingset/provisioning-server
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
         snapshot: true
