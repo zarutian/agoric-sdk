@@ -15,11 +15,10 @@ import {
 } from './cleanProposal';
 import {
   arrayToObj,
-  objToArray,
-  objToArrayAssertFilled,
   filterObj,
   filterFillAmounts,
   assertSubset,
+  filterObjOkIfMissing,
 } from './objArrayConversion';
 import { isOfferSafeForOffer } from './offerSafety';
 import { areRightsConserved } from './rightsConservation';
@@ -321,6 +320,7 @@ import { makeTables } from './state';
 const makeZoe = (additionalEndowments = {}) => {
   // Zoe maps the inviteHandles to contract offerHook upcalls
   const inviteHandleToOfferHook = makeStore();
+
   const {
     mint: inviteMint,
     issuer: inviteIssuer,
@@ -334,7 +334,11 @@ const makeZoe = (additionalEndowments = {}) => {
     offerTable,
     payoutMap,
     issuerTable,
+    brandToIssuerMap,
   } = makeTables();
+
+  const getAmountMathForBrand = brand =>
+    issuerTable.get(brandToIssuerMap.get(brand)).amountMath;
 
   /**
    * @param {InstanceHandle} instanceHandle
@@ -347,22 +351,18 @@ const makeZoe = (additionalEndowments = {}) => {
     }
     const offerRecords = offerTable.getOffers(offerHandles);
 
-    const { issuerKeywordRecord } = instanceTable.get(instanceHandle);
-
     // Remove the offers from the offerTable so that they are no
     // longer active.
     offerTable.deleteOffers(offerHandles);
 
     // Resolve the payout promises with promises for the payouts
-    const pursePKeywordRecord = issuerTable.getPurseKeywordRecord(
-      issuerKeywordRecord,
-    );
     for (const offerRecord of offerRecords) {
       const payout = {};
       Object.keys(offerRecord.currentAllocation).forEach(keyword => {
-        payout[keyword] = E(pursePKeywordRecord[keyword]).withdraw(
-          offerRecord.currentAllocation[keyword],
-        );
+        const newAllocation = offerRecord.currentAllocation[keyword];
+        const { brand } = newAllocation;
+        const { purse } = issuerTable.get(brandToIssuerMap.get(brand));
+        payout[keyword] = E(purse).withdraw(newAllocation);
       });
       harden(payout);
       payoutMap.get(offerRecord.handle).resolve(payout);
@@ -440,7 +440,23 @@ const makeZoe = (additionalEndowments = {}) => {
      * @type {ContractFacet}
      */
     const contractFacet = harden({
-      reallocate: (offerHandles, newAllocations, sparseKeywords) => {
+      // reallocate takes two parallel arrays: offerHandles and newAllocations.
+      // In addition, sparseKeywords may be provided or may be empty.
+      // Each of the rows in newAllocations gives a collection of keyword-amount
+      // pairs where the amount should replace the old amount for that keyword.
+      // The reallocation will only succeed if the amounts specified have the
+      // same total value as the current total amount for those keywords on
+      // those offers, and 'offer safety' continues to be satisfied. The amounts
+      // for those brands on other keywords don't need to be compared.
+      // If sparseKeywords is a single array of keywords, only
+      // amounts for those keywords will be updated across all the
+      // newAllocations, and any other keyword will retain its current
+      // allocation. If sparseKeywords is an Array of Arrays, then it must be
+      // the same length as offerHandles, and each row will be applied
+      // separately to the respective current and newAllocations. If
+      // sparseKeywords is undefined, then newAllocations will represent a
+      // complete set of replacement values for the current allocations.
+      reallocate: (offerHandles, newAllocations, sparseKeywordsIn) => {
         assertOffersHaveInstanceHandle(offerHandles, instanceHandle);
         // We may want to handle this with static checking instead.
         // Discussion at: https://github.com/Agoric/agoric-sdk/issues/1017
@@ -448,76 +464,70 @@ const makeZoe = (additionalEndowments = {}) => {
           offerHandles.length >= 2,
           details`reallocating must be done over two or more offers`,
         );
-
-        // Set sparseKeywords if undefined.
-        const { issuerKeywordRecord } = instanceTable.get(instanceHandle);
-        const allKeywords = getKeywords(issuerKeywordRecord);
-        if (sparseKeywords === undefined) {
-          sparseKeywords = allKeywords;
-        }
-
-        // 1) ensure that rights are conserved overall
-        const amountMathKeywordRecord = contractFacet.getAmountMaths(
-          sparseKeywords,
-        );
-        const amountMathsArray = objToArray(
-          amountMathKeywordRecord,
-          sparseKeywords,
-        );
-        const currentAmountMatrix = offerHandles.map(handle => {
-          const filteredAmounts = contractFacet.getCurrentAllocation(
-            handle,
-            sparseKeywords,
-          );
-          return objToArray(filteredAmounts, sparseKeywords);
-        });
-        const newAmountMatrix = newAllocations.map(amountObj =>
-          objToArrayAssertFilled(amountObj, sparseKeywords),
-        );
         assert(
-          areRightsConserved(
-            amountMathsArray,
-            currentAmountMatrix,
-            newAmountMatrix,
-          ),
-          details`Rights are not conserved in the proposed reallocation`,
+          offerHandles.length === newAllocations.length,
+          details`reallocate() must have the same number of newAllocations as offers`,
         );
 
-        // 2) Ensure 'offer safety' for each offer separately.
+        const checkRightsConservation = () => {
+          const { issuerKeywordRecord } = instanceTable.get(instanceHandle);
+          const allKeywords = getKeywords(issuerKeywordRecord);
+          const sparseKeywords = sparseKeywordsIn || allKeywords;
+          const sparseKeywordsPerOffer = Array.isArray(sparseKeywords[0]);
+          assert(
+            !sparseKeywordsPerOffer ||
+              offerHandles.length === sparseKeywords.length,
+            details`reallocate() must have the same number of keywords as offers`,
+          );
 
-        // Make the potential reallocation and test for offer safety
-        // by comparing the potential reallocation to the proposal.
-        const makePotentialReallocation = (
+          // collect current amounts for the desired keywords.
+          const currentAllocations = [];
+          for (let i = 0; i < offerHandles.length; i += 1) {
+            // If no sparseKeywords or a single-level array was specified, use
+            // allKeywords for all. Otherwise, use a distinct mapping per row.
+            const offerKeywords = sparseKeywordsPerOffer
+              ? sparseKeywords[i]
+              : sparseKeywords;
+            // getCurrentAllocation() uses global keywords to find amountMaths.
+            // We have to pull the allocations out of offerTable individually.
+            const { currentAllocation } = offerTable.get(offerHandles[i]);
+            currentAllocations.push(
+              filterObjOkIfMissing(currentAllocation, offerKeywords),
+            );
+          }
+          assert(
+            areRightsConserved(
+              newAllocations,
+              currentAllocations,
+              getAmountMathForBrand,
+            ),
+            details`New allocation must equal current allocation.`,
+          );
+        };
+        checkRightsConservation();
+
+        const makeReallocationForOffer = (
           offerHandle,
           sparseKeywordsAllocation,
         ) => {
           const { proposal, currentAllocation } = offerTable.get(offerHandle);
-          const potentialReallocation = harden({
+          const reallocation = harden({
             ...currentAllocation,
             ...sparseKeywordsAllocation,
           });
-          const proposalKeywords = [
-            ...getKeywords(proposal.want),
-            ...getKeywords(proposal.give),
-          ];
+          // Ensure 'offer safety' for each reallocation separately.
           assert(
-            isOfferSafeForOffer(
-              contractFacet.getAmountMaths(proposalKeywords),
-              proposal,
-              potentialReallocation,
-            ),
-            details`The proposed reallocation was not offer safe`,
+            isOfferSafeForOffer(getAmountMathForBrand, proposal, reallocation),
+            details`The reallocation was not offer safe`,
           );
-
-          // The reallocation passes the offer safety check
-          return potentialReallocation;
+          return reallocation;
         };
 
+        // Make the reallocation and test for offer safety by comparing the
+        // reallocation to the original proposal.
         const reallocations = offerHandles.map((offerHandle, i) =>
-          makePotentialReallocation(offerHandle, newAllocations[i]),
+          makeReallocationForOffer(offerHandle, newAllocations[i]),
         );
-
-        // 3) save the reallocation
         offerTable.updateAmounts(offerHandles, reallocations);
       },
 
@@ -566,6 +576,7 @@ const makeZoe = (additionalEndowments = {}) => {
             ...issuerKeywordRecord,
             [keyword]: issuerRecord.issuer,
           };
+          brandToIssuerMap.init(issuerRecord.brand, issuerRecord.issuer);
           instanceTable.update(instanceHandle, {
             issuerKeywordRecord: newIssuerKeywordRecord,
           });
@@ -670,8 +681,8 @@ const makeZoe = (additionalEndowments = {}) => {
        * other information, such as the terms used in the instance.
        * @param  {object} installationHandle - the unique handle for the
        * installation
-       * @param  {object} issuerKeywordRecord - optional, a record mapping keyword keys to
-       * issuer values
+       * @param {Object.<string,Issuer>} issuerKeywordRecord - a record mapping
+       * keyword keys to issuer values
        * @param  {object} terms - optional, arguments to the contract. These
        * arguments depend on the contract.
        */
@@ -687,14 +698,21 @@ const makeZoe = (additionalEndowments = {}) => {
         const { installation } = installationTable.get(installationHandle);
         const instanceHandle = harden({});
         const contractFacet = makeContractFacet(instanceHandle);
-
         const cleanedKeywords = cleanKeywords(issuerKeywordRecord);
         const issuersP = cleanedKeywords.map(
           keyword => issuerKeywordRecord[keyword],
         );
+        // Rather than storing a mapping from global keywords to issuers, we'll
+        // map brands to keywords. This means Zoe won't have a global unique
+        // mapping of keywords across offers, but it doesn't need to.
 
         const makeInstanceRecord = issuerRecords => {
-          const issuers = issuerRecords.map(record => record.issuer);
+          const issuers = issuerRecords.map(record => {
+            if (!brandToIssuerMap.has(record.brand)) {
+              brandToIssuerMap.init(record.brand, record.issuer);
+            }
+            return record.issuer;
+          });
           const cleanedIssuerKeywordRecord = arrayToObj(
             issuers,
             cleanedKeywords,
@@ -752,14 +770,16 @@ const makeZoe = (additionalEndowments = {}) => {
        * outcome promise.
        * @param {Invite} invite - an invite (ERTP payment) to join a
        * Zoe smart contract instance
-       * @param  {object?} proposal - the proposal, a record
+       * @param  {Proposal?} proposal - the proposal, a record
        * with properties `want`, `give`, and `exit`. The keys of
        * `want` and `give` are keywords and the values are amounts.
-       * @param  {object?} paymentKeywordRecord - a record with keyword
-       * keys and values which are payments that will be escrowed by Zoe.
+       * @param  {Object.<string,Payment>} paymentKeywordRecord - a record with
+       * keyword keys and values which are payments that will be escrowed by
+       * Zoe.
        *
-       * The default arguments are so that remote invocations don't
-       * have to specify empty objects (which get marshaled as presences).
+       * The default arguments allow remote invocations to specify empty
+       * objects. Otherwise, explicitly-provided empty objects would be
+       * marshaled as presences.
        */
       offer: (
         invite,
@@ -771,51 +791,74 @@ const makeZoe = (additionalEndowments = {}) => {
             inviteAmount.extent.length === 1,
             'only one invite should be redeemed',
           );
+          const giveKeywords = proposal.give
+            ? Object.getOwnPropertyNames(proposal.give)
+            : [];
+          const wantKeywords = proposal.want
+            ? Object.getOwnPropertyNames(proposal.want)
+            : [];
+          const userKeywords = harden([...giveKeywords, ...wantKeywords]);
 
           const {
             extent: [{ instanceHandle, handle: inviteHandle }],
           } = inviteAmount;
-          const { issuerKeywordRecord } = instanceTable.get(instanceHandle);
           const offerHandle = harden({});
 
-          const amountMathKeywordRecord = getAmountMaths(
-            instanceHandle,
-            getKeywords(issuerKeywordRecord),
-          );
+          const amountMathKeywordRecord = {};
+          giveKeywords.forEach(keyword => {
+            const amountMath = getAmountMathForBrand(
+              proposal.give[keyword].brand,
+            );
+            amountMathKeywordRecord[keyword] = amountMath;
+          });
+          wantKeywords.forEach(keyword => {
+            const amountMath = getAmountMathForBrand(
+              proposal.want[keyword].brand,
+            );
+            amountMathKeywordRecord[keyword] = amountMath;
+          });
 
           proposal = cleanProposal(
-            issuerKeywordRecord,
+            userKeywords,
             amountMathKeywordRecord,
             proposal,
           );
 
           // Promise flow:
           // issuer -> purse -> deposit payment -> offerHook -> payout
-          const giveKeywords = Object.getOwnPropertyNames(proposal.give);
-          const wantKeywords = Object.getOwnPropertyNames(proposal.want);
-          const userKeywords = harden([...giveKeywords, ...wantKeywords]);
           const paymentDepositedPs = userKeywords.map(keyword => {
-            const issuer = issuerKeywordRecord[keyword];
-            const issuerRecordP = issuerTable.getPromiseForIssuerRecord(issuer);
-            return issuerRecordP.then(({ purse }) => {
-              if (giveKeywords.includes(keyword)) {
-                // We cannot trust the returned amount since it comes directly
-                // from the remote issuer. So we use our cleaned proposal's
-                // amount that should be the same.
-                return E(purse)
-                  .deposit(
-                    paymentKeywordRecord[keyword],
-                    proposal.give[keyword],
-                  )
-                  .then(_ => proposal.give[keyword]);
-              }
-              // If any other payments are included, they are ignored.
-              return Promise.resolve(
-                amountMathKeywordRecord[keyword].getEmpty(),
-              );
-            });
+            if (giveKeywords.includes(keyword)) {
+              const issuer = brandToIssuerMap.get(proposal.give[keyword].brand);
+              return issuerTable
+                .getPromiseForIssuerRecord(issuer)
+                .then(({ purse }) => {
+                  // We cannot trust the returned amount since it comes directly
+                  // from the remote issuer. So we use our cleaned proposal's
+                  // amount that should be the same.
+                  return E(purse)
+                    .deposit(
+                      paymentKeywordRecord[keyword],
+                      proposal.give[keyword],
+                    )
+                    .then(_ => proposal.give[keyword]);
+                });
+              // eslint-disable-next-line no-else-return
+            } else {
+              // payments outside the give: clause are ignored.
+              return getAmountMathForBrand(
+                proposal.want[keyword].brand,
+              ).getEmpty();
+            }
           });
 
+          // recordOffer() creates and stores an offerImmutableRecord in the
+          // offerTable. The allocations are according to the keywords in the
+          // offer's proposal, which are not required to match anything in the
+          // issuerKeywordRecord that was used to instantiate the contract.
+          // recordOffer is called on amountsArray, which includes amounts for
+          // all the keywords in the proposal. Keywords which were in the give
+          // clause are mapped to the amount deposited. Any others are mapped to
+          // the empty amount for the keyword's Issuer in the want clause.
           const recordOffer = amountsArray => {
             const notifierRec = produceNotifier();
             const offerImmutableRecord = {
@@ -888,6 +931,7 @@ const makeZoe = (additionalEndowments = {}) => {
       isOfferActive: offerTable.isOfferActive,
       getOffers: offerHandles =>
         offerTable.getOffers(offerHandles).map(removeAmountsAndNotifier),
+      getAmountMathForBrand,
       getOffer: offerHandle =>
         removeAmountsAndNotifier(offerTable.get(offerHandle)),
       getCurrentAllocation: (offerHandle, sparseKeywords) => {

@@ -1,63 +1,65 @@
-/**
- * Transpose an array of arrays
- * @param {matrix} matrix
- */
-// https://stackoverflow.com/questions/17428587/transposing-a-2d-array-in-javascript/41772644#41772644
-const transpose = matrix =>
-  matrix.reduce(
-    (acc, row) => row.map((_, i) => [...(acc[i] || []), row[i]]),
-    [],
-  );
+import { assert, details } from '@agoric/assert';
 
-/**
- * The columns in an `amount` matrix are per issuer, and the rows
- * are per offer. We want to transpose the matrix such that each
- * row is per issuer so we can do 'with' on the array to get a total
- * per issuer and make sure the rights are conserved.
- * @param  {amountMath[]} amountMathArray - an array of amountMath per issuer
- * @param  {amount[][]} amountMatrix - an array of arrays with a row per
- * offer indexed by issuer
- */
-const sumByIssuer = (amountMathArray, amountMatrix) =>
-  transpose(amountMatrix).map((amountPerIssuer, i) =>
-    amountPerIssuer.reduce(
-      amountMathArray[i].add,
-      amountMathArray[i].getEmpty(),
-    ),
-  );
+function extractByBrand(allocations) {
+  const amountByBrand = new Map();
 
-/**
- * Does the left array of summed amount equal the right array of
- * summed amount?
- * @param  {amountMath[]} amountMathArray - an array of amountMath per issuer
- * @param  {amount[]} leftAmounts- an array of total amount per issuer
- * @param  {amount[]} rightAmounts - an array of total amount per issuer
- * indexed by issuer
- */
-const isEqualPerIssuer = (amountMathArray, leftAmounts, rightAmounts) =>
-  leftAmounts.every((leftAmount, i) =>
-    amountMathArray[i].isEqual(leftAmount, rightAmounts[i]),
-  );
+  function appendAmountByBrand(amount) {
+    if (!amount) {
+      return;
+    }
+    const { brand } = amount;
+    const cur = amountByBrand.get(brand);
+    if (cur) {
+      cur.push(amount);
+    } else {
+      amountByBrand.set(brand, [amount]);
+    }
+  }
+
+  for (let i = 0; i < allocations.length; i += 1) {
+    const allocation = allocations[i];
+    Object.getOwnPropertyNames(allocation).forEach(keyword =>
+      appendAmountByBrand(allocation[keyword]),
+    );
+  }
+  return amountByBrand;
+}
 
 /**
  * `areRightsConserved` checks that the total amount per issuer stays
  * the same regardless of the reallocation.
- * @param  {amountMath[]} amountMathArray - an array of amountMath per issuer
- * @param  {amount[][]} previousAmountsMatrix - array of arrays where a row
- * is the array of amount for a particular offer, per
- * issuer
- * @param  {amount[][]} newAmountsMatrix - array of arrays where a row
- * is the array of reallocated amount for a particular offer, per
- * issuer
+ * @param  {amountKeywordRecord[]} prevAllocations - An array of
+ * amountKeywordRecords - objects with keyword keys and amount values, with one
+ * keywordRecord per offerHandle.
+ * @param  {amountKeywordRecord[]} newAllocations - An array of
+ * amountKeywordRecords - objects with keyword keys and amount values, with one
+ * keywordRecord per offerHandle.
+ * @param  {function} getAmountMath - a function that takes a brand and returns
+ * the appropriate amountMath
  */
-function areRightsConserved(
-  amountMathArray,
-  previousAmountsMatrix,
-  newAmountsMatrix,
-) {
-  const sumsPrevAmounts = sumByIssuer(amountMathArray, previousAmountsMatrix);
-  const sumsNewAmounts = sumByIssuer(amountMathArray, newAmountsMatrix);
-  return isEqualPerIssuer(amountMathArray, sumsPrevAmounts, sumsNewAmounts);
+function areRightsConserved(prevAllocations, newAllocations, getAmountMath) {
+  const prevAmountsByBrand = extractByBrand(prevAllocations);
+  const newAmountsByBrand = extractByBrand(newAllocations);
+  // We assert the sizes are the same and will later enumerate one and expect
+  // everything in it to be in the other.
+  assert(
+    prevAmountsByBrand.size === newAmountsByBrand.size,
+    details`new allocation must have same keys as current`,
+  );
+
+  for (const key of prevAmountsByBrand.keys()) {
+    if (prevAmountsByBrand.get(key).length === 0) {
+      return true;
+    }
+    const amountMath = getAmountMath(prevAmountsByBrand.get(key)[0].brand);
+    const sumRows = rows => rows.reduce(amountMath.add, amountMath.getEmpty());
+    const prevTotal = sumRows(prevAmountsByBrand.get(key));
+    const newTotal = sumRows(newAmountsByBrand.get(key));
+    if (!amountMath.isEqual(prevTotal, newTotal)) {
+      return false;
+    }
+  }
+  return true;
 }
 
-export { areRightsConserved, transpose };
+export { areRightsConserved };
