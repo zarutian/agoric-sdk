@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import { Command } from 'commander';
 
 const DEFAULT_DAPP_TEMPLATE = 'dapp-encouragement';
@@ -7,7 +6,7 @@ const DEFAULT_DAPP_URL_BASE = 'git://github.com/Agoric/';
 const STAMP = '_agstate';
 
 const main = async (progname, rawArgs, powers) => {
-  const { anylogger, stdout, fs } = powers;
+  const { anylogger, fs, spawn } = powers;
   const log = anylogger('agoric');
 
   const isNotBasedir = async () => {
@@ -42,6 +41,15 @@ const main = async (progname, rawArgs, powers) => {
 
   // Add each of the commands.
   program
+    .command('cosmos <command...>')
+    .description('client for an Agoric Cosmos chain')
+    .action(async (command, cmd) => {
+      const opts = {...program.opts(), ...cmd.opts()};
+      const mod = await import('./cosmos');
+      return subMain(mod.default, ['cosmos', ...command], opts);
+    });
+
+  program
     .command('init <project>')
     .description('create a new Dapp directory named <project>')
     .option('--dapp-template <name>', 'use the template specified by <name>', DEFAULT_DAPP_TEMPLATE)
@@ -62,7 +70,6 @@ const main = async (progname, rawArgs, powers) => {
       return subMain(mod.default, ['install'], opts);
     });
 
-
   program
     .command('deploy <script...>')
     .description('run a deployment script against the local Agoric VM')
@@ -72,7 +79,7 @@ const main = async (progname, rawArgs, powers) => {
       const mod = await import('./deploy');
       return subMain(mod.default, ['deploy', ...scripts], opts);
     });
-  
+
   program
     .command('start [profile] [args...]')
     .description('run an Agoric VM')
@@ -91,6 +98,12 @@ const main = async (progname, rawArgs, powers) => {
 
   // Throw an error instead of exiting directly.
   program.exitOverride();
+
+  // Hack: cosmos arguments are always unparsed.
+  const cosmosIndex = rawArgs.indexOf('cosmos');
+  if (cosmosIndex >= 0) {
+    rawArgs.splice(cosmosIndex + 1, 0, '--');
+  }
 
   try {
     await program.parseAsync(rawArgs, { from: 'user' });

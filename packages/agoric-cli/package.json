@@ -19,8 +19,7 @@
   "devDependencies": {
     "tap-spec": "^5.0.0",
     "tape": "^4.11.0",
-    "tape-promise": "^4.0.0",
-    "tmp": "^0.1.0"
+    "tape-promise": "^4.0.0"
   },
   "dependencies": {
     "@agoric/bundle-source": "^1.1.4",
@@ -28,11 +27,13 @@
     "@agoric/evaluate": "^2.2.5",
     "@agoric/eventual-send": "^0.9.1",
     "@agoric/produce-promise": "^0.1.1",
+    "@agoric/swing-store-simple": "^0.2.1",
     "anylogger": "^0.21.0",
     "builtin-modules": "^3.1.0",
     "chalk": "^2.4.2",
     "commander": "^5.0.0",
     "esm": "^3.2.25",
+    "tmp": "^0.1.0",
     "ws": "^7.2.0"
   },
   "keywords": [],
