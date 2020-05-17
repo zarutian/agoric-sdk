@@ -26,9 +26,9 @@
   },
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
   "dependencies": {
-    "@agoric/assert": "^0.0.7",
+    "@agoric/assert": "^0.1.7",
     "@agoric/harden": "^0.0.8",
-    "@agoric/sparse-ints": "^0.0.6"
+    "@agoric/sparse-ints": "^0.1.6"
   },
   "devDependencies": {
     "esm": "^3.2.25",

@@ -28,13 +28,13 @@
   },
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
   "dependencies": {
-    "@agoric/assert": "^0.0.7",
+    "@agoric/assert": "^0.1.7",
     "@agoric/ertp": "^0.5.5",
     "@agoric/evaluate": "^2.2.6",
     "@agoric/harden": "^0.0.8",
     "@agoric/nat": "^2.0.1",
     "@agoric/produce-promise": "^0.1.2",
-    "@agoric/same-structure": "^0.0.7",
+    "@agoric/same-structure": "^0.1.7",
     "@agoric/store": "^0.1.2",
     "@agoric/transform-metering": "^1.2.5"
   },

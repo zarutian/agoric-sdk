@@ -17,6 +17,9 @@ jobs:
       with:
         node-version: '12.16.1'
 
+    - name: check-mismatched-dependencies
+      run: node ./scripts/check-mismatched-dependencies.js
+
     # FIXME: Reenable after 2020-04-01 when Github cache doesn't take forever.
     #- name: cache node modules
     #  uses: actions/cache@v1

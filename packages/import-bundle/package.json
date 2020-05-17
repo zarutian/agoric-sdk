@@ -1,6 +1,6 @@
 {
   "name": "@agoric/import-bundle",
-  "version": "0.0.7",
+  "version": "0.1.7",
   "description": "load modules created by @agoric/bundle-source",
   "main": "src/index.js",
   "module": "src/index.js",
@@ -14,7 +14,7 @@
     "lint-check": "eslint '**/*.js'"
   },
   "dependencies": {
-    "ses-adapter": "^0.0.7"
+    "ses-adapter": "^0.1.7"
   },
   "devDependencies": {
     "@agoric/bundle-source": "^1.1.5",

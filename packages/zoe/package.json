@@ -32,7 +32,7 @@
   },
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
   "dependencies": {
-    "@agoric/assert": "^0.0.7",
+    "@agoric/assert": "^0.1.7",
     "@agoric/ertp": "^0.5.5",
     "@agoric/evaluate": "^2.2.6",
     "@agoric/eventual-send": "^0.9.2",
@@ -41,9 +41,9 @@
     "@agoric/nat": "^2.0.1",
     "@agoric/notifier": "^0.1.2",
     "@agoric/produce-promise": "^0.1.2",
-    "@agoric/same-structure": "^0.0.7",
+    "@agoric/same-structure": "^0.1.7",
     "@agoric/transform-metering": "^1.2.5",
-    "@agoric/weak-store": "^0.0.7"
+    "@agoric/weak-store": "^0.1.7"
   },
   "devDependencies": {
     "@agoric/bundle-source": "^1.1.5",
