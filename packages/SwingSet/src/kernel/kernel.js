@@ -393,6 +393,7 @@ export default function buildKernel(kernelEndowments) {
       } else {
         throw Error(`unable to process message.type ${message.type}`);
       }
+      kernelKeeper.saveStats();
       commitCrank();
       kernelKeeper.incrementCrankNumber();
     } finally {
@@ -721,9 +722,11 @@ export default function buildKernel(kernelEndowments) {
           `replayTranscript added run-queue entries, wasn't supposed to`,
         );
       }
+      kernelKeeper.loadStats();
     }
 
     kernelKeeper.setInitialized();
+    kernelKeeper.saveStats();
     commitCrank(); // commit "crank 0"
     kernelKeeper.incrementCrankNumber();
   }
@@ -769,6 +772,9 @@ export default function buildKernel(kernelEndowments) {
       ephemeral.log.push(`${str}`);
     },
 
+    getStats() {
+      return kernelKeeper.getStats();
+    },
     dump() {
       // note: dump().log is not deterministic, since log() does not go
       // through the syscall interface (and we replay transcripts one vat at

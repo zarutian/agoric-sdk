@@ -126,6 +126,8 @@ export default function makeVatManager(
   function doSend(targetSlot, method, args, resultSlot) {
     assert(`${targetSlot}` === targetSlot, 'non-string targetSlot');
     insistCapData(args);
+    kernelKeeper.incStat('syscalls');
+    kernelKeeper.incStat('syscallSend');
     // TODO: disable send-to-self for now, qv issue #43
     const target = mapVatSlotToKernelSlot(targetSlot);
     const argList = legibilizeMessageArgs(args).join(', ');
@@ -170,11 +172,15 @@ export default function makeVatManager(
     if (!kernelKeeper.hasKernelPromise(id)) {
       throw new Error(`unknown kernelPromise id '${id}'`);
     }
+    kernelKeeper.incStat('syscalls');
+    kernelKeeper.incStat('syscallSubscribe');
     syscallManager.subscribe(vatID, id);
   }
 
   function doFulfillToPresence(promiseID, slot) {
     insistVatType('promise', promiseID);
+    kernelKeeper.incStat('syscalls');
+    kernelKeeper.incStat('syscallFulfillToPresence');
     const kpid = mapVatSlotToKernelSlot(promiseID);
     const targetSlot = mapVatSlotToKernelSlot(slot);
     kdebug(
@@ -187,6 +193,8 @@ export default function makeVatManager(
   function doFulfillToData(promiseID, data) {
     insistVatType('promise', promiseID);
     insistCapData(data);
+    kernelKeeper.incStat('syscalls');
+    kernelKeeper.incStat('syscallFulfillToData');
     const kpid = mapVatSlotToKernelSlot(promiseID);
     const kernelSlots = data.slots.map(slot => mapVatSlotToKernelSlot(slot));
     const kernelData = harden({ ...data, slots: kernelSlots });
@@ -202,6 +210,8 @@ export default function makeVatManager(
   function doReject(promiseID, data) {
     insistVatType('promise', promiseID);
     insistCapData(data);
+    kernelKeeper.incStat('syscalls');
+    kernelKeeper.incStat('syscallReject');
     const kpid = mapVatSlotToKernelSlot(promiseID);
     const kernelSlots = data.slots.map(slot => mapVatSlotToKernelSlot(slot));
     const kernelData = harden({ ...data, slots: kernelSlots });
@@ -221,6 +231,8 @@ export default function makeVatManager(
     if (type !== 'device') {
       throw new Error(`doCallNow must target a device, not ${dev}`);
     }
+    kernelKeeper.incStat('syscalls');
+    kernelKeeper.incStat('syscallCallNow');
     const kernelSlots = args.slots.map(slot => mapVatSlotToKernelSlot(slot));
     const kernelData = harden({ ...args, slots: kernelSlots });
     // prettier-ignore
@@ -369,6 +381,8 @@ export default function makeVatManager(
       insistVatType('promise', resultSlot);
       kernelKeeper.setDecider(msg.result, vatID);
     }
+    kernelKeeper.incStat('dispatches');
+    kernelKeeper.incStat('dispatchDeliver');
     await doProcess(
       [
         'deliver',
@@ -387,6 +401,8 @@ export default function makeVatManager(
       const vpid = mapKernelSlotToVatSlot(kpid);
       const slot = mapKernelSlotToVatSlot(kp.slot);
       vatKeeper.deleteCListEntry(kpid, vpid);
+      kernelKeeper.incStat('dispatches');
+      kernelKeeper.incStat('dispatchNotifyFulfillToPresence');
       await doProcess(
         ['notifyFulfillToPresence', vpid, slot],
         `vat[${vatID}].promise[${vpid}] fulfillToPresence failed`,
@@ -400,6 +416,8 @@ export default function makeVatManager(
         slots: kp.data.slots.map(slot => mapKernelSlotToVatSlot(slot)),
       });
       deleteCListEntryIfEasy(kpid, vpid, kp.data);
+      kernelKeeper.incStat('dispatches');
+      kernelKeeper.incStat('dispatchNotifyFulfillToData');
       await doProcess(
         ['notifyFulfillToData', vpid, vatData],
         `vat[${vatID}].promise[${vpid}] fulfillToData failed`,
@@ -411,6 +429,8 @@ export default function makeVatManager(
         slots: kp.data.slots.map(slot => mapKernelSlotToVatSlot(slot)),
       });
       deleteCListEntryIfEasy(kpid, vpid, kp.data);
+      kernelKeeper.incStat('dispatches');
+      kernelKeeper.incStat('dispatchReject');
       await doProcess(
         ['notifyReject', vpid, vatData],
         `vat[${vatID}].promise[${vpid}] reject failed`,
