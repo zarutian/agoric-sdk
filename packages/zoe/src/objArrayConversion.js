@@ -1,4 +1,4 @@
-import { assert, details, openDetail } from '@agoric/assert';
+import { assert, details, q } from '@agoric/assert';
 
 export const arrayToObj = (array, keywords) => {
   assert(
@@ -14,7 +14,7 @@ export const objToArray = (obj, keywords) => {
   const keys = Object.getOwnPropertyNames(obj);
   assert(
     keys.length === keywords.length,
-    details`object keys (${openDetail(keys)}) and keywords (${openDetail(
+    details`object keys (${q(keys)}) and keywords (${q(
       keywords,
     )}) must be of equal length`,
   );
@@ -26,9 +26,9 @@ export const assertSubset = (whole, part) => {
     assert.typeof(key, 'string');
     assert(
       whole.includes(key),
-      details`key ${openDetail(
-        key,
-      )} was not one of the expected keys (${openDetail(whole.join(', '))})`,
+      details`key ${q(key)} was not one of the expected keys (${q(
+        whole.join(', '),
+      )})`,
     );
   });
 };
@@ -38,7 +38,7 @@ export const objToArrayAssertFilled = (obj, keywords) => {
   const keys = Object.getOwnPropertyNames(obj);
   assert(
     keys.length === keywords.length,
-    details`object keys (${openDetail(keys)}) and keywords (${openDetail(
+    details`object keys (${q(keys)}) and keywords (${q(
       keywords,
     )}) must be of equal length`,
   );
@@ -47,7 +47,7 @@ export const objToArrayAssertFilled = (obj, keywords) => {
   return keywords.map(keyword => {
     assert(
       obj[keyword] !== undefined,
-      details`obj[keyword] must be defined for keyword ${openDetail(keyword)}`,
+      details`obj[keyword] must be defined for keyword ${q(keyword)}`,
     );
     return obj[keyword];
   });
@@ -63,7 +63,7 @@ export const filterObj = /** @type {function<T>(T, string[]): T} */ (
   subsetKeywords.forEach(keyword => {
     assert(
       obj[keyword] !== undefined,
-      details`obj[keyword] must be defined for keyword ${openDetail(keyword)}`,
+      details`obj[keyword] must be defined for keyword ${q(keyword)}`,
     );
     newObj[keyword] = obj[keyword];
   });

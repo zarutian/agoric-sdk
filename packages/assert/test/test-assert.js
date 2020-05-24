@@ -1,5 +1,5 @@
 import { test } from 'tape';
-import { an, assert, details, openDetail } from '../src/assert';
+import { an, assert, details, q } from '../src/assert';
 import { throwsAndLogs } from './throwsAndLogs';
 
 test('an', t => {
@@ -66,7 +66,7 @@ test('assert', t => {
     );
     throwsAndLogs(
       t,
-      () => assert.equal(5, 6, details`${5} !== ${openDetail(6)}`),
+      () => assert.equal(5, 6, details`${5} !== ${q(6)}`),
       /\(a number\) !== 6/,
       [['error', 'LOGGED ERROR:', 5, '!==', 6]],
     );

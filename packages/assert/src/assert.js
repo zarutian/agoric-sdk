@@ -28,10 +28,11 @@ harden(an);
 const declassifiers = new WeakSet();
 
 /**
- * To "declassify" a substitution value used in a details`...` template literal,
- * enclose that substitution expression in a call to openDetail. This states
- * that the argument should appear, stringified, in the error message of the
- * thrown error.
+ * To "declassify" and quote a substitution value used in a
+ * details`...` template literal, enclose that substitution expression
+ * in a call to q. This states that the argument should appear quoted (with
+ * JSON.stringify), in the error message of the thrown error. The payload
+ * itself is still passed unquoted, to the console as it would be without q.
  *
  * Starting from the example in the `details` comment, say instead that the
  * color the sky is supposed to be is also computed. Say that we still don't
@@ -41,7 +42,7 @@ const declassifiers = new WeakSet();
  * assert.equal(
  *   sky.color,
  *   color,
- *   details`${sky.color} should be ${openDetail(color)}`,
+ *   details`${sky.color} should be ${q(color)}`,
  * );
  * ```
  *
@@ -52,24 +53,24 @@ const declassifiers = new WeakSet();
  * @param {*} payload What to declassify
  * @returns {StringablePayload} The declassified payload
  */
-function openDetail(payload) {
+function q(payload) {
   const result = harden({
     payload,
     toString() {
-      return payload.toString();
+      return JSON.stringify(payload);
     },
   });
   declassifiers.add(result);
   return result;
 }
-harden(openDetail);
+harden(q);
 
 /**
  * Use the `details` function as a template literal tag to create
  * informative error messages. The assertion functions take such messages
  * as optional arguments:
  * ```js
- * assert(sky.isBlue(), details`${sky.color} should be blue`);
+ * assert(sky.isBlue(), details`${sky.color} should be "blue"`);
  * ```
  * The details template tag returns an object that can print itself with the
  * formatted message in two ways. It will report the real details to the
@@ -158,7 +159,7 @@ harden(details);
  */
 function fail(optDetails = details`Assert failed`) {
   if (typeof optDetails === 'string') {
-    optDetails = details`${openDetail(optDetails)}`;
+    optDetails = details`${q(optDetails)}`;
   }
   throw optDetails.complain();
 }
@@ -215,7 +216,7 @@ function equal(
 function assertTypeof(
   specimen,
   typename,
-  optDetails = details`${specimen} must be ${openDetail(an(typename))}`,
+  optDetails = details`${specimen} must be ${q(an(typename))}`,
 ) {
   assert(typeof typename === 'string', details`${typename} must be a string`);
   equal(typeof specimen, typename, optDetails);
@@ -226,4 +227,4 @@ assert.fail = fail;
 assert.typeof = assertTypeof;
 harden(assert);
 
-export { assert, details, openDetail, an };
+export { assert, details, q, an };
