@@ -304,7 +304,8 @@ export function passStyleOf(val) {
       }
       if (QCLASS in val) {
         // TODO Hilbert hotel
-        throw new Error(`property "${QCLASS}" reserved`);
+        // throw new Error(`property "${QCLASS}" reserved`);
+        return "HilbertHotel";
       }
       if (!Object.isFrozen(val)) {
         throw new Error(
@@ -331,6 +332,7 @@ export function passStyleOf(val) {
     }
     case 'function': {
       throw new Error(`Bare functions like ${val} are disabled for now`);
+      // return "function";
     }
     case 'undefined':
     case 'string':
@@ -501,6 +503,12 @@ export function makeMarshal(
               // Hilbert hotel.
               return val;
             }
+            case 'HilbertHotel': {
+              return harden({
+                [QCLASS]: 'HibertHotel',
+                value: val
+              });
+            }
             case 'copyError': {
               // We deliberately do not share the stack, but it would
               // be useful to log the stack locally so someone who has
@@ -515,6 +523,12 @@ export function makeMarshal(
                 message: `${val.message}`,
               });
             }
+            /* case 'function': {
+              return harden({
+                [QCLASS]: 'function',
+                'function': serializeSlot(val, slots, slotMap)
+              });
+            } */
             case REMOTE_STYLE:
             case 'promise': {
               // console.log(`serializeSlot: ${val}`);
@@ -636,7 +650,14 @@ export function makeMarshal(
             const slot = slots[Nat(rawTree.index)];
             return ibidTable.register(convertSlotToVal(slot));
           }
-
+          /* case 'function': {
+            const remoteFunc = fullRevive(rawTree.func);
+            // TBD: how to inform caller of deserailizer that we have a remote function?
+            return remoteFunc;
+          } */
+          case 'HilbertHotel': {
+            return rawTree.value;
+          }
           default: {
             // TODO reverse Hilbert hotel
             throw new TypeError(`unrecognized ${QCLASS} ${qclass}`);
