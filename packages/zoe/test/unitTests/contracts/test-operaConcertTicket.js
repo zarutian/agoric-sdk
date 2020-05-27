@@ -53,7 +53,7 @@ test(`Zoe opera ticket contract`, async t => {
           count: 3,
           expectedAmountPerTicket,
         })
-        .then(auditoriumInvite => {
+        .then(({ invite: auditoriumInvite }) => {
           return inviteIssuer
             .getAmountOf(auditoriumInvite)
             .then(({ extent: [{ instanceHandle: auditoriumHandle }] }) => {
