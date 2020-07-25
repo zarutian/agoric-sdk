@@ -67,4 +67,11 @@ const rectHelper = harden({
             (BigInt(extent[0].w) == 0n) &&
             (BigInt(extent[0].h) == 0n));
   },
+  doIsGTE: (l, r) => {
+    rectHelper.doAssertKind(l);
+    rectHelper.doAssertKind(r);
+    return r.reduce((a, ir) => {
+      return l.reduce((b, il) => (isInside(ir, il) ? true : b), false) ? a : false;
+    }, true);
+  },
 });
