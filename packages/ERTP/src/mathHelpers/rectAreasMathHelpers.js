@@ -92,6 +92,10 @@ const subtract = (a, b) => {
       return acc;
     }
     const { x: a_x1, y: a_y1 } = atem;
+    const a_x2 = a_x1 + atem.w;
+    const a_y2 = a_y1 + atem.h;
+    const btem = intersects[0];
+    const { x: b_x1, y: b_y1 } = btem;
   }, []));
 };
 const rectHelper = harden({
