@@ -98,6 +98,10 @@ const subtract = (a, b) => {
     const { x: b_x1, y: b_y1 } = btem;
     const b_x2 = b_x1 + btem.w;
     const b_y2 = b_y1 + btem.h;
+    const a1 = { x: a_x1, y: a_y1, w: (b_x1 - a_x1), h: atem.h };
+    const a2 = { x: b_x1, y: a_y1, w: btem.w, h: (b_y1 - a_y1) };
+    const a3 = { x: b_x1, y: b_y2, w: btem.w, h: (a_y2 - b_y2) };
+    const a4 = { x: b_x2, y: a_y1, w: (a_x2 - b_x2), h: atem.h };
   }, []));
 };
 const rectHelper = harden({
