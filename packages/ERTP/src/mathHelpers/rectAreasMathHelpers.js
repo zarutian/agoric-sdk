@@ -14,7 +14,8 @@ const RecordOf = (template) => {
       })));
     },
     toString: () => {
-      return "";
+      return "«record guard of {".concat(
+        templateAsEntries.map(([prop, guard], i) => "\"".concat(prop, "\": ", guard.toString(), (i < templateAsEntries.length ? ", " : ""))), "}»");
     }
   }
 };
