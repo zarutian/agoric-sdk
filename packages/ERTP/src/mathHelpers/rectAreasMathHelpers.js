@@ -84,9 +84,40 @@ const consolidate = (extent) => {
   }
   return curr;
 };
+const is__common = (a, b) => {
+            const k = {};
+            k.x1 = a.x;
+            k.x2 = (a.x + a.w);
+            k.y1 = a.y;
+            k.y2 = (a.y + a.h);
+            k.x3 = b.x;
+            k.x4 = (b.x + b.w);
+            k.y3 = b.y;
+            k.y4 = (b.y + b.h);
+            k.t1 = ((x3 <= x1) && (x1 < x4));
+            k.t2 = ((y3 <= y1) && (y1 < y4));
+            k.t3 = ((x3 <= x2) && (x2 < x4));
+            k.t4 = ((y3 <= y2) && (y2 < y4));
+            k.t5 = ((x1 <= x3) && (x3 < x2));
+            k.t6 = ((y1 <= y3) && (y3 < y2));
+            k.t7 = ((x1 <= x4) && (x4 < x2));
+            k.t8 = ((y1 <= y4) && (y4 < y2));
+            return k;
+          };
+          const isOverlap = (a, b) => {
+            const k = is__common(a,b);
+            return ((k.t1 && k.t2) || (k.t1 && k.t4) ||
+                    (k.t3 && k.t2) || (k.t3 && k.t4) ||
+                    (k.t5 && k.t6) || (k.t5 && k.t8) ||
+                    (k.t7 && k.t6) || (k.t7 && k.t8));
+          };
+const isCompletelyInside = (insider, outsider) => {
+  const k = is__common(insider, outsider);
+  return (k.t1 && k.t2 && k.t3 && k.t4);
+}
 const subtract = (a, b) => {
   return harden(a.reduce((acc, atem) => {
-    const intersects = b.filter((btem) => intersect(atem, btem));
+    const intersects = b.filter((btem) => isOverlap(atem, btem));
     if (intersects.length == 0) { acc.push(atem); return acc; }
     if (intersects.reduce((covered, item) => (isInside(atem, item) ? true : covered), false)) {
       return acc;
