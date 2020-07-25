@@ -148,6 +148,7 @@ const subtract = (a, b) => {
   }, []));
 };
 const rectHelper = harden({
+  doCoerce: (extent) => rectGuard(extent, throwingEjector),
   doAssertKind: (extent) => { rectGuard(extent, throwingEjector); },
   doGetEmpty: () => harden([{ x: 0, y: 0, w: 0, h: 0}]),
   doIsEmpty: (extent) => {
@@ -177,3 +178,4 @@ const rectHelper = harden({
     return consolidate(subtract(l,r));
   }
 });
+export default rectHelper;
