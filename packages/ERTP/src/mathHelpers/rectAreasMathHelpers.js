@@ -12,6 +12,17 @@ const NatGuard = harden({
   },
   toString: () => "«the nat guard»"
 });
+const NumberGuard = harden({
+  coerce: (specimen, ejector) => {
+    if (Number.isSafeNumber(specimen) || ((typeof specimen) == "bigint") {
+      // probably forgetting some of the predicates
+      return specimen;
+    } else {
+      ejector(new Error("specimen must be a number"));
+    }
+  },
+  toString: () => "«the number guard»"
+});
 const RecordOf = (template) => {
   const templateAsEntries = Object.entries(template);
   return harden({
@@ -40,3 +51,6 @@ const ArrayOf = (perItemGuard) => {
   });
 };
 // -inline ends-
+const rectGuard = ArrayOf(RecordOf({
+  x: NumberGuard, y: NumberGuard, w: NatGuard, h: NatGuard
+}));
