@@ -87,6 +87,9 @@ const consolidate = (extent) => {
 const subtract = (a, b) => {
   return harden(a.reduce((acc, atem) => {
     const intersects = b.filter((btem) => intersect(atem, btem));
+    if (intersects.reduce((covered, item) => (isInside(atem, item) ? true : covered), false)) {
+      return acc;
+    }
   }, []));
 };
 const rectHelper = harden({
