@@ -103,4 +103,14 @@ const rectHelper = harden({
     }, true);
   },
   doIsEqual: (l, r) => ((rectHelper.doIsGTE(l, r) && rectHelper.doIsGTE(r, l))),
+  doAdd: (l, r) => {
+    rectHelper.doAssertKind(l);
+    rectHelper.doAssertKind(r);
+    return consolidate(l.concat(r));
+  },
+  doSubtract: (l, r) => {
+    rectHelper.doAssertKind(l);
+    rectHelper.doAssertKind(r);
+    return consolidate(subtract(l,r));
+  }
 });
