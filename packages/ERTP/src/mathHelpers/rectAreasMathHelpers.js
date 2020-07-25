@@ -2,6 +2,16 @@
 import nat from "@agoric/nat";
 // -inlined from "@zarutian/ocaps/js/guards"-
 // (dont relie on this module specifier, quick to link-rot)
+const AnyGuard = harden({
+  coerce: (specimen, ejector) => specimen,
+  toString: () => "«the any guard»“
+});
+const NatGuard = harden({
+  coerce: (specimen, ejector) => {
+    try { return nat(specimen); } catch (e) { ejector(e); }
+  },
+  toString: () => "«the nat guard»"
+});
 const RecordOf = (template) => {
   const templateAsEntries = Object.entries(template);
   return harden({
