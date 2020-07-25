@@ -56,13 +56,7 @@ const rectGuard = ArrayOf(RecordOf({
   x: NumberGuard, y: NumberGuard, w: NatGuard, h: NatGuard
 }));
 const isInside = (a, b) => ((a.x >= b.x) && (a.y >= b.y) && (a.w <= b.w) && (a.h <= b.h));
-const compare = (a, b) => {
-  if (a.y < b.y) { return -1; }
-  if (a.x < b.x) { return -1; }
-  if (a.w < b.w) { return -1; }
-  if (a.h < b.h) { return -1; }
-  return 1;
-};
+const compare = (a, b) => (((a.y < b.y) || (a.x < b.x) || (a.w < b.w) || (a.h < b.h)) ? -1 : 1);
 const rectHelper = harden({
   doAssertKind: (extent) => { rectGuard(extent, throwingEjector); },
   doGetEmpty: () => harden([{ x: 0, y: 0, w: 0, h: 0}]),
