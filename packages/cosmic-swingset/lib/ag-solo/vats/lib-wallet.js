@@ -1,35 +1,99 @@
-import harden from '@agoric/harden';
-import { assert, details } from '@agoric/assert';
+/* global harden */
+
+import { assert, details, q } from '@agoric/assert';
 import makeStore from '@agoric/store';
 import makeWeakStore from '@agoric/weak-store';
 import makeAmountMath from '@agoric/ertp/src/amountMath';
 
+// TODO: move the Table abstraction out of Zoe
+import { makeTable, makeValidateProperties } from '@agoric/zoe/src/table';
+import { E } from '@agoric/eventual-send';
+
+import { makeMarshal } from '@agoric/marshal';
+
 import makeObservablePurse from './observable';
-import makeOfferCompiler from './offer-compiler';
+import { makeDehydrator } from './lib-dehydrate';
 
 // does nothing
 const noActionStateChangeHandler = _newState => {};
 
-export async function makeWallet(
-  E,
+export async function makeWallet({
   zoe,
-  registry,
+  board,
   pursesStateChangeHandler = noActionStateChangeHandler,
   inboxStateChangeHandler = noActionStateChangeHandler,
-) {
-  const petnameToPurse = makeStore();
-  const purseToIssuer = makeWeakStore();
-  const issuerPetnameToIssuer = makeStore();
+}) {
+  // Create the petname maps so we can dehydrate information sent to
+  // the frontend.
+  const { makeMapping, dehydrate } = makeDehydrator();
+  const purseMapping = makeMapping('purse');
+  const brandMapping = makeMapping('brand');
+  const instanceMapping = makeMapping('instance');
+  const installationMapping = makeMapping('installation');
 
-  // issuerNames have properties like 'brandRegKey' and 'issuerPetname'.
-  const issuerToIssuerNames = makeWeakStore();
-  const issuerToBrand = makeWeakStore();
-  const brandToIssuer = makeStore();
-  const brandToMath = makeStore();
+  // Brand Table
+  // Columns: key:brand | issuer | amountMath
+  const makeBrandTable = () => {
+    const validateSomewhat = makeValidateProperties(
+      harden(['brand', 'issuer', 'amountMath']),
+    );
+
+    const issuersInProgress = makeStore('issuer');
+    const issuerToBrand = makeWeakStore('issuer');
+    const makeCustomProperties = table =>
+      harden({
+        addIssuer: issuerP => {
+          return Promise.resolve(issuerP).then(issuer => {
+            assert(
+              !table.has(issuer),
+              details`issuer ${issuer} is already in wallet`,
+            );
+            if (issuersInProgress.has(issuer)) {
+              // a promise which resolves to the issuer record
+              return issuersInProgress.get(issuer);
+            }
+            // remote calls which immediately return a promise
+            const mathHelpersNameP = E(issuer).getMathHelpersName();
+            const brandP = E(issuer).getBrand();
+
+            // a promise for a synchronously accessible record
+            const synchronousRecordP = Promise.all([
+              brandP,
+              mathHelpersNameP,
+            ]).then(([brand, mathHelpersName]) => {
+              const amountMath = makeAmountMath(brand, mathHelpersName);
+              const issuerRecord = {
+                issuer,
+                brand,
+                amountMath,
+              };
+              table.create(issuerRecord, brand);
+              issuerToBrand.init(issuer, brand);
+              issuersInProgress.delete(issuer);
+              return table.get(brand);
+            });
+            issuersInProgress.init(issuer, synchronousRecordP);
+            return synchronousRecordP;
+          });
+        },
+        getBrandForIssuer: issuerToBrand.get,
+        hasIssuer: issuerToBrand.has,
+      });
+    const brandTable = makeTable(
+      validateSomewhat,
+      'brand',
+      makeCustomProperties,
+    );
+    return brandTable;
+  };
+
+  const brandTable = makeBrandTable();
+  const purseToBrand = makeWeakStore('purse');
+  const brandToDepositFacetId = makeWeakStore('brand');
 
   // Offers that the wallet knows about (the inbox).
-  const idToOffer = makeStore();
-  const idToNotifierP = makeStore();
+  const idToOffer = makeStore('offerId');
+  const idToNotifierP = makeStore('offerId');
 
   // Compiled offers (all ready to execute).
   const idToCompiledOfferP = new Map();
@@ -40,6 +104,9 @@ export async function makeWallet(
   // Client-side representation of the purses inbox;
   const pursesState = new Map();
   const inboxState = new Map();
+
+  // The default Zoe invite purse is used to make an offer.
+  let zoeInvitePurse;
 
   function getSortedValues(map) {
     const entries = [...map.entries()];
@@ -59,24 +126,105 @@ export async function makeWallet(
     return getSortedValues(inboxState);
   }
 
+  const noOp = () => {};
+  const identityFn = slot => slot;
+  // Instead of { body, slots }, fill the slots. This is useful for
+  // display but not for data processing, since the special identifier
+  // @qclass is lost.
+  const { unserialize: fillInSlots } = makeMarshal(noOp, identityFn);
+
   async function updatePursesState(pursePetname, purse) {
-    const [{ extent }, brand] = await Promise.all([
-      E(purse).getCurrentAmount(),
-      E(purse).getAllegedBrand(),
-    ]);
-    const issuerNames = issuerToIssuerNames.get(brandToIssuer.get(brand));
+    const currentAmount = await E(purse).getCurrentAmount();
+    const { value, brand } = currentAmount;
+    const brandPetname = brandMapping.valToPetname.get(brand);
+    const dehydratedCurrentAmount = dehydrate(currentAmount);
+    const brandBoardId = await E(board).getId(brand);
     pursesState.set(pursePetname, {
-      ...issuerNames,
+      brandBoardId,
+      brandPetname,
       pursePetname,
-      extent,
+      value,
+      currentAmountSlots: dehydratedCurrentAmount,
+      currentAmount: fillInSlots(dehydratedCurrentAmount),
     });
     pursesStateChangeHandler(getPursesState());
   }
 
+  async function updateAllPurseState() {
+    return Promise.all(
+      purseMapping.petnameToVal
+        .entries()
+        .map(([petname, purse]) => updatePursesState(petname, purse)),
+    );
+  }
+
+  const display = value => fillInSlots(dehydrate(harden(value)));
+
+  const displayProposal = proposalTemplate => {
+    const { want, give, exit = { onDemand: null } } = proposalTemplate;
+    const compile = pursePetnameValueKeywordRecord => {
+      if (pursePetnameValueKeywordRecord === undefined) {
+        return undefined;
+      }
+      return Object.fromEntries(
+        Object.entries(pursePetnameValueKeywordRecord).map(
+          ([keyword, { pursePetname, value }]) => {
+            // eslint-disable-next-line no-use-before-define
+            const purse = getPurse(pursePetname);
+            const brand = purseToBrand.get(purse);
+            const amount = { brand, value };
+            return [keyword, { pursePetname, amount: display(amount) }];
+          },
+        ),
+      );
+    };
+    const proposal = {
+      want: compile(want),
+      give: compile(give),
+      exit,
+    };
+    return proposal;
+  };
+
   async function updateInboxState(id, offer) {
     // Only sent the uncompiled offer to the client.
-    inboxState.set(id, offer);
+    const {
+      instanceHandleBoardId,
+      installationHandleBoardId,
+      proposalTemplate,
+    } = offer;
+    // We could get the instanceHandle and installationHandle from the
+    // board and store them to prevent having to make this call each
+    // time, but if we want the offers to be able to sent to the
+    // frontend, we cannot store the instanceHandle and
+    // installationHandle in these offer objects because the handles
+    // are presences and we don't wish to send presences to the
+    // frontend.
+    const instanceHandle = await E(board).getValue(instanceHandleBoardId);
+    const installationHandle = await E(board).getValue(
+      installationHandleBoardId,
+    );
+    const offerForDisplay = {
+      ...offer,
+      instancePetname: display(instanceHandle).petname,
+      installationPetname: display(installationHandle).petname,
+      proposalForDisplay: displayProposal(proposalTemplate),
+    };
+
+    inboxState.set(id, offerForDisplay);
     inboxStateChangeHandler(getInboxState());
+  }
+
+  async function updateAllInboxState() {
+    return Array.from(inboxState.entries()).map(([id, offer]) =>
+      updateInboxState(id, offer),
+    );
+  }
+
+  // TODO: fix this horribly inefficient update on every potential
+  // petname change.
+  async function updateAllState() {
+    return Promise.all([updateAllPurseState(), updateAllInboxState()]);
   }
 
   // handle the update, which has already resolved to a record. If the offer is
@@ -116,29 +264,43 @@ export async function makeWallet(
       });
   }
 
-  async function executeOffer(compiledOfferP, inviteP) {
-    const [invite, { purses, proposal }] = await Promise.all([
-      inviteP,
-      compiledOfferP,
-    ]);
+  async function executeOffer(compiledOfferP) {
+    // =====================
+    // === AWAITING TURN ===
+    // =====================
+
+    const { inviteP, purseKeywordRecord, proposal } = await compiledOfferP;
 
     // =====================
     // === AWAITING TURN ===
     // =====================
 
+    const invite = await inviteP;
+
     // We now have everything we need to provide Zoe, so do the actual withdrawal.
     // Payments are made for the keywords in proposal.give.
-    const payment = {};
-    await Promise.all(
-      Object.entries(proposal.give || {}).map(([keyword, amount]) => {
-        const purse = purses[keyword];
-        if (purse) {
-          return E(purse)
-            .withdraw(amount)
-            .then(pmt => (payment[keyword] = pmt));
-        }
-        return undefined;
-      }),
+    const keywords = [];
+
+    const paymentPs = Object.entries(proposal.give || {}).map(
+      ([keyword, amount]) => {
+        const purse = purseKeywordRecord[keyword];
+        assert(
+          purse !== undefined,
+          details`purse was not found for keyword ${q(keyword)}`,
+        );
+        keywords.push(keyword);
+        return E(purse).withdraw(amount);
+      },
+    );
+
+    // =====================
+    // === AWAITING TURN ===
+    // =====================
+
+    const payments = await Promise.all(paymentPs);
+
+    const paymentKeywordRecord = Object.fromEntries(
+      keywords.map((keyword, i) => [keyword, payments[i]]),
     );
 
     // =====================
@@ -150,7 +312,11 @@ export async function makeWallet(
       completeObj,
       outcome: outcomeP,
       offerHandle: offerHandleP,
-    } = await E(zoe).offer(invite, harden(proposal), harden(payment));
+    } = await E(zoe).offer(
+      invite,
+      harden(proposal),
+      harden(paymentKeywordRecord),
+    );
 
     // =====================
     // === AWAITING TURN ===
@@ -179,7 +345,7 @@ export async function makeWallet(
         Promise.all(
           payoutArray.map(async (payoutP, payoutIndex) => {
             const keyword = payoutIndexToKeyword[payoutIndex];
-            const purse = purses[keyword];
+            const purse = purseKeywordRecord[keyword];
             if (purse && payoutP) {
               const payout = await payoutP;
               return E(purse).deposit(payout);
@@ -195,47 +361,74 @@ export async function makeWallet(
 
   // === API
 
-  async function addIssuer(issuerPetname, issuer, brandRegKey = undefined) {
-    issuerPetnameToIssuer.init(issuerPetname, issuer);
-    issuerToIssuerNames.init(issuer, { issuerPetname, brandRegKey });
-    const [brand, mathName] = await Promise.all([
-      E(issuer).getBrand(),
-      E(issuer).getMathHelpersName(),
-    ]);
-    brandToIssuer.init(brand, issuer);
-    issuerToBrand.init(issuer, brand);
+  const addIssuer = async (petnameForBrand, issuer) => {
+    const issuerSavedP = brandTable.addIssuer(issuer);
+    const addBrandPetname = ({ brand }) => {
+      brandMapping.addPetname(petnameForBrand, brand);
+      return `issuer ${q(petnameForBrand)} successfully added to wallet`;
+    };
+    return issuerSavedP.then(addBrandPetname).then(updateAllState);
+  };
 
-    const math = makeAmountMath(brand, mathName);
-    brandToMath.init(brand, math);
-  }
+  const addInstance = (petname, instanceHandle) => {
+    // We currently just add the petname mapped to the instanceHandle
+    // value, but we could have a list of known instances for
+    // possible display in the wallet.
+    instanceMapping.addPetname(petname, instanceHandle);
+    // We don't wait for the update before returning.
+    updateAllState();
+    return `instance ${q(petname)} successfully added to wallet`;
+  };
 
-  async function makeEmptyPurse(issuerPetname, pursePetname, memo = 'purse') {
+  const addInstallation = (petname, installationHandle) => {
+    // We currently just add the petname mapped to the installationHandle
+    // value, but we could have a list of known installations for
+    // possible display in the wallet.
+    installationMapping.addPetname(petname, installationHandle);
+    // We don't wait for the update before returning.
+    updateAllState();
+    return `installation ${q(petname)} successfully added to wallet`;
+  };
+
+  const makeEmptyPurse = async (brandPetname, petnameForPurse) => {
     assert(
-      !petnameToPurse.has(pursePetname),
-      details`Purse name already used in wallet.`,
+      !purseMapping.petnameToVal.has(petnameForPurse),
+      details`Purse petname ${q(petnameForPurse)} already used in wallet.`,
     );
-    const issuer = issuerPetnameToIssuer.get(issuerPetname);
+    const brand = brandMapping.petnameToVal.get(brandPetname);
+    const { issuer } = brandTable.get(brand);
 
     // IMPORTANT: once wrapped, the original purse should never
     // be used otherwise the UI state will be out of sync.
-    const doNotUse = await E(issuer).makeEmptyPurse(memo);
+    const doNotUse = await E(issuer).makeEmptyPurse();
 
     const purse = makeObservablePurse(E, doNotUse, () =>
-      updatePursesState(pursePetname, doNotUse),
+      updatePursesState(petnameForPurse, doNotUse),
     );
 
-    petnameToPurse.init(pursePetname, purse);
-    purseToIssuer.init(purse, issuer);
-    updatePursesState(pursePetname, purse);
-  }
+    purseToBrand.init(purse, brand);
+    purseMapping.addPetname(petnameForPurse, purse);
+    updatePursesState(petnameForPurse, purse);
+  };
 
-  function deposit(pursePetName, payment) {
-    const purse = petnameToPurse.get(pursePetName);
+  function deposit(pursePetname, payment) {
+    const purse = purseMapping.petnameToVal.get(pursePetname);
     return purse.deposit(payment);
   }
 
   function getPurses() {
-    return petnameToPurse.entries();
+    return purseMapping.petnameToVal.entries();
+  }
+
+  function getPurse(pursePetname) {
+    return purseMapping.petnameToVal.get(pursePetname);
+  }
+
+  function getPurseIssuer(pursePetname) {
+    const purse = purseMapping.petnameToVal.get(pursePetname);
+    const brand = purseToBrand.get(purse);
+    const { issuer } = brandTable.get(brand);
+    return issuer;
   }
 
   function getOffers({ origin = null } = {}) {
@@ -251,38 +444,86 @@ export async function makeWallet(
       .map(([_id, offer]) => harden(offer));
   }
 
-  const compileOffer = makeOfferCompiler({
-    E,
-    zoe,
-    registry,
+  const compileProposal = proposalTemplate => {
+    const {
+      want = {},
+      give = {},
+      exit = { onDemand: null },
+    } = proposalTemplate;
 
-    collections: {
-      idToOffer,
-      brandToMath,
-      issuerToIssuerNames,
-      issuerToBrand,
-      purseToIssuer,
-      petnameToPurse,
-    },
-  });
-  async function addOffer(
-    rawOffer,
-    hooks = undefined,
-    requestContext = { origin: 'unknown' },
-  ) {
-    const { id: rawId } = rawOffer;
+    const purseKeywordRecord = {};
+
+    const compile = amountKeywordRecord => {
+      return Object.fromEntries(
+        Object.entries(amountKeywordRecord).map(
+          ([keyword, { pursePetname, value }]) => {
+            const purse = getPurse(pursePetname);
+            purseKeywordRecord[keyword] = purse;
+            const brand = purseToBrand.get(purse);
+            const amount = { brand, value };
+            return [keyword, amount];
+          },
+        ),
+      );
+    };
+
+    const proposal = {
+      want: compile(want),
+      give: compile(give),
+      exit,
+    };
+
+    return { proposal, purseKeywordRecord };
+  };
+
+  const compileOffer = async offer => {
+    const { inviteHandleBoardId } = offer;
+    const { proposal, purseKeywordRecord } = compileProposal(
+      offer.proposalTemplate,
+    );
+
+    // Find invite in wallet and withdraw
+    const { value: inviteValueElems } = await E(
+      zoeInvitePurse,
+    ).getCurrentAmount();
+    const inviteHandle = await E(board).getValue(inviteHandleBoardId);
+    const matchInvite = element => element.handle === inviteHandle;
+    const inviteBrand = purseToBrand.get(zoeInvitePurse);
+    const { amountMath: inviteAmountMath } = brandTable.get(inviteBrand);
+    const inviteAmount = inviteAmountMath.make(
+      harden([inviteValueElems.find(matchInvite)]),
+    );
+    const inviteP = E(zoeInvitePurse).withdraw(inviteAmount);
+
+    return { proposal, inviteP, purseKeywordRecord };
+  };
+
+  async function addOffer(rawOffer, requestContext = { origin: 'unknown' }) {
+    const {
+      id: rawId,
+      instanceHandleBoardId,
+      installationHandleBoardId,
+    } = rawOffer;
     const id = `${requestContext.origin}#${rawId}`;
-    const offer = {
+    assert(
+      typeof instanceHandleBoardId === 'string',
+      details`instanceHandleBoardId must be a string`,
+    );
+    assert(
+      typeof installationHandleBoardId === 'string',
+      details`installationHandleBoardId must be a string`,
+    );
+    const offer = harden({
       ...rawOffer,
       id,
       requestContext,
       status: undefined,
-    };
+    });
     idToOffer.init(id, offer);
     updateInboxState(id, offer);
 
-    // Start compiling the template, saving a promise for it.
-    idToCompiledOfferP.set(id, compileOffer(id, offer, hooks));
+    // Compile the offer
+    idToCompiledOfferP.set(id, await compileOffer(offer));
 
     // Our inbox state may have an enriched offer.
     updateInboxState(id, idToOffer.get(id));
@@ -348,18 +589,11 @@ export async function makeWallet(
       const compiledOffer = await idToCompiledOfferP.get(id);
 
       const {
-        publicAPI,
-        invite,
-        hooks: { publicAPI: publicAPIHooks = {} } = {},
-      } = compiledOffer;
-
-      const inviteP = invite || E(publicAPIHooks).getInvite(publicAPI);
-      const {
         depositedP,
         completeObj,
         outcome,
         offerHandle,
-      } = await executeOffer(compiledOffer, inviteP);
+      } = await executeOffer(compiledOffer);
 
       idToComplete.set(id, () => {
         alreadyResolved = true;
@@ -396,8 +630,6 @@ export async function makeWallet(
             idToOffer.set(id, acceptedOffer);
             updateInboxState(id, acceptedOffer);
           }
-          // Allow the offer to hook what the return value should be.
-          return E(publicAPIHooks).deposited(publicAPI);
         })
         .catch(rejected);
     } catch (e) {
@@ -409,58 +641,136 @@ export async function makeWallet(
   }
 
   function getIssuers() {
-    return issuerPetnameToIssuer.entries();
+    return brandMapping.petnameToVal.entries().map(([petname, brand]) => {
+      const { issuer } = brandTable.get(brand);
+      return [petname, issuer];
+    });
   }
 
-  const hydrateHook = ([hookMethod, ...hookArgs] = []) => object => {
-    if (hookMethod === undefined) {
-      return undefined;
-    }
-    return E(object)[hookMethod](...hookArgs);
-  };
+  function getDepositFacetId(brandBoardId) {
+    return E(board)
+      .getValue(brandBoardId)
+      .then(brand => {
+        const depositFacetBoardId = brandToDepositFacetId.get(brand);
+        return depositFacetBoardId;
+      });
+  }
 
-  function hydrateHooks({
-    publicAPI: { getInvite, deposited, ...publicAPIRest } = {},
-    ...targetsRest
-  } = {}) {
-    const assertSpecs = [
-      [targetsRest, 'targets'],
-      [publicAPIRest, 'publicAPI hooks'],
-    ];
-    for (const [rest, desc] of assertSpecs) {
-      assert(
-        Object.keys(rest).length === 0,
-        details`Unrecognized extra ${desc} ${rest}`,
-      );
-    }
+  function addDepositFacet(pursePetname) {
+    const purse = purseMapping.petnameToVal.get(pursePetname);
+    const pinDepositFacet = depositFacet => E(board).getId(depositFacet);
+    const saveAsDefault = boardId => {
+      // Add as default unless a default already exists
+      const brand = purseToBrand.get(purse);
+      if (!brandToDepositFacetId.has(brand)) {
+        brandToDepositFacetId.init(brand, boardId);
+      }
+      return boardId;
+    };
+    return E(purse)
+      .makeDepositFacet()
+      .then(pinDepositFacet)
+      .then(saveAsDefault);
+  }
 
-    // Individual hook functions aren't general-purpose.
-    // They're special-purpose for the extension points
-    // of the specific wallet we use.  We hydrate them
-    // individually to provide some error checking in case
-    // the hook specification is wrong or was accidentally
-    // supplied in the wrong target.
-    return harden({
-      publicAPI: {
-        // This hook is to get the invite on the publicAPI.
-        getInvite: hydrateHook(getInvite),
-        // This hook is to return a value for the deposited promise.
-        // It is run after all the spoils are deposited to their purses.
-        deposited: hydrateHook(deposited),
-      },
-    });
+  function acceptPetname(acceptFn, suggestedPetname, boardId) {
+    return E(board)
+      .getValue(boardId)
+      .then(value => acceptFn(suggestedPetname, value));
+  }
+
+  async function suggestIssuer(suggestedPetname, issuerBoardId) {
+    // TODO: add an approval step in the wallet UI in which
+    // suggestion can be rejected and the suggested petname can be
+    // changed
+    // eslint-disable-next-line no-use-before-define
+    return acceptPetname(wallet.addIssuer, suggestedPetname, issuerBoardId);
+  }
+
+  async function suggestInstance(suggestedPetname, instanceHandleBoardId) {
+    // TODO: add an approval step in the wallet UI in which
+    // suggestion can be rejected and the suggested petname can be
+    // changed
+
+    return acceptPetname(
+      // eslint-disable-next-line no-use-before-define
+      wallet.addInstance,
+      suggestedPetname,
+      instanceHandleBoardId,
+    );
+  }
+
+  async function suggestInstallation(
+    suggestedPetname,
+    installationHandleBoardId,
+  ) {
+    // TODO: add an approval step in the wallet UI in which
+    // suggestion can be rejected and the suggested petname can be
+    // changed
+
+    return acceptPetname(
+      // eslint-disable-next-line no-use-before-define
+      wallet.addInstallation,
+      suggestedPetname,
+      installationHandleBoardId,
+    );
+  }
+
+  function renameIssuer(petname, issuer) {
+    assert(
+      brandTable.hasIssuer(issuer),
+      `issuer has not been previously added`,
+    );
+    const brand = brandTable.getBrandForIssuer(issuer);
+    brandMapping.renamePetname(petname, brand);
+    // We don't wait for the update before returning.
+    updateAllState();
+    return `issuer ${q(petname)} successfully renamed in wallet`;
+  }
+
+  function renameInstance(petname, instance) {
+    instanceMapping.renamePetname(petname, instance);
+    // We don't wait for the update before returning.
+    updateAllState();
+    return `instance ${q(petname)} successfully renamed in wallet`;
+  }
+
+  function renameInstallation(petname, installation) {
+    installationMapping.renamePetname(petname, installation);
+    // We don't wait for the update before returning.
+    updateAllState();
+    return `installation ${q(petname)} successfully renamed in wallet`;
+  }
+
+  function getIssuer(petname) {
+    const brand = brandMapping.petnameToVal.get(petname);
+    return brandTable.get(brand).issuer;
+  }
+
+  function getInstance(petname) {
+    return instanceMapping.petnameToVal.get(petname);
+  }
+
+  function getInstallation(petname) {
+    return installationMapping.petnameToVal.get(petname);
   }
 
   const wallet = harden({
     addIssuer,
+    addInstance,
+    addInstallation,
+    renameIssuer,
+    renameInstance,
+    renameInstallation,
+    getInstance,
+    getInstallation,
     makeEmptyPurse,
     deposit,
+    getIssuer,
     getIssuers,
     getPurses,
-    getPurse: petnameToPurse.get,
-    getPurseIssuer: petname => purseToIssuer.get(petnameToPurse.get(petname)),
-    getIssuerNames: issuerToIssuerNames.get,
-    hydrateHooks,
+    getPurse,
+    getPurseIssuer,
     addOffer,
     declineOffer,
     cancelOffer,
@@ -468,7 +778,27 @@ export async function makeWallet(
     getOffers,
     getOfferHandle: id => idToOfferHandle.get(id),
     getOfferHandles: ids => ids.map(wallet.getOfferHandle),
+    addDepositFacet,
+    getDepositFacetId,
+    suggestIssuer,
+    suggestInstance,
+    suggestInstallation,
   });
+
+  // Make Zoe invite purse
+  const ZOE_INVITE_BRAND_PETNAME = 'zoe invite';
+  const ZOE_INVITE_PURSE_PETNAME = 'Default Zoe invite purse';
+  const inviteIssuerP = E(zoe).getInviteIssuer();
+  const addZoeIssuer = issuerP =>
+    wallet.addIssuer(ZOE_INVITE_BRAND_PETNAME, issuerP);
+  const makeInvitePurse = () =>
+    wallet.makeEmptyPurse(ZOE_INVITE_BRAND_PETNAME, ZOE_INVITE_PURSE_PETNAME);
+  const addInviteDepositFacet = () =>
+    E(wallet).addDepositFacet(ZOE_INVITE_PURSE_PETNAME);
+  await addZoeIssuer(inviteIssuerP)
+    .then(makeInvitePurse)
+    .then(addInviteDepositFacet);
+  zoeInvitePurse = wallet.getPurse(ZOE_INVITE_PURSE_PETNAME);
 
   return wallet;
 }

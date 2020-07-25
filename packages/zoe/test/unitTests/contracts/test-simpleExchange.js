@@ -1,20 +1,25 @@
+/* global harden */
+
+import '@agoric/install-ses';
+
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { test } from 'tape-promise/tape';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import bundleSource from '@agoric/bundle-source';
-
-import harden from '@agoric/harden';
+import { E } from '@agoric/eventual-send';
 
 import { assert, details } from '@agoric/assert';
+// noinspection ES6PreferShortImport
 import { makeZoe } from '../../../src/zoe';
 import { setup } from '../setupBasicMints';
 import { setupNonFungible } from '../setupNonFungibleMints';
 import { makeGetInstanceHandle } from '../../../src/clientSupport';
+import fakeVatAdmin from './fakeVatAdmin';
 
 const simpleExchange = `${__dirname}/../../../src/contracts/simpleExchange`;
 
 test('simpleExchange with valid offers', async t => {
-  t.plan(14);
+  t.plan(17);
   const {
     moolaIssuer,
     simoleanIssuer,
@@ -24,14 +29,13 @@ test('simpleExchange with valid offers', async t => {
     moola,
     simoleans,
   } = setup();
-  const zoe = makeZoe({ require });
+  const zoe = makeZoe(fakeVatAdmin);
   const inviteIssuer = zoe.getInviteIssuer();
-  const getInstanceHandle = makeGetInstanceHandle(inviteIssuer);
 
   // Pack the contract.
-  const { source, moduleFormat } = await bundleSource(simpleExchange);
+  const bundle = await bundleSource(simpleExchange);
 
-  const installationHandle = zoe.install(source, moduleFormat);
+  const installationHandle = await zoe.install(bundle);
 
   // Setup Alice
   const aliceMoolaPayment = moolaMint.mintPayment(moola(3));
@@ -43,16 +47,25 @@ test('simpleExchange with valid offers', async t => {
   const bobMoolaPurse = moolaIssuer.makeEmptyPurse();
   const bobSimoleanPurse = simoleanIssuer.makeEmptyPurse();
 
-  // 1: Simon creates a simpleExchange instance and spreads the invite far and
-  // wide with instructions on how to use it.
-  const simonInvite = await zoe.makeInstance(installationHandle, {
+  // 1: Simon creates a simpleExchange instance and spreads the publicAPI far
+  // and wide with instructions on how to call makeInvite().
+  const {
+    instanceRecord: { publicAPI },
+  } = await zoe.makeInstance(installationHandle, {
     Asset: moolaIssuer,
     Price: simoleanIssuer,
   });
-  const instanceHandle = await getInstanceHandle(simonInvite);
-  const { publicAPI } = zoe.getInstanceRecord(instanceHandle);
 
-  const aliceInvite = publicAPI.makeInvite();
+  const { value: initialOrders } = await E(
+    E(publicAPI).getNotifier(),
+  ).getCurrentUpdate();
+  t.deepEquals(
+    initialOrders,
+    { buys: [], sells: [] },
+    `order notifier is initialized`,
+  );
+
+  const aliceInvite = await E(publicAPI).makeInvite();
 
   // 2: Alice escrows with zoe to create a sell order. She wants to
   // sell 3 moola and wants to receive at least 4 simoleans in
@@ -70,9 +83,26 @@ test('simpleExchange with valid offers', async t => {
     offerHandle: aliceOfferHandle,
   } = await zoe.offer(aliceInvite, aliceSellOrderProposal, alicePayments);
 
+  const { value: afterAliceOrders } = await E(
+    E(publicAPI).getNotifier(),
+  ).getCurrentUpdate();
+  t.deepEquals(
+    afterAliceOrders,
+    {
+      buys: [],
+      sells: [
+        {
+          want: aliceSellOrderProposal.want,
+          give: aliceSellOrderProposal.give,
+        },
+      ],
+    },
+    `order notifier is updated with Alices sell order`,
+  );
+
   aliceOfferHandle.then(handle => {
     const aliceNotifier = zoe.getOfferNotifier(handle);
-    const firstUpdate = aliceNotifier.getUpdateSince();
+    const firstUpdate = aliceNotifier.getCurrentUpdate();
     t.notOk(firstUpdate.value, 'notifier start state is empty');
     t.notOk(firstUpdate.done, 'notifier start state is not done');
     t.ok(firstUpdate.updateHandle, 'notifier start state has handle');
@@ -83,15 +113,17 @@ test('simpleExchange with valid offers', async t => {
     });
   });
 
-  const bobInvite = publicAPI.makeInvite();
+  const bobInvite = await E(publicAPI).makeInvite();
 
   // 5: Bob decides to join.
   const bobExclusiveInvite = await inviteIssuer.claim(bobInvite);
+  const getInstanceHandle = makeGetInstanceHandle(inviteIssuer);
+  const bobInstanceHandle = await getInstanceHandle(bobExclusiveInvite);
 
   const {
     installationHandle: bobInstallationId,
     issuerKeywordRecord: bobIssuers,
-  } = zoe.getInstanceRecord(instanceHandle);
+  } = zoe.getInstanceRecord(bobInstanceHandle);
 
   t.equals(bobInstallationId, installationHandle);
 
@@ -119,6 +151,15 @@ test('simpleExchange with valid offers', async t => {
     bobExclusiveInvite,
     bobBuyOrderProposal,
     bobPayments,
+  );
+
+  const { value: afterBobOrders } = await E(
+    E(publicAPI).getNotifier(),
+  ).getCurrentUpdate();
+  t.deepEquals(
+    afterBobOrders,
+    { buys: [], sells: [] },
+    `order notifier is updated when Bob fulfills the order`,
   );
 
   t.equals(
@@ -161,10 +202,10 @@ test('simpleExchange with valid offers', async t => {
   // Assert that the correct payout were received.
   // Alice had 3 moola and 0 simoleans.
   // Bob had 0 moola and 7 simoleans.
-  t.equals(aliceMoolaPurse.getCurrentAmount().extent, 0);
-  t.equals(aliceSimoleanPurse.getCurrentAmount().extent, 7);
-  t.equals(bobMoolaPurse.getCurrentAmount().extent, 3);
-  t.equals(bobSimoleanPurse.getCurrentAmount().extent, 0);
+  t.equals(aliceMoolaPurse.getCurrentAmount().value, 0);
+  t.equals(aliceSimoleanPurse.getCurrentAmount().value, 4);
+  t.equals(bobMoolaPurse.getCurrentAmount().value, 3);
+  t.equals(bobSimoleanPurse.getCurrentAmount().value, 3);
 });
 
 test('simpleExchange with multiple sell offers', async t => {
@@ -178,14 +219,13 @@ test('simpleExchange with multiple sell offers', async t => {
       moola,
       simoleans,
     } = setup();
-    const zoe = makeZoe({ require });
+    const zoe = makeZoe(fakeVatAdmin);
     const inviteIssuer = zoe.getInviteIssuer();
-    const getInstanceHandle = makeGetInstanceHandle(inviteIssuer);
 
     // Pack the contract.
-    const { source, moduleFormat } = await bundleSource(simpleExchange);
+    const bundle = await bundleSource(simpleExchange);
 
-    const installationHandle = zoe.install(source, moduleFormat);
+    const installationHandle = await zoe.install(bundle);
 
     // Setup Alice
     const aliceMoolaPayment = moolaMint.mintPayment(moola(30));
@@ -197,14 +237,14 @@ test('simpleExchange with multiple sell offers', async t => {
 
     // 1: Simon creates a simpleExchange instance and spreads the invite far and
     // wide with instructions on how to use it.
-    const simonInvite = await zoe.makeInstance(installationHandle, {
+    const {
+      instanceRecord: { publicAPI },
+    } = await zoe.makeInstance(installationHandle, {
       Asset: moolaIssuer,
       Price: simoleanIssuer,
     });
-    const instanceHandle = await getInstanceHandle(simonInvite);
-    const { publicAPI } = zoe.getInstanceRecord(instanceHandle);
 
-    const aliceInvite1 = publicAPI.makeInvite();
+    const aliceInvite1 = await E(publicAPI).makeInvite();
 
     // 2: Alice escrows with zoe to create a sell order. She wants to
     // sell 3 moola and wants to receive at least 4 simoleans in
@@ -224,7 +264,9 @@ test('simpleExchange with multiple sell offers', async t => {
     );
 
     // 5: Alice adds another sell order to the exchange
-    const aliceInvite2 = await inviteIssuer.claim(publicAPI.makeInvite());
+    const aliceInvite2 = await inviteIssuer.claim(
+      await E(publicAPI).makeInvite(),
+    );
     const aliceSale2OrderProposal = harden({
       give: { Asset: moola(5) },
       want: { Price: simoleans(8) },
@@ -237,7 +279,9 @@ test('simpleExchange with multiple sell offers', async t => {
     );
 
     // 5: Alice adds a buy order to the exchange
-    const aliceInvite3 = await inviteIssuer.claim(publicAPI.makeInvite());
+    const aliceInvite3 = await inviteIssuer.claim(
+      await E(publicAPI).makeInvite(),
+    );
     const aliceBuyOrderProposal = harden({
       give: { Price: simoleans(18) },
       want: { Asset: moola(29) },
@@ -249,19 +293,23 @@ test('simpleExchange with multiple sell offers', async t => {
       { Price: aliceSimoleanPurse.withdraw(simoleans(18)) },
     );
 
-    Promise.all([aliceOutcome1P, aliceOutcome2P, aliceOutcome3P]).then(() => {
-      const expectedBook = {
-        buys: [{ want: { Asset: moola(29) }, give: { Price: simoleans(18) } }],
-        sells: [
-          { want: { Price: simoleans(4) }, give: { Asset: moola(3) } },
-          { want: { Price: simoleans(8) }, give: { Asset: moola(5) } },
-        ],
-      };
-      t.deepEquals(
-        publicAPI.getNotifier().getUpdateSince().value,
-        expectedBook,
-      );
-    });
+    await Promise.all([aliceOutcome1P, aliceOutcome2P, aliceOutcome3P]).then(
+      async () => {
+        const expectedBook = {
+          buys: [
+            { want: { Asset: moola(29) }, give: { Price: simoleans(18) } },
+          ],
+          sells: [
+            { want: { Price: simoleans(4) }, give: { Asset: moola(3) } },
+            { want: { Price: simoleans(8) }, give: { Asset: moola(5) } },
+          ],
+        };
+        t.deepEquals(
+          (await E(E(publicAPI).getNotifier()).getCurrentUpdate()).value,
+          expectedBook,
+        );
+      },
+    );
   } catch (e) {
     t.assert(false, e);
     console.log(e);
@@ -271,27 +319,25 @@ test('simpleExchange with multiple sell offers', async t => {
 test('simpleExchange showPayoutRules', async t => {
   t.plan(1);
   const { moolaIssuer, simoleanIssuer, moolaMint, moola, simoleans } = setup();
-  const zoe = makeZoe({ require });
-  const inviteIssuer = zoe.getInviteIssuer();
-  const getInstanceHandle = makeGetInstanceHandle(inviteIssuer);
+  const zoe = makeZoe(fakeVatAdmin);
 
   // Pack the contract.
-  const { source, moduleFormat } = await bundleSource(simpleExchange);
+  const bundle = await bundleSource(simpleExchange);
 
-  const installationHandle = zoe.install(source, moduleFormat);
+  const installationHandle = await zoe.install(bundle);
 
   // Setup Alice
   const aliceMoolaPayment = moolaMint.mintPayment(moola(3));
   // 1: Simon creates a simpleExchange instance and spreads the invite far and
   // wide with instructions on how to use it.
-  const simonInvite = await zoe.makeInstance(installationHandle, {
+  const {
+    instanceRecord: { publicAPI },
+  } = await zoe.makeInstance(installationHandle, {
     Asset: moolaIssuer,
     Price: simoleanIssuer,
   });
-  const instanceHandle = await getInstanceHandle(simonInvite);
-  const { publicAPI } = zoe.getInstanceRecord(instanceHandle);
 
-  const aliceInvite = publicAPI.makeInvite();
+  const aliceInvite = await E(publicAPI).makeInvite();
 
   // 2: Alice escrows with zoe to create a sell order. She wants to
   // sell 3 moola and wants to receive at least 4 simoleans in
@@ -313,7 +359,7 @@ test('simpleExchange showPayoutRules', async t => {
 
   const expected = { want: { Price: simoleans(4) }, give: { Asset: moola(3) } };
 
-  t.deepEquals(publicAPI.getOffer(await aliceOfferHandleP), expected);
+  t.deepEquals(await E(publicAPI).getOffer(await aliceOfferHandleP), expected);
 });
 
 test('simpleExchange with non-fungible assets', async t => {
@@ -329,14 +375,13 @@ test('simpleExchange with non-fungible assets', async t => {
     createRpgItem,
   } = setupNonFungible();
 
-  const zoe = makeZoe({ require });
+  const zoe = makeZoe(fakeVatAdmin);
   const inviteIssuer = zoe.getInviteIssuer();
-  const getInstanceHandle = makeGetInstanceHandle(inviteIssuer);
 
   // Pack the contract.
-  const { source, moduleFormat } = await bundleSource(simpleExchange);
+  const bundle = await bundleSource(simpleExchange);
 
-  const installationHandle = zoe.install(source, moduleFormat);
+  const installationHandle = await zoe.install(bundle);
 
   // Setup Alice
   const spell = createRpgItem('Spell of Binding', 'binding');
@@ -351,20 +396,20 @@ test('simpleExchange with non-fungible assets', async t => {
 
   // 1: Simon creates a simpleExchange instance and spreads the invite far and
   // wide with instructions on how to use it.
-  const simonInvite = await zoe.makeInstance(installationHandle, {
+  const {
+    instanceRecord: { publicAPI },
+  } = await zoe.makeInstance(installationHandle, {
     Asset: rpgIssuer,
     Price: ccIssuer,
   });
-  const instanceHandle = await getInstanceHandle(simonInvite);
-  const { publicAPI } = zoe.getInstanceRecord(instanceHandle);
 
-  const aliceInvite = publicAPI.makeInvite();
+  const aliceInvite = await E(publicAPI).makeInvite();
 
   // 2: Alice escrows with zoe to create a sell order. She wants to
   // sell a Spell of Binding and wants to receive CryptoCats in return.
   const aliceSellOrderProposal = harden({
     give: { Asset: rpgItems(spell) },
-    want: { Price: cryptoCats(harden([])) },
+    want: { Price: cryptoCats(harden(['Cheshire Cat'])) },
     exit: { onDemand: null },
   });
   const alicePayments = { Asset: aliceRpgPayment };
@@ -375,15 +420,17 @@ test('simpleExchange with non-fungible assets', async t => {
     alicePayments,
   );
 
-  const bobInvite = publicAPI.makeInvite();
+  const bobInvite = await E(publicAPI).makeInvite();
 
   // 5: Bob decides to join.
   const bobExclusiveInvite = await inviteIssuer.claim(bobInvite);
+  const getInstanceHandle = makeGetInstanceHandle(inviteIssuer);
+  const bobInstanceHandle = await getInstanceHandle(bobExclusiveInvite);
 
   const {
     installationHandle: bobInstallationId,
     issuerKeywordRecord: bobIssuers,
-  } = zoe.getInstanceRecord(instanceHandle);
+  } = zoe.getInstanceRecord(bobInstanceHandle);
 
   t.equals(bobInstallationId, installationHandle);
 
@@ -456,8 +503,8 @@ test('simpleExchange with non-fungible assets', async t => {
   // Assert that the correct payout were received.
   // Alice has an empty RPG purse, and the Cheshire Cat.
   // Bob has an empty CryptoCat purse, and the Spell of Binding he wanted.
-  t.deepEquals(aliceRpgPurse.getCurrentAmount().extent, []);
-  t.deepEquals(aliceCcPurse.getCurrentAmount().extent, ['Cheshire Cat']);
-  t.deepEquals(bobRpgPurse.getCurrentAmount().extent, spell);
-  t.deepEquals(bobCcPurse.getCurrentAmount().extent, []);
+  t.deepEquals(aliceRpgPurse.getCurrentAmount().value, []);
+  t.deepEquals(aliceCcPurse.getCurrentAmount().value, ['Cheshire Cat']);
+  t.deepEquals(bobRpgPurse.getCurrentAmount().value, spell);
+  t.deepEquals(bobCcPurse.getCurrentAmount().value, []);
 });

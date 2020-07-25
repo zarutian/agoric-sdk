@@ -15,6 +15,8 @@ import {
 } from '@agoric/swing-store-lmdb';
 
 import { dumpStore } from './dumpstore';
+import { auditRefCounts } from './auditstore';
+import { printStats, printBenchmarkStats } from './printStats';
 
 const log = console.log;
 
@@ -27,7 +29,7 @@ function readClock() {
 }
 
 function usage() {
-  console.log(`
+  log(`
 Command line:
   runner [FLAGS...] CMD [{BASEDIR|--} [ARGS...]]
 
@@ -37,18 +39,23 @@ FLAGS may be:
   --filedb       - runs using the simple file-based data store
   --memdb        - runs using the non-persistent in-memory data store
   --blockmode    - run in block mode (checkpoint every BLOCKSIZE blocks)
-  --blocksize N  - set BLOCKSIZE to N (default 200)
+  --blocksize N  - set BLOCKSIZE to N cranks (default 200)
   --logtimes     - log block execution time stats while running
   --logmem       - log memory usage stats after each block
   --logdisk      - log disk space usage stats after each block
-  --logall       - log block times, memory use, and disk space
+  --logstats     - log kernel stats after each block
+  --logall       - log kernel stats, block times, memory use, and disk space
+  --logtag STR   - tag for stats log file (default "runner")
   --forcegc      - run garbage collector after each block
-  --batchsize N  - set BATCHSIZE to N (default 200)
+  --batchsize N  - set BATCHSIZE to N cranks (default 200)
   --verbose      - output verbose debugging messages as it runs
+  --audit        - audit kernel promise reference counts after each crank
   --dump         - dump a kernel state store snapshot after each crank
   --dumpdir DIR  - place kernel state dumps in directory DIR (default ".")
   --dumptag STR  - prefix kernel state dump filenames with STR (default "t")
   --raw          - perform kernel state dumps in raw mode
+  --stats        - print performance stats at the end of a run
+  --benchmark N  - perform an N round benchmark after the initial run
 
 CMD is one of:
   help   - print this helpful usage information
@@ -66,7 +73,7 @@ Any remaining args are passed to the swingset's bootstrap vat.
 }
 
 function fail(message, printUsage) {
-  console.log(message);
+  log(message);
   if (printUsage) {
     usage();
   }
@@ -89,12 +96,17 @@ export async function main() {
   let logTimes = false;
   let logMem = false;
   let logDisk = false;
+  let logStats = false;
+  let logTag = 'runner';
   let forceGC = false;
   let verbose = false;
   let doDumps = false;
+  let doAudits = false;
   let dumpDir = '.';
   let dumpTag = 't';
   let rawMode = false;
+  let shouldPrintStats = false;
+  let benchmarkRounds = 0;
 
   while (argv[0] && argv[0].startsWith('-')) {
     const flag = argv.shift();
@@ -111,10 +123,17 @@ export async function main() {
       case '--logdisk':
         logDisk = true;
         break;
+      case '--logstats':
+        logStats = true;
+        break;
       case '--logall':
         logTimes = true;
         logMem = true;
         logDisk = true;
+        logStats = true;
+        break;
+      case '--logtag':
+        logTag = argv.shift();
         break;
       case '--forcegc':
         forceGC = true;
@@ -127,6 +146,9 @@ export async function main() {
         break;
       case '--batchsize':
         batchSize = Number(argv.shift());
+        break;
+      case '--benchmark':
+        benchmarkRounds = Number(argv.shift());
         break;
       case '--dump':
         doDumps = true;
@@ -142,6 +164,12 @@ export async function main() {
       case '--raw':
         rawMode = true;
         doDumps = true;
+        break;
+      case '--stats':
+        shouldPrintStats = true;
+        break;
+      case '--audit':
+        doAudits = true;
         break;
       case '--filedb':
       case '--memdb':
@@ -179,7 +207,7 @@ export async function main() {
       );
     }
     if (!logMem) {
-      console.log('Warning: --forcegc without --logmem may be a mistake');
+      log('Warning: --forcegc without --logmem may be a mistake');
     }
   }
 
@@ -217,6 +245,9 @@ export async function main() {
     config.verbose = true;
   }
 
+  const controller = await buildVatController(config, bootstrapArgv);
+  let bootstrapResult = controller.bootstrapResult;
+
   let blockNumber = 0;
   let statLogger = null;
   if (logTimes || logMem || logDisk) {
@@ -230,11 +261,14 @@ export async function main() {
     if (logDisk) {
       headers.push('disk');
     }
-    statLogger = makeStatLogger('runner', headers);
+    if (logStats) {
+      const statNames = Object.getOwnPropertyNames(controller.getStats());
+      headers = headers.concat(statNames);
+    }
+    statLogger = makeStatLogger(logTag, headers);
   }
 
   let crankNumber = 0;
-  const controller = await buildVatController(config, true, bootstrapArgv);
   switch (command) {
     case 'run': {
       await commandRun(0, blockMode);
@@ -289,6 +323,14 @@ export async function main() {
           cli.displayPrompt();
         },
       });
+      cli.defineCommand('benchmark', {
+        help: 'Run <n> rounds of the benchmark protocol',
+        action: async rounds => {
+          const [steps, deltaT] = await runBenchmark(rounds);
+          log(`benchmark ${rounds} rounds, ${steps} cranks in ${deltaT} ns`);
+          cli.displayPrompt();
+        },
+      });
       cli.defineCommand('run', {
         help: 'Crank until the run queue is empty, without commit',
         action: async () => {
@@ -314,9 +356,45 @@ export async function main() {
     statLogger.close();
   }
 
+  function getCrankNumber() {
+    return Number(store.storage.get('crankNumber'));
+  }
+
   function kernelStateDump() {
     const dumpPath = `${dumpDir}/${dumpTag}${crankNumber}`;
     dumpStore(store.storage, dumpPath, rawMode);
+  }
+
+  async function runBenchmark(rounds) {
+    const cranksPre = getCrankNumber();
+    const statsPre = controller.getStats();
+    const args = { body: '[]', slots: [] };
+    let totalSteps = 0;
+    let totalDeltaT = BigInt(0);
+    for (let i = 0; i < rounds; i += 1) {
+      const roundResult = controller.queueToVatExport(
+        '_bootstrap',
+        'o+0',
+        'runBenchmarkRound',
+        args,
+        'ignore',
+      );
+      // eslint-disable-next-line no-await-in-loop
+      const [steps, deltaT] = await runBatch(0, false);
+      const status = roundResult.status();
+      if (status === 'pending') {
+        log(`benchmark round ${i + 1} did not finish`);
+      } else {
+        const resolution = JSON.stringify(roundResult.resolution());
+        log(`benchmark round ${i + 1} ${status}: ${resolution}`);
+      }
+      totalSteps += steps;
+      totalDeltaT += deltaT;
+    }
+    const cranksPost = getCrankNumber();
+    const statsPost = controller.getStats();
+    printBenchmarkStats(statsPre, statsPost, cranksPost - cranksPre, rounds);
+    return [totalSteps, totalDeltaT];
   }
 
   async function runBlock(requestedSteps, doCommit) {
@@ -336,6 +414,9 @@ export async function main() {
       actualSteps += stepped;
       if (doDumps) {
         kernelStateDump();
+      }
+      if (doAudits) {
+        auditRefCounts(store.storage);
       }
       if (verbose) {
         log(`===> end of crank ${crankNumber}`);
@@ -367,6 +448,9 @@ export async function main() {
         const diskUsage = dbMode === '--lmdb' ? store.diskUsage() : 0;
         data.push(diskUsage);
       }
+      if (logStats) {
+        data = data.concat(Object.values(controller.getStats()));
+      }
       statLogger.log(data);
     }
     return actualSteps;
@@ -390,12 +474,34 @@ export async function main() {
     if (doDumps) {
       kernelStateDump();
     }
+    if (doAudits) {
+      auditRefCounts(store.storage);
+    }
 
-    const [totalSteps, deltaT] = await runBatch(stepLimit, runInBlockMode);
+    let [totalSteps, deltaT] = await runBatch(stepLimit, runInBlockMode);
     if (!runInBlockMode) {
       store.commit();
     }
+    if (shouldPrintStats) {
+      const cranks = getCrankNumber();
+      printStats(controller.getStats(), cranks);
+    }
+    if (benchmarkRounds > 0) {
+      const [moreSteps, moreDeltaT] = await runBenchmark(benchmarkRounds);
+      totalSteps += moreSteps;
+      deltaT += moreDeltaT;
+    }
     store.close();
+    if (bootstrapResult) {
+      const status = bootstrapResult.status();
+      if (status === 'pending') {
+        log('bootstrap result still pending');
+      } else {
+        const resolution = JSON.stringify(bootstrapResult.resolution());
+        log(`bootstrap result ${status}: ${resolution}`);
+        bootstrapResult = null;
+      }
+    }
     if (logTimes) {
       if (totalSteps) {
         const per = deltaT / BigInt(totalSteps);

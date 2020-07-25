@@ -1,8 +1,10 @@
-// eslint-disable-next-line no-redeclare
-/* global setImmediate */
+/* global harden */
+
+import '@agoric/install-ses';
 import { test } from 'tape-promise/tape';
-import harden from '@agoric/harden';
+import { E } from '@agoric/eventual-send';
 import { initSwingStore } from '@agoric/swing-store-simple';
+import { waitUntilQuiescent } from '../src/waitUntilQuiescent';
 
 import buildKernel from '../src/kernel/index';
 import { makeLiveSlots } from '../src/kernel/liveSlots';
@@ -17,7 +19,7 @@ function capargs(args, slots = []) {
 
 function makeEndowments() {
   return {
-    setImmediate,
+    waitUntilQuiescent,
     hostStorage: initSwingStore().storage,
     runEndOfCrank: () => {},
   };
@@ -38,7 +40,7 @@ test('calls', async t => {
   kernel.addGenesisVat('bootstrap', setupBootstrap);
 
   function setup(syscallVat, state, helpers) {
-    function build(E, _D) {
+    function build(_vatPowers) {
       return harden({
         one() {
           log.push('one');
@@ -118,7 +120,7 @@ test('liveslots pipelines to syscall.send', async t => {
   const log = [];
 
   function setupA(syscallA, state, helpers) {
-    function build(E, _D) {
+    function build(_vatPowers) {
       return harden({
         one(x) {
           const p1 = E(x).pipe1();
@@ -194,14 +196,10 @@ function buildSyscall() {
   return { log, syscall };
 }
 
-function endOfCrank() {
-  return new Promise(resolve => setImmediate(() => resolve()));
-}
-
 test('liveslots pipeline/non-pipeline calls', async t => {
   const { log, syscall } = buildSyscall();
 
-  function build(E, _D) {
+  function build(_vatPowers) {
     let p1;
     return harden({
       one(p) {
@@ -225,7 +223,7 @@ test('liveslots pipeline/non-pipeline calls', async t => {
 
   // function deliver(target, method, argsdata, result) {
   dispatch.deliver(rootA, 'one', capargs([slot0arg], [p1]));
-  await endOfCrank();
+  await waitUntilQuiescent();
   // the vat should subscribe to the inbound p1 during deserialization
   t.deepEqual(log.shift(), { type: 'subscribe', target: p1 });
   // then it pipeline-sends `pipe1` to p1, with a new result promise
@@ -243,7 +241,7 @@ test('liveslots pipeline/non-pipeline calls', async t => {
   // now we tell it the promise has resolved, to object 'o2'
   // function notifyFulfillToPresence(promiseID, slot) {
   dispatch.notifyFulfillToPresence(p1, o2);
-  await endOfCrank();
+  await waitUntilQuiescent();
   // this allows E(o2).nonpipe2() to go out, which was not pipelined
   t.deepEqual(log.shift(), {
     type: 'send',
@@ -259,7 +257,7 @@ test('liveslots pipeline/non-pipeline calls', async t => {
   // now call two(), which should send nonpipe3 to o2, not p1, since p1 has
   // been resolved
   dispatch.deliver(rootA, 'two', capargs([], []));
-  await endOfCrank();
+  await waitUntilQuiescent();
   t.deepEqual(log.shift(), {
     type: 'send',
     targetSlot: o2,
@@ -277,7 +275,7 @@ test('liveslots pipeline/non-pipeline calls', async t => {
 async function doOutboundPromise(t, mode) {
   const { log, syscall } = buildSyscall();
 
-  function build(E, _D) {
+  function build(_vatPowers) {
     return harden({
       run(target, resolution) {
         let p; // vat creates the promise
@@ -338,7 +336,7 @@ async function doOutboundPromise(t, mode) {
 
   // function deliver(target, method, argsdata, result) {
   dispatch.deliver(rootA, 'run', capargs([slot0arg, resolution], [target]));
-  await endOfCrank();
+  await waitUntilQuiescent();
 
   // The vat should send 'one' and mention the promise for the first time. It
   // does not subscribe to its own promise.
@@ -397,10 +395,11 @@ function hush(p) {
 async function doResultPromise(t, mode) {
   const { log, syscall } = buildSyscall();
 
-  function build(E, _D) {
+  function build(_vatPowers) {
     return harden({
       async run(target1) {
         const p1 = E(target1).getTarget2();
+        hush(p1);
         const p2 = E(p1).one();
         // p1 resolves first, then p2 resolves on a subsequent crank
         await p2;
@@ -425,7 +424,7 @@ async function doResultPromise(t, mode) {
   // if it returns data or a rejection, two() results in an error
 
   dispatch.deliver(rootA, 'run', capargs([slot0arg], [target1]));
-  await endOfCrank();
+  await waitUntilQuiescent();
 
   // The vat should send 'getTarget2' and subscribe to the result promise
   t.deepEqual(log.shift(), {
@@ -461,12 +460,12 @@ async function doResultPromise(t, mode) {
   } else {
     throw Error(`unknown mode ${mode}`);
   }
-  await endOfCrank();
+  await waitUntilQuiescent();
   t.deepEqual(log, []);
 
   // Now we resolve p2, allowing the second two() to proceed
   dispatch.notifyFulfillToData(expectedP2, capargs(4, []));
-  await endOfCrank();
+  await waitUntilQuiescent();
 
   if (mode === 'to presence') {
     // If we resolved it to a target, we should see two() sent through to the

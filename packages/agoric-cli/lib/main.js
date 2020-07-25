@@ -1,8 +1,12 @@
+import './install-ersatz-harden';
+
 import { Command } from 'commander';
 
+import cosmosMain from './cosmos';
 import deployMain from './deploy';
 import initMain from './init';
 import installMain from './install';
+import setDefaultsMain from './set-defaults';
 import startMain from './start';
 
 const DEFAULT_DAPP_TEMPLATE = 'dapp-encouragement';
@@ -28,7 +32,10 @@ const main = async (progname, rawArgs, powers) => {
   }
 
   function subMain(fn, args, options) {
-    return fn(progname, args, powers, options);
+    return fn(progname, args, powers, options).then(
+      // This seems to be the only way to propagate the exit code.
+      code => process.exit(code || 0),
+    );
   }
 
   program.storeOptionsAsProperties(false);
@@ -48,6 +55,14 @@ const main = async (progname, rawArgs, powers) => {
 
   // Add each of the commands.
   program
+    .command('cosmos <command...>')
+    .description('client for an Agoric Cosmos chain')
+    .action(async (command, cmd) => {
+      const opts = { ...program.opts(), ...cmd.opts() };
+      return subMain(cosmosMain, ['cosmos', ...command], opts);
+    });
+
+  program
     .command('init <project>')
     .description('create a new Dapp directory named <project>')
     .option(
@@ -63,6 +78,23 @@ const main = async (progname, rawArgs, powers) => {
     .action(async (project, cmd) => {
       const opts = { ...program.opts(), ...cmd.opts() };
       return subMain(initMain, ['init', project], opts);
+    });
+
+  program
+    .command('set-defaults <program> <config-dir>')
+    .description('update the configuration files for <program> in <config-dir>')
+    .option(
+      '--import-from <dir>',
+      'import the exported configuration from <dir>',
+    )
+    .option(
+      '--persistent-peers <addrs>',
+      'set the config.toml p2p.persistent_peers value',
+      '',
+    )
+    .action(async (prog, configDir, cmd) => {
+      const opts = { ...program.opts(), ...cmd.opts() };
+      return subMain(setDefaultsMain, ['set-defaults', prog, configDir], opts);
     });
 
   program
@@ -113,6 +145,12 @@ const main = async (progname, rawArgs, powers) => {
 
   // Throw an error instead of exiting directly.
   program.exitOverride();
+
+  // Hack: cosmos arguments are always unparsed.
+  const cosmosIndex = rawArgs.indexOf('cosmos');
+  if (cosmosIndex >= 0) {
+    rawArgs.splice(cosmosIndex + 1, 0, '--');
+  }
 
   try {
     await program.parseAsync(rawArgs, { from: 'user' });

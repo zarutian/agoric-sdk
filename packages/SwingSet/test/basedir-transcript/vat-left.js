@@ -1,6 +1,8 @@
-import harden from '@agoric/harden';
+/* global harden */
+import { E } from '@agoric/eventual-send';
 
-function build(E, log) {
+export function buildRootObject(vatPowers) {
+  const log = vatPowers.testLog;
   const obj0 = {
     callRight(arg1, right) {
       log(`left.callRight ${arg1}`);
@@ -11,13 +13,4 @@ function build(E, log) {
     },
   };
   return harden(obj0);
-}
-
-export default function setup(syscall, state, helpers) {
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => build(E, helpers.log),
-    helpers.vatID,
-  );
 }

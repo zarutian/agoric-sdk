@@ -1,10 +1,11 @@
-import harden from '@agoric/harden';
-
+/* global harden */
+import { E } from '@agoric/eventual-send';
 import { getReplHandler } from './repl';
 import { getCapTPHandler } from './captp';
 
 // This vat contains the HTTP request handler.
-function build(E, D, vatPowers) {
+export function buildRootObject(vatPowers) {
+  const { D } = vatPowers;
   let commandDevice;
   let provisioner;
   const channelIdToHandle = new Map();
@@ -62,13 +63,13 @@ function build(E, D, vatPowers) {
     reg.push(commandHandler);
   }
 
-  return {
+  return harden({
     setCommandDevice(d, ROLES) {
       commandDevice = d;
       if (ROLES.client) {
         handler.readyForClient = () => readyForClient.p;
 
-        const replHandler = getReplHandler(E, homeObjects, send, vatPowers);
+        const replHandler = getReplHandler(homeObjects, send, vatPowers);
         registerURLHandler(replHandler, '/private/repl');
 
         // Assign the captp handler.
@@ -203,16 +204,5 @@ function build(E, D, vatPowers) {
         D(commandDevice).sendResponse(count, true, harden(jsonable));
       }
     },
-  };
-}
-
-export default function setup(syscall, state, helpers) {
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    (E, D, powers) => {
-      return harden(build(E, D, powers));
-    },
-    helpers.vatID,
-  );
+  });
 }

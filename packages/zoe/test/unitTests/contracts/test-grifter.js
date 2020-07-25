@@ -1,13 +1,15 @@
+/* global harden */
+
+import '@agoric/install-ses';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { test } from 'tape-promise/tape';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import bundleSource from '@agoric/bundle-source';
 
-import harden from '@agoric/harden';
-
-import { makeZoe } from '../../..';
-// TODO: Remove setupBasicMints and rename setupBasicMints2
+// noinspection ES6PreferShortImport
+import { makeZoe } from '../../../src/zoe';
 import { setup } from '../setupBasicMints';
+import fakeVatAdmin from './fakeVatAdmin';
 
 const grifterRoot = `${__dirname}/grifter`;
 
@@ -15,17 +17,17 @@ test('zoe - grifter tries to steal; prevented by offer safety', async t => {
   t.plan(1);
   // Setup zoe and mints
   const { moola, moolaR, moolaMint, bucksR, bucks } = setup();
-  const zoe = makeZoe({ require });
+  const zoe = makeZoe(fakeVatAdmin);
   // Pack the contract.
-  const { source, moduleFormat } = await bundleSource(grifterRoot);
-  const installationHandle = zoe.install(source, moduleFormat);
+  const bundle = await bundleSource(grifterRoot);
+  const installationHandle = await zoe.install(bundle);
 
   const issuerKeywordRecord = harden({
     Asset: bucksR.issuer,
     Price: moolaR.issuer,
   });
 
-  const malloryInvite = zoe.makeInstance(
+  const { invite: malloryInvite } = await zoe.makeInstance(
     installationHandle,
     issuerKeywordRecord,
   );
@@ -55,7 +57,7 @@ test('zoe - grifter tries to steal; prevented by offer safety', async t => {
 
   t.rejects(
     vicOutcomeP,
-    /The proposed reallocation was not offer safe/,
+    /The reallocation was not offer safe/,
     `vicOffer is rejected`,
   );
 });

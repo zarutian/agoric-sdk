@@ -1,7 +1,8 @@
-import harden from '@agoric/harden';
+/* global harden */
+
 import { makeMarshal } from '@agoric/marshal';
 import makeStore from '@agoric/store';
-import { assert, details } from '@agoric/assert';
+import { assert, details, q } from '@agoric/assert';
 
 // Marshalling for the UI should only use the user's petnames. We will
 // call marshalling for the UI "dehydration" and "hydration" to distinguish it from
@@ -9,14 +10,14 @@ import { assert, details } from '@agoric/assert';
 export const makeDehydrator = (initialUnnamedCount = 0) => {
   let unnamedCount = initialUnnamedCount;
 
-  const petnameKindToMapping = makeStore();
+  const petnameKindToMapping = makeStore('petnameKind');
 
   const searchOrder = [];
 
   const makeMapping = kind => {
     assert.typeof(kind, 'string', details`kind ${kind} must be a string`);
-    const valToPetname = makeStore();
-    const petnameToVal = makeStore();
+    const valToPetname = makeStore('value');
+    const petnameToVal = makeStore('petname');
     const addPetname = (petname, val) => {
       assert(
         !petnameToVal.has(petname),
@@ -26,10 +27,43 @@ export const makeDehydrator = (initialUnnamedCount = 0) => {
       petnameToVal.init(petname, val);
       valToPetname.init(val, petname);
     };
+    const renamePetname = (petname, val) => {
+      assert(
+        valToPetname.has(val),
+        details`val ${val} has not been previously named, would you like to add it instead?`,
+      );
+      assert(
+        !petnameToVal.has(petname),
+        details`petname ${petname} is already in use`,
+      );
+      // Delete the old mappings.
+      const oldPetname = valToPetname.get(val);
+      petnameToVal.delete(oldPetname);
+      valToPetname.delete(val);
+
+      // Add the new mappings.
+      petnameToVal.init(petname, val);
+      valToPetname.init(val, petname);
+    };
+    const deletePetname = petname => {
+      assert(
+        petnameToVal.has(petname),
+        details`petname ${q(
+          petname,
+        )} has not been previously named, would you like to add it instead?`,
+      );
+
+      // Delete the mappings.
+      const val = petnameToVal.get(petname);
+      petnameToVal.delete(petname);
+      valToPetname.delete(val);
+    };
     const mapping = harden({
       valToPetname,
       petnameToVal,
       addPetname,
+      renamePetname,
+      deletePetname,
       kind,
     });
     petnameKindToMapping.init(kind, mapping);
@@ -62,7 +96,15 @@ export const makeDehydrator = (initialUnnamedCount = 0) => {
         });
       }
     }
-    // not found in any map
+    // Val was not found in any named petname map. It may be in
+    // unnamedMapping already.
+    if (unnamedMapping.valToPetname.has(val)) {
+      return harden({
+        kind: 'unnamed',
+        petname: unnamedMapping.valToPetname.get(val),
+      });
+    }
+    // Val was not found anywhere, so we need to add it.
     const placeholderName = addToUnnamed(val);
     return placeholderName;
   };

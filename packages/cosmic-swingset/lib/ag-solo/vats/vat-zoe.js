@@ -1,26 +1,9 @@
-import harden from '@agoric/harden';
+/* global harden */
 
 import { makeZoe } from '@agoric/zoe';
 
-const build = (_E, _log) => {
-  const zoe = makeZoe({ require });
+export function buildRootObject(_vatPowers) {
   return harden({
-    getZoe: () => zoe,
+    buildZoe: adminVat => makeZoe(adminVat),
   });
-};
-
-harden(build);
-
-function setup(syscall, state, helpers) {
-  function log(...args) {
-    helpers.log(...args);
-    console.debug(...args);
-  }
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => build(E, log),
-    helpers.vatID,
-  );
 }
-export default harden(setup);

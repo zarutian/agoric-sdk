@@ -1,6 +1,8 @@
+/* global harden */
+
+import '@agoric/install-ses'; // calls lockdown()
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { test } from 'tape-promise/tape';
-import harden from '@agoric/harden';
 
 import { makeDehydrator } from '../../lib/ag-solo/vats/lib-dehydrate';
 
@@ -17,13 +19,71 @@ test('makeDehydrator', async t => {
     instanceHandleMapping.addPetname('simpleExchange', handle1);
     instanceHandleMapping.addPetname('atomicSwap', handle2);
     instanceHandleMapping.addPetname('automaticRefund', handle3);
+    console.log(`ERROR EXPECTED 'already has a petname' >>>>`);
     t.throws(
       () => instanceHandleMapping.addPetname('simpleExchange2', handle1),
       `cannot add a second petname for the same value`,
     );
+    console.log(
+      `ERROR EXPECTED 'petname simpleExchange is already in use' >>>>`,
+    );
     t.throws(
       () => instanceHandleMapping.addPetname('simpleExchange', harden({})),
       `cannot add another value for the same petname`,
+    );
+
+    // Test renaming.
+    instanceHandleMapping.renamePetname('whatever', handle1);
+    t.equals(
+      instanceHandleMapping.valToPetname.get(handle1),
+      'whatever',
+      `renaming is successful going from val to petname`,
+    );
+    t.deepEquals(
+      instanceHandleMapping.petnameToVal.get('whatever'),
+      handle1,
+      `renaming is successful going from val to petname`,
+    );
+    console.log(
+      `ERROR EXPECTED 'has not been previously named, would you like to add it instead?' >>>>`,
+    );
+    t.throws(
+      () => instanceHandleMapping.renamePetname('new value', harden({})),
+      /has not been previously named, would you like to add it instead\?/,
+      `can't rename something that was never added`,
+    );
+    // rename it back
+    instanceHandleMapping.renamePetname('simpleExchange', handle1);
+    t.equals(
+      instanceHandleMapping.valToPetname.get(handle1),
+      'simpleExchange',
+      `second renaming is successful going from val to petname`,
+    );
+    t.deepEquals(
+      instanceHandleMapping.petnameToVal.get('simpleExchange'),
+      handle1,
+      `second renaming is successful going from val to petname`,
+    );
+
+    // Test deletion.
+    const temp = harden({});
+    instanceHandleMapping.addPetname('to be deleted', temp);
+    t.equals(
+      instanceHandleMapping.valToPetname.get(temp),
+      'to be deleted',
+      `'to be deleted' present going from val to petname`,
+    );
+    t.deepEquals(
+      instanceHandleMapping.petnameToVal.get('to be deleted'),
+      handle1,
+      `'to be deleted' present going from val to petname`,
+    );
+    instanceHandleMapping.deletePetname('to be deleted');
+    console.log(`ERROR EXPECTED '"petname" not found' >>>>`);
+    t.throws(
+      () => instanceHandleMapping.petnameToVal.get('to be deleted'),
+      /"petname" not found/,
+      `can't get what has been deleted`,
     );
 
     const makeMockBrand = () =>
@@ -58,9 +118,9 @@ test('makeDehydrator', async t => {
       `deserialize val with petname`,
     );
     t.deepEquals(
-      dehydrate(harden({ brand: brand1, extent: 40 })),
+      dehydrate(harden({ brand: brand1, value: 40 })),
       harden({
-        body: '{"brand":{"@qclass":"slot","index":0},"extent":40}',
+        body: '{"brand":{"@qclass":"slot","index":0},"value":40}',
         slots: [{ kind: 'brand', petname: 'moola' }],
       }),
       `serialize brand with petname`,
@@ -68,20 +128,20 @@ test('makeDehydrator', async t => {
     t.deepEquals(
       hydrate(
         harden({
-          body: '{"brand":{"@qclass":"slot","index":0},"extent":40}',
+          body: '{"brand":{"@qclass":"slot","index":0},"value":40}',
           slots: [{ kind: 'brand', petname: 'moola' }],
         }),
       ),
-      harden({ brand: brand1, extent: 40 }),
+      harden({ brand: brand1, value: 40 }),
       `deserialize brand with petname`,
     );
     const proposal = harden({
       want: {
-        Asset1: { brand: brand1, extent: 60 },
-        Asset2: { brand: brand3, extent: { instanceHandle: handle3 } },
+        Asset1: { brand: brand1, value: 60 },
+        Asset2: { brand: brand3, value: { instanceHandle: handle3 } },
       },
       give: {
-        Price: { brand: brand2, extent: 3 },
+        Price: { brand: brand2, value: 3 },
       },
       exit: {
         afterDeadline: {
@@ -94,7 +154,7 @@ test('makeDehydrator', async t => {
       dehydrate(proposal),
       {
         body:
-          '{"want":{"Asset1":{"brand":{"@qclass":"slot","index":0},"extent":60},"Asset2":{"brand":{"@qclass":"slot","index":1},"extent":{"instanceHandle":{"@qclass":"slot","index":2}}}},"give":{"Price":{"brand":{"@qclass":"slot","index":3},"extent":3}},"exit":{"afterDeadline":{"timer":{"@qclass":"slot","index":4},"deadline":55}}}',
+          '{"want":{"Asset1":{"brand":{"@qclass":"slot","index":0},"value":60},"Asset2":{"brand":{"@qclass":"slot","index":1},"value":{"instanceHandle":{"@qclass":"slot","index":2}}}},"give":{"Price":{"brand":{"@qclass":"slot","index":3},"value":3}},"exit":{"afterDeadline":{"timer":{"@qclass":"slot","index":4},"deadline":55}}}',
         slots: [
           { kind: 'brand', petname: 'moola' },
           { kind: 'brand', petname: 'zoeInvite' },
@@ -109,7 +169,7 @@ test('makeDehydrator', async t => {
       hydrate(
         harden({
           body:
-            '{"want":{"Asset1":{"brand":{"@qclass":"slot","index":0},"extent":60},"Asset2":{"brand":{"@qclass":"slot","index":1},"extent":{"instanceHandle":{"@qclass":"slot","index":2}}}},"give":{"Price":{"brand":{"@qclass":"slot","index":3},"extent":3}},"exit":{"afterDeadline":{"timer":{"@qclass":"slot","index":4},"deadline":55}}}',
+            '{"want":{"Asset1":{"brand":{"@qclass":"slot","index":0},"value":60},"Asset2":{"brand":{"@qclass":"slot","index":1},"value":{"instanceHandle":{"@qclass":"slot","index":2}}}},"give":{"Price":{"brand":{"@qclass":"slot","index":3},"value":3}},"exit":{"afterDeadline":{"timer":{"@qclass":"slot","index":4},"deadline":55}}}',
           slots: [
             { kind: 'brand', petname: 'moola' },
             { kind: 'brand', petname: 'zoeInvite' },

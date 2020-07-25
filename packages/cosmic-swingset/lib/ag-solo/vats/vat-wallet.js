@@ -1,8 +1,9 @@
-import harden from '@agoric/harden';
+/* global harden */
+import { E } from '@agoric/eventual-send';
 import { makeWallet } from './lib-wallet';
 import pubsub from './pubsub';
 
-function build(E, _D, _log) {
+export function buildRootObject(_vatPowers) {
   let wallet;
   let pursesState;
   let inboxState = JSON.stringify([]);
@@ -47,8 +48,13 @@ function build(E, _D, _log) {
   const { publish: pursesPublish, subscribe: purseSubscribe } = pubsub(E);
   const { publish: inboxPublish, subscribe: inboxSubscribe } = pubsub(E);
 
-  async function startup(zoe, registry) {
-    wallet = await makeWallet(E, zoe, registry, pursesPublish, inboxPublish);
+  async function startup({ zoe, board }) {
+    wallet = await makeWallet({
+      zoe,
+      board,
+      pursesStateChangeHandler: pursesPublish,
+      inboxStateChangeHandler: inboxPublish,
+    });
   }
 
   async function getWallet() {
@@ -75,11 +81,9 @@ function build(E, _D, _log) {
         };
       }
       case 'walletAddOffer': {
-        // We only need to do this because we can't reach addOffer.
-        const hooks = wallet.hydrateHooks(data.hooks);
         return {
           type: 'walletOfferAdded',
-          data: await wallet.addOffer(data, hooks, meta),
+          data: await wallet.addOffer(data, meta),
         };
       }
       case 'walletDeclineOffer': {
@@ -171,11 +175,11 @@ function build(E, _D, _log) {
   function getCommandHandler() {
     return harden({
       onOpen(_obj, meta) {
-        console.error('Adding adminHandle', meta);
+        console.debug('Adding adminHandle', meta);
         adminHandles.add(meta.channelHandle);
       },
       onClose(_obj, meta) {
-        console.error('Removing adminHandle', meta);
+        console.debug('Removing adminHandle', meta);
         adminHandles.delete(meta.channelHandle);
       },
       onMessage: adminOnMessage,
@@ -241,6 +245,45 @@ function build(E, _D, _log) {
                 };
               }
 
+              case 'walletGetDepositFacetId': {
+                const { brandBoardId } = obj;
+                const result = await wallet.getDepositFacetId(brandBoardId);
+                return {
+                  type: 'walletDepositFacetIdResponse',
+                  data: result,
+                };
+              }
+
+              case 'walletSuggestIssuer': {
+                const { petname, boardId } = obj;
+                const result = await wallet.suggestIssuer(petname, boardId);
+                return {
+                  type: 'walletSuggestIssuerResponse',
+                  data: result,
+                };
+              }
+
+              case 'walletSuggestInstance': {
+                const { petname, boardId } = obj;
+                const result = await wallet.suggestInstance(petname, boardId);
+                return {
+                  type: 'walletSuggestInstanceResponse',
+                  data: result,
+                };
+              }
+
+              case 'walletSuggestInstallation': {
+                const { petname, boardId } = obj;
+                const result = await wallet.suggestInstallation(
+                  petname,
+                  boardId,
+                );
+                return {
+                  type: 'walletSuggestInstallationResponse',
+                  data: result,
+                };
+              }
+
               default:
                 return Promise.resolve(false);
             }
@@ -258,13 +301,4 @@ function build(E, _D, _log) {
     getBridgeURLHandler,
     setPresences,
   });
-}
-
-export default function setup(syscall, state, helpers) {
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    (E, D) => build(E, D, helpers.log),
-    helpers.vatID,
-  );
 }

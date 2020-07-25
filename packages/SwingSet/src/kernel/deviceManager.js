@@ -1,4 +1,5 @@
-import harden from '@agoric/harden';
+/* global harden */
+
 import { assert, details } from '@agoric/assert';
 import { insistKernelType } from './parseKernelSlots';
 import { insistVatType, parseVatSlot } from '../parseVatSlots';
@@ -38,11 +39,7 @@ export default function makeDeviceManager(
    *    or is otherwise invalid.
    */
   function mapDeviceSlotToKernelSlot(devSlot) {
-    assert.equal(
-      devSlot,
-      `${devSlot}`,
-      details`non-string devSlot: ${devSlot}`,
-    );
+    assert.typeof(devSlot, 'string', details`non-string devSlot: ${devSlot}`);
     // kdebug(`mapOutbound ${devSlot}`);
     return deviceKeeper.mapDeviceSlotToKernelSlot(devSlot);
   }

@@ -1,9 +1,9 @@
 export { secondPriceLogic, closeAuction } from './auctions';
 
 export {
-  getCurrentPrice,
-  calcLiqExtentToMint,
-  calcExtentToRemove,
+  getInputPrice,
+  calcLiqValueToMint,
+  calcValueToRemove,
 } from './bondingCurves';
 
 export { natSafeMath } from './safeMath';

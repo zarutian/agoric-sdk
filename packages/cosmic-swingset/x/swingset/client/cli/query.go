@@ -21,12 +21,36 @@ func GetQueryCmd(storeKey string, cdc *codec.Codec) *cobra.Command {
 		RunE:                       client.ValidateCmd,
 	}
 	swingsetQueryCmd.AddCommand(flags.GetCommands(
+		GetCmdGetEgress(storeKey, cdc),
 		GetCmdGetStorage(storeKey, cdc),
 		GetCmdGetKeys(storeKey, cdc),
 		GetCmdMailbox(storeKey, cdc),
 	)...)
 
 	return swingsetQueryCmd
+}
+
+func GetCmdGetEgress(queryRoute string, cdc *codec.Codec) *cobra.Command {
+	return &cobra.Command{
+		Use:   "egress [account]",
+		Short: "get egress nickname for account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cliCtx := context.NewCLIContext().WithCodec(cdc)
+			bech32 := args[0]
+
+			res, _, err := cliCtx.QueryWithData(fmt.Sprintf("custom/%s/egress/%s", queryRoute, bech32), nil)
+			if err != nil {
+				// Exit while indicating failure.
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+
+			var out types.QueryResEgress
+			cdc.MustUnmarshalJSON(res, &out)
+			return cliCtx.PrintOutput(out)
+		},
+	}
 }
 
 // GetCmdGetStorage queries information about storage

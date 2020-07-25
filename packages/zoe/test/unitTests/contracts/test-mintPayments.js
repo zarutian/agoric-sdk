@@ -1,13 +1,16 @@
+/* global harden */
+
+import '@agoric/install-ses';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { test } from 'tape-promise/tape';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import bundleSource from '@agoric/bundle-source';
 
 import { E } from '@agoric/eventual-send';
-import harden from '@agoric/harden';
-import produceIssuer from '@agoric/ertp';
+import makeIssuerKit from '@agoric/ertp';
+import fakeVatAdmin from './fakeVatAdmin';
 
-import { makeGetInstanceHandle } from '../../../src/clientSupport';
+// noinspection ES6PreferShortImport
 import { makeZoe } from '../../../src/zoe';
 
 const mintPaymentsRoot = `${__dirname}/../../../src/contracts/mintPayments`;
@@ -15,20 +18,19 @@ const mintPaymentsRoot = `${__dirname}/../../../src/contracts/mintPayments`;
 test('zoe - mint payments', async t => {
   t.plan(2);
   try {
-    const zoe = makeZoe({ require });
+    const zoe = makeZoe(fakeVatAdmin);
     // Pack the contract.
-    const { source, moduleFormat } = await bundleSource(mintPaymentsRoot);
-    const installationHandle = await E(zoe).install(source, moduleFormat);
+    const bundle = await bundleSource(mintPaymentsRoot);
+    const installationHandle = await E(zoe).install(bundle);
     const inviteIssuer = await E(zoe).getInviteIssuer();
-    const getInstanceHandle = makeGetInstanceHandle(inviteIssuer);
 
     // Alice creates a contract instance
-    const adminInvite = await E(zoe).makeInstance(installationHandle);
-    const instanceHandle = await getInstanceHandle(adminInvite);
+    const {
+      instanceRecord: { publicAPI },
+    } = await E(zoe).makeInstance(installationHandle);
 
     // Bob wants to get 1000 tokens so he gets an invite and makes an
     // offer
-    const { publicAPI } = await E(zoe).getInstanceRecord(instanceHandle);
     const invite = await E(publicAPI).makeInvite();
     t.ok(await E(inviteIssuer).isLive(invite), `valid invite`);
     const { payout: payoutP } = await E(zoe).offer(invite);
@@ -56,30 +58,26 @@ test('zoe - mint payments', async t => {
 test('zoe - mint payments with unrelated give and want', async t => {
   t.plan(3);
   try {
-    const zoe = makeZoe({ require });
+    const zoe = makeZoe(fakeVatAdmin);
     // Pack the contract.
-    const { source, moduleFormat } = await bundleSource(mintPaymentsRoot);
-    const installationHandle = await E(zoe).install(source, moduleFormat);
+    const bundle = await bundleSource(mintPaymentsRoot);
+    const installationHandle = await E(zoe).install(bundle);
     const inviteIssuer = await E(zoe).getInviteIssuer();
-    const getInstanceHandle = makeGetInstanceHandle(inviteIssuer);
 
-    const moolaBundle = produceIssuer('moola');
-    const simoleanBundle = produceIssuer('simolean');
+    const moolaBundle = makeIssuerKit('moola');
+    const simoleanBundle = makeIssuerKit('simolean');
 
     // Alice creates a contract instance
     const issuerKeywordRecord = harden({
       Asset: moolaBundle.issuer,
       Price: simoleanBundle.issuer,
     });
-    const adminInvite = await E(zoe).makeInstance(
-      installationHandle,
-      issuerKeywordRecord,
-    );
-    const instanceHandle = await getInstanceHandle(adminInvite);
+    const {
+      instanceRecord: { publicAPI },
+    } = await E(zoe).makeInstance(installationHandle, issuerKeywordRecord);
 
     // Bob wants to get 1000 tokens so he gets an invite and makes an
     // offer
-    const { publicAPI } = await E(zoe).getInstanceRecord(instanceHandle);
     const invite = await E(publicAPI).makeInvite();
     t.ok(await E(inviteIssuer).isLive(invite), `valid invite`);
     const proposal = harden({

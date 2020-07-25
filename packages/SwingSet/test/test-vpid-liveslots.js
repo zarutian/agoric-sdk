@@ -1,8 +1,10 @@
 // eslint-disable-next-line no-redeclare
-/* global setImmediate */
-import { test } from 'tape-promise/tape';
-import harden from '@agoric/harden';
+/* global setImmediate harden */
 
+import '@agoric/install-ses';
+import { test } from 'tape-promise/tape';
+
+import { E } from '@agoric/eventual-send';
 import { producePromise } from '@agoric/produce-promise';
 import { makeLiveSlots } from '../src/kernel/liveSlots';
 
@@ -191,7 +193,7 @@ async function doVatResolveCase1(t, mode) {
   // case 1
   const { log, syscall } = buildSyscall();
 
-  function build(E) {
+  function build(_vatPowers) {
     const pr = producePromise();
     return harden({
       async run(target1, target2) {
@@ -301,7 +303,7 @@ async function doVatResolveCase23(t, which, mode, stalls) {
 
   let stashP1;
 
-  function build(E) {
+  function build(_vatPowers) {
     let p1;
     const pr = producePromise();
     const p0 = pr.promise;
@@ -541,7 +543,7 @@ async function doVatResolveCase23(t, which, mode, stalls) {
   } else if (mode === 'data') {
     t.equal(resolutionOfP1, 4);
   } else if (mode === 'promise-data') {
-    t.equal(resolutionOfP1 instanceof Array, true);
+    t.equal(Array.isArray(resolutionOfP1), true);
     t.equal(resolutionOfP1.length, 1);
     t.is(resolutionOfP1[0], Promise.resolve(resolutionOfP1[0]));
     t.is(resolutionOfP1[0], stashP1);
@@ -570,7 +572,7 @@ for (const caseNum of [2, 3]) {
 async function doVatResolveCase4(t, mode) {
   const { log, syscall } = buildSyscall();
 
-  function build(E) {
+  function build(_vatPowers) {
     let p1;
     return harden({
       async get(p) {

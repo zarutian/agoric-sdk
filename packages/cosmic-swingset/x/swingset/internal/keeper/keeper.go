@@ -10,6 +10,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/auth"
+	"github.com/cosmos/cosmos-sdk/x/bank"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/capability"
@@ -27,6 +29,8 @@ type Keeper struct {
 	storeKey sdk.StoreKey
 	cdc      *codec.Codec
 
+	accountKeeper auth.AccountKeeper
+	bankKeeper    bank.Keeper
 	channelKeeper types.ChannelKeeper
 	portKeeper    types.PortKeeper
 	scopedKeeper  capability.ScopedKeeper
@@ -39,16 +43,83 @@ type Keeper struct {
 func NewKeeper(
 	cdc *codec.Codec, key sdk.StoreKey,
 	channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper,
+	accountKeeper auth.AccountKeeper, bankKeeper bank.Keeper,
 	scopedKeeper capability.ScopedKeeper,
 ) Keeper {
 
 	return Keeper{
 		storeKey:      key,
 		cdc:           cdc,
+		accountKeeper: accountKeeper,
+		bankKeeper:    bankKeeper,
 		channelKeeper: channelKeeper,
 		portKeeper:    portKeeper,
 		scopedKeeper:  scopedKeeper,
 	}
+}
+
+func (k Keeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin {
+	return k.bankKeeper.GetBalance(ctx, addr, denom)
+}
+
+func (k Keeper) GetEgress(ctx sdk.Context, addr sdk.AccAddress) types.Egress {
+	store := ctx.KVStore(k.storeKey)
+
+	egressStore := prefix.NewStore(store, types.EgressPrefix)
+
+	addrBytes := addr.Bytes()
+	if !egressStore.Has(addrBytes) {
+		return types.Egress{}
+	}
+
+	bz := egressStore.Get(addrBytes)
+	var egress types.Egress
+	k.cdc.MustUnmarshalBinaryLengthPrefixed(bz, &egress)
+	return egress
+}
+
+func (k Keeper) SetEgress(ctx sdk.Context, egress types.Egress) error {
+	store := ctx.KVStore(k.storeKey)
+
+	egressStore := prefix.NewStore(store, types.EgressPrefix)
+
+	addr := egress.Peer
+	addrBytes := addr.Bytes()
+
+	// Make note that this egress exists.
+	egressStore.Set(addrBytes, k.cdc.MustMarshalBinaryLengthPrefixed(egress))
+
+	// Now make sure the corresponding account has been initialised.
+	if acc := k.accountKeeper.GetAccount(ctx, addr); acc != nil {
+		// Account already exists.
+		return nil
+	}
+
+	// Create an account object with the specified address.
+	acc := k.accountKeeper.NewAccountWithAddress(ctx, addr)
+
+	// Store it in the keeper (panics on error).
+	k.accountKeeper.SetAccount(ctx, acc)
+
+	// Tell we were successful.
+	return nil
+}
+
+// ExportEgresses fetches all egresses
+func (k Keeper) ExportEgresses(ctx sdk.Context) []types.Egress {
+	store := ctx.KVStore(k.storeKey)
+	egressStore := prefix.NewStore(store, types.EgressPrefix)
+	egresses := []types.Egress{}
+
+	iterator := sdk.KVStorePrefixIterator(egressStore, nil)
+
+	defer iterator.Close()
+	for ; iterator.Valid(); iterator.Next() {
+		var egress types.Egress
+		k.cdc.MustUnmarshalBinaryLengthPrefixed(iterator.Value(), &egress)
+		egresses = append(egresses, egress)
+	}
+	return egresses
 }
 
 // GetStorage gets generic storage

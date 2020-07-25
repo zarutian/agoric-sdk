@@ -1,37 +1,34 @@
+import '@agoric/install-ses';
 import { test } from 'tape-promise/tape';
 import { buildVatController } from '../../src/index';
 import { buildTimer } from '../../src/devices/timer';
 
 const TimerSrc = '../../src/devices/timer-src';
 
-async function testSimpleWake(t, withSES) {
+test('wake', async t => {
   const timer = buildTimer();
   const config = {
     vats: new Map(),
     devices: [['timer', require.resolve(TimerSrc), timer.endowments]],
     bootstrapIndexJS: require.resolve('./bootstrap'),
   };
-  const c = await buildVatController(config, withSES, ['timer']);
+  const c = await buildVatController(config, ['timer']);
   timer.poll(1);
   await c.step();
   timer.poll(5);
   await c.step();
   t.deepEqual(c.dump().log, ['starting wake test', 'handler.wake()']);
   t.end();
-}
-
-test('wake with SES', async t => {
-  await testSimpleWake(t, true);
 });
 
-async function testRepeater(t, withSES) {
+test('repeater', async t => {
   const timer = buildTimer();
   const config = {
     vats: new Map(),
     devices: [['timer', require.resolve(TimerSrc), timer.endowments]],
     bootstrapIndexJS: require.resolve('./bootstrap'),
   };
-  const c = await buildVatController(config, withSES, ['repeater', 3, 2]);
+  const c = await buildVatController(config, ['repeater', 3, 2]);
   timer.poll(1);
   await c.step();
   timer.poll(5);
@@ -41,20 +38,16 @@ async function testRepeater(t, withSES) {
     'handler.wake(3) called 1 times.',
   ]);
   t.end();
-}
-
-test('repeater with SES', async t => {
-  await testRepeater(t, true);
 });
 
-async function testRepeater2(t, withSES) {
+test('repeater2', async t => {
   const timer = buildTimer();
   const config = {
     vats: new Map(),
     devices: [['timer', require.resolve(TimerSrc), timer.endowments]],
     bootstrapIndexJS: require.resolve('./bootstrap'),
   };
-  const c = await buildVatController(config, withSES, ['repeater', 3, 2]);
+  const c = await buildVatController(config, ['repeater', 3, 2]);
   timer.poll(1);
   await c.step();
   timer.poll(5);
@@ -67,20 +60,16 @@ async function testRepeater2(t, withSES) {
     'handler.wake(7) called 2 times.',
   ]);
   t.end();
-}
-
-test('repeater2 with SES', async t => {
-  await testRepeater2(t, true);
 });
 
-async function testRepeaterZero(t, withSES) {
+test('repeaterZero', async t => {
   const timer = buildTimer();
   const config = {
     vats: new Map(),
     devices: [['timer', require.resolve(TimerSrc), timer.endowments]],
     bootstrapIndexJS: require.resolve('./bootstrap'),
   };
-  const c = await buildVatController(config, withSES, ['repeater', 0, 3]);
+  const c = await buildVatController(config, ['repeater', 0, 3]);
   timer.poll(1);
   await c.step();
   timer.poll(2);
@@ -108,8 +97,4 @@ async function testRepeaterZero(t, withSES) {
     'handler.wake(9) called 3 times.',
   ]);
   t.end();
-}
-
-test('repeaterZero with SES', async t => {
-  await testRepeaterZero(t, true);
 });

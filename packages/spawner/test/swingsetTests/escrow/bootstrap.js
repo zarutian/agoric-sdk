@@ -1,13 +1,16 @@
 // Copyright (C) 2019 Agoric, under Apache License 2.0
 
-import harden from '@agoric/harden';
-import produceIssuer from '@agoric/ertp';
+/* global harden */
+import { E } from '@agoric/eventual-send';
+import makeIssuerKit from '@agoric/ertp';
 import { allComparable } from '@agoric/same-structure';
 import { assert, details } from '@agoric/assert';
 
 import { escrowExchangeSrcs } from '../../../src/escrow';
 
-function build(E, log) {
+export function buildRootObject(vatPowers) {
+  const log = vatPowers.testLog;
+
   function testEscrowServiceMismatches(host, randMintP, artMintP) {
     log('starting testEscrowServiceCheckMismatches');
     const installationP = E(host).install(escrowExchangeSrcs);
@@ -174,9 +177,9 @@ function build(E, log) {
   const obj0 = {
     async bootstrap(argv, vats) {
       const host = await E(vats.host).makeHost();
-      const { mint: randMintP } = E(vats.mint).produceIssuer('rand');
+      const { mint: randMintP } = E(vats.mint).makeIssuerKit('rand');
 
-      const { mint: artMintP } = produceIssuer('art', 'set');
+      const { mint: artMintP } = makeIssuerKit('art', 'set');
       switch (argv[0]) {
         case 'escrow misMatches': {
           return testEscrowServiceMismatches(host, randMintP, artMintP);
@@ -201,19 +204,3 @@ function build(E, log) {
   };
   return harden(obj0);
 }
-harden(build);
-
-function setup(syscall, state, helpers) {
-  function log(...args) {
-    helpers.log(...args);
-    console.log(...args);
-  }
-  log(`=> setup called`);
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => build(E, log),
-    helpers.vatID,
-  );
-}
-export default harden(setup);

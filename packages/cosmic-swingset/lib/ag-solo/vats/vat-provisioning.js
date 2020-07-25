@@ -1,9 +1,10 @@
-import harden from '@agoric/harden';
+/* global harden */
+import { E } from '@agoric/eventual-send';
 
 // This vat contains the controller-side provisioning service. To enable local
 // testing, it is loaded by both the controller and other ag-solo vat machines.
 
-function build(E) {
+export function buildRootObject(_vatPowers) {
   let bundler;
   let comms;
   let vattp;
@@ -15,7 +16,7 @@ function build(E) {
   }
 
   async function pleaseProvision(nickname, pubkey) {
-    const chainBundle = E(bundler).createUserBundle(nickname);
+    let chainBundle;
     const fetch = harden({
       getDemoBundle() {
         return chainBundle;
@@ -28,12 +29,12 @@ function build(E) {
 
     const INDEX = 1;
     await E(comms).addEgress(pubkey, INDEX, fetch);
+
+    // Do this here so that any side-effects don't happen unless
+    // the egress has been successfully added.
+    chainBundle = E(bundler).createUserBundle(nickname);
     return { ingressIndex: INDEX };
   }
 
   return harden({ register, pleaseProvision });
-}
-
-export default function setup(syscall, state, helpers) {
-  return helpers.makeLiveSlots(syscall, state, E => build(E), helpers.vatID);
 }

@@ -1,11 +1,10 @@
+/* global harden */
 // @ts-check
+
 import makeStore from '@agoric/store';
-import rawHarden from '@agoric/harden';
 import { E as defaultE } from '@agoric/eventual-send';
 import { producePromise } from '@agoric/produce-promise';
 import { toBytes } from './bytes';
-
-const harden = /** @type {<T>(x: T) => T} */ (rawHarden);
 
 /**
  * Compatibility note: this must match what our peers use,
@@ -57,6 +56,7 @@ export const ENDPOINT_SEPARATOR = '/';
  * @property {(port: Port, l: ListenHandler) => Promise<void>} [onListen] The listener has been registered
  * @property {(port: Port, listenAddr: Endpoint, remoteAddr: Endpoint, l: ListenHandler) => Promise<Endpoint>} [onInbound] Return metadata for inbound connection attempt
  * @property {(port: Port, localAddr: Endpoint, remoteAddr: Endpoint, l: ListenHandler) => Promise<ConnectionHandler>} onAccept A new connection is incoming
+ * @property {(port: Port, localAddr: Endpoint, remoteAddr: Endpoint, l: ListenHandler) => Promise<void>} onReject The connection was rejected
  * @property {(port: Port, rej: any, l: ListenHandler) => Promise<void>} [onError] There was an error while listening
  * @property {(port: Port, l: ListenHandler) => Promise<void>} [onRemove] The listener has been removed
  */
@@ -325,7 +325,10 @@ export function makeNetworkProtocol(protocolHandler, E = defaultE) {
     if (localAddr.endsWith(ENDPOINT_SEPARATOR)) {
       for (;;) {
         // eslint-disable-next-line no-await-in-loop
-        const portID = await E(protocolHandler).generatePortID(localAddr);
+        const portID = await E(protocolHandler).generatePortID(
+          localAddr,
+          protocolHandler,
+        );
         const newAddr = `${localAddr}${portID}`;
         if (!boundPorts.has(newAddr)) {
           localAddr = newAddr;

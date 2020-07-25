@@ -1,5 +1,6 @@
+/* global harden */
 // @ts-check
-import harden from '@agoric/harden';
+
 import {
   rethrowUnlessMissing,
   dataToBase64,
@@ -80,14 +81,9 @@ let seed = 0;
  *
  * @param {import('@agoric/eventual-send').EProxy} E
  * @param {(method: string, params: any) => Promise<any>} callIBCDevice
- * @param {string[]} [packetSendersWhitelist=[]]
  * @returns {ProtocolHandler & BridgeHandler} Protocol/Bridge handler
  */
-export function makeIBCProtocolHandler(
-  E,
-  callIBCDevice,
-  packetSendersWhitelist = [],
-) {
+export function makeIBCProtocolHandler(E, callIBCDevice) {
   /**
    * @type {Store<string, Promise<Connection>>}
    */
@@ -224,14 +220,14 @@ export function makeIBCProtocolHandler(
 
     return harden({
       async onOpen(conn, localAddr, remoteAddr, _handler) {
-        console.info(
+        console.debug(
           'onOpen Remote IBC Connection',
           channelID,
           portID,
           localAddr,
           remoteAddr,
         );
-        const connP = /** @type {Promise<Connection, any>} */ (E.when(conn));
+        const connP = E.when(conn);
         channelKeyToConnP.init(channelKey, connP);
       },
       onReceive,
@@ -308,7 +304,7 @@ export function makeIBCProtocolHandler(
    */
   const protocol = harden({
     async onCreate(impl, _protocolHandler) {
-      console.info('IBC onCreate');
+      console.debug('IBC onCreate');
       protocolImpl = impl;
     },
     async generatePortID(_localAddr, _protocolHandler) {
@@ -328,7 +324,7 @@ export function makeIBCProtocolHandler(
       return callIBCDevice('bindPort', { packet });
     },
     async onConnect(port, localAddr, remoteAddr, chandler, _protocolHandler) {
-      console.warn('IBC onConnect', localAddr, remoteAddr);
+      console.debug('IBC onConnect', localAddr, remoteAddr);
       const portID = localAddrToPortID(localAddr);
       const pendingConns = portToPendingConns.get(port);
 
@@ -427,14 +423,14 @@ EOF
         .catch(rethrowUnlessMissing);
       return onConnectP.promise;
     },
-    async onListen(_port, _localAddr, _listenHandler) {
-      // console.warn('IBC onListen', localAddr);
+    async onListen(_port, localAddr, _listenHandler) {
+      console.debug('IBC onListen', localAddr);
     },
     async onListenRemove(_port, localAddr, _listenHandler) {
-      console.warn('IBC onListenRemove', localAddr);
+      console.debug('IBC onListenRemove', localAddr);
     },
     async onRevoke(port, localAddr, _protocolHandler) {
-      console.warn('IBC onRevoke', localAddr);
+      console.debug('IBC onRevoke', localAddr);
       const pendingConns = portToPendingConns.get(port);
       portToPendingConns.delete(port);
       portToCircuits.delete(port);
@@ -448,7 +444,7 @@ EOF
   return harden({
     ...protocol,
     async fromBridge(srcID, obj) {
-      console.warn('IBC fromBridge', srcID, obj);
+      console.debug('IBC fromBridge', srcID, obj);
       switch (obj.event) {
         case 'channelOpenInit': {
           // This event is sent by a naive relayer that wants to initiate
@@ -516,17 +512,13 @@ EOF
           const versionSuffix = version ? `/${version}` : '';
           const localAddr = `/ibc-port/${portID}/${order.toLowerCase()}${versionSuffix}`;
           const ibcHops = hops.map(hop => `/ibc-hop/${hop}`).join('/');
-          const remoteAddr = `${ibcHops}/ibc-port/${rPortID}/${order.toLowerCase()}/${rVersion}`;
+          const remoteAddr = `${ibcHops}/ibc-port/${rPortID}/${order.toLowerCase()}/${rVersion}/ibc-channel/${rChannelID}`;
 
           // See if we allow an inbound attempt for this address pair (without rejecting).
-          const attemptP =
-            /** @type {Promise<InboundAttempt>} */
-            (E(protocolImpl).inbound(localAddr, remoteAddr));
+          const attemptP = E(protocolImpl).inbound(localAddr, remoteAddr);
 
           // Tell what version string we negotiated.
-          const attemptedLocal =
-            /** @type {string} */
-            (await E(attemptP).getLocalAddress());
+          const attemptedLocal = await E(attemptP).getLocalAddress();
           const match = attemptedLocal.match(
             // Match:  ... /ORDER/VERSION ...
             new RegExp('^(/[^/]+/[^/]+)*/(ordered|unordered)/([^/]+)(/|$)'),
@@ -647,7 +639,6 @@ EOF
           E(connP)
             .send(data)
             .then(ack => {
-              /** @type {Data} */
               const realAck = ack || DEFAULT_ACKNOWLEDGEMENT;
               const ack64 = dataToBase64(realAck);
               return callIBCDevice('packetExecuted', { packet, ack: ack64 });
@@ -699,18 +690,7 @@ EOF
         }
 
         case 'sendPacket': {
-          const { packet, sender } = obj;
-          if (!packetSendersWhitelist.includes(sender)) {
-            console.error(
-              sender,
-              'does not appear in the sendPacket whitelist',
-              packetSendersWhitelist,
-            );
-            throw Error(
-              `${sender} does not appear in the sendPacket whitelist`,
-            );
-          }
-
+          const { packet } = obj;
           const { source_port: portID, source_channel: channelID } = packet;
           const channelKey = `${channelID}:${portID}`;
           const seqToAck = channelKeyToSeqAck.get(channelKey);

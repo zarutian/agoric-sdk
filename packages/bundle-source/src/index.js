@@ -4,6 +4,7 @@ import resolve0 from '@rollup/plugin-node-resolve';
 import commonjs0 from '@rollup/plugin-commonjs';
 import * as babelParser from '@agoric/babel-parser';
 import babelGenerate from '@babel/generator';
+import babelTraverse from '@babel/traverse';
 import { makeTransform } from '@agoric/transform-eventual-send';
 
 import { SourceMapConsumer } from 'source-map';
@@ -12,9 +13,9 @@ const DEFAULT_MODULE_FORMAT = 'nestedEvaluate';
 const DEFAULT_FILE_PREFIX = '/bundled-source';
 const SUPPORTED_FORMATS = ['getExport', 'nestedEvaluate'];
 
-// eslint-disable-next-line no-useless-concat
-const IMPORT_RE = new RegExp('\\b(import)' + '(\\s*(?:\\(|/[/*]))', 'g');
-const HTML_COMMENT_RE = new RegExp(`(?:${'<'}!--|--${'>'})`, 'g');
+const IMPORT_RE = new RegExp('\\b(import)(\\s*(?:\\(|/[/*]))', 'sg');
+const HTML_COMMENT_START_RE = new RegExp(`${'<'}!--`, 'g');
+const HTML_COMMENT_END_RE = new RegExp(`--${'>'}`, 'g');
 
 export function tildotPlugin() {
   const transformer = makeTransform(babelParser, babelGenerate);
@@ -48,7 +49,7 @@ export default async function bundleSource(
     input: resolvedPath,
     treeshake: false,
     preserveModules: moduleFormat === 'nestedEvaluate',
-    external: ['@agoric/evaluate', '@agoric/harden', ...externals],
+    external: [...externals],
     plugins: [
       resolvePlugin({ preferBuiltins: true }),
       tildotPlugin(),
@@ -73,47 +74,86 @@ export default async function bundleSource(
     if (isEntry) {
       entrypoint = fileName;
     }
-    let unmappedCode = code;
+
+    // Parse the rolled-up chunk with Babel.
+    // We are prepared for different module systems.
+    const ast = (babelParser.parse || babelParser)(code);
+
+    let unmapLoc;
     if (
       moduleFormat === 'nestedEvaluate' &&
       !fileName.startsWith('_virtual/')
     ) {
-      unmappedCode = '';
+      // We rearrange the rolled-up chunk according to its sourcemap to move
+      // its source lines back to the right place.
       // eslint-disable-next-line no-await-in-loop
       const consumer = await new SourceMapConsumer(chunk.map);
-      const genLines = code.split('\n');
-      let lastLine = 1;
-      for (let genLine = 0; genLine < genLines.length; genLine += 1) {
-        const pos = consumer.originalPositionFor({
-          line: genLine + 1,
-          column: 0,
-        });
-        const { line: origLine } = pos;
-
-        const srcLine = origLine === null ? lastLine : origLine;
-        const priorChar = unmappedCode[unmappedCode.length - 1];
-        if (
-          srcLine === lastLine &&
-          !['\n', ';', '{', undefined].includes(priorChar) &&
-          !['}'].includes(genLines[genLine][0])
-        ) {
-          unmappedCode += `;`;
+      const unmapped = new WeakSet();
+      let lastPos = { ...ast.loc.start };
+      unmapLoc = loc => {
+        if (!loc || unmapped.has(loc)) {
+          return;
         }
-        while (lastLine < srcLine) {
-          unmappedCode += `\n`;
-          lastLine += 1;
+        // Make sure things start at least at the right place.
+        loc.end = { ...loc.start };
+        for (const pos of ['start', 'end']) {
+          if (loc[pos]) {
+            const newPos = consumer.originalPositionFor(loc[pos]);
+            if (newPos.source !== null) {
+              lastPos = {
+                line: newPos.line,
+                column: newPos.column,
+              };
+            }
+            loc[pos] = lastPos;
+          }
         }
-        unmappedCode += genLines[genLine];
-      }
+        unmapped.add(loc);
+      };
     }
 
-    // Rewrite apparent import expressions so that they don't fail under SES.
-    // We also do apparent HTML comments.
-    const defangedCode = unmappedCode
-      .replace(IMPORT_RE, '$1notreally')
-      .replace(HTML_COMMENT_RE, '<->');
-    // console.log(`<<<<<< ${fileName}\n${defangedCode}\n>>>>>>>>`);
-    sourceBundle[fileName] = defangedCode;
+    const rewriteComment = node => {
+      node.type = 'CommentBlock';
+      // Within comments...
+      node.value = node.value
+        // ...strip extraneous comment whitespace
+        .replace(/^\s+/gm, ' ')
+        // ...replace HTML comments with a defanged version to pass SES restrictions.
+        .replace(HTML_COMMENT_START_RE, '<!X-')
+        .replace(HTML_COMMENT_END_RE, '-X>')
+        // ...replace import expressions with a defanged version to pass SES restrictions.
+        .replace(IMPORT_RE, 'X$1$2')
+        // ...replace end-of-comment markers
+        .replace(/\*\//g, '*X/');
+      if (unmapLoc) {
+        unmapLoc(node.loc);
+      }
+      // console.log(JSON.stringify(node, undefined, 2));
+    };
+
+    babelTraverse(ast, {
+      enter(p) {
+        const { loc, leadingComments, trailingComments } = p.node;
+        if (p.node.comments) {
+          p.node.comments = [];
+        }
+        // Rewrite all comments.
+        (leadingComments || []).forEach(rewriteComment);
+        if (p.node.type.startsWith('Comment')) {
+          rewriteComment(p.node);
+        }
+        // If not a comment, and we are unmapping the source maps,
+        // then do it for this location.
+        if (unmapLoc) {
+          unmapLoc(loc);
+        }
+        (trailingComments || []).forEach(rewriteComment);
+      },
+    });
+
+    // Now generate the sources with the new positions.
+    sourceBundle[fileName] = babelGenerate(ast, { retainLines: true }).code;
+    // console.log(`==== sourceBundle[${fileName}]\n${sourceBundle[fileName]}\n====`);
   }
 
   if (!entrypoint) {
@@ -163,9 +203,8 @@ ${sourceMap}`;
         return undefined;
       }
       return `\
-(function getExport(require) { \
+(function getExport(require, exports) { \
   'use strict'; \
-  let exports = {}; \
   const module = { exports }; \
   \
   ${code}
@@ -181,7 +220,7 @@ ${sourceMap}`;
     const nestedEvaluate = _src => {
       throw Error('need to override nestedEvaluate');
     };
-    function computeExports(filename, exportPowers) {
+    function computeExports(filename, exportPowers, exports) {
       const { require: systemRequire, _log } = exportPowers;
       // This captures the endowed require.
       const match = filename.match(/^(.*)\/[^/]+$/);
@@ -224,7 +263,14 @@ ${sourceMap}`;
         // log('requiring', modPath);
         if (!(modPath in nsBundle)) {
           // log('evaluating', modPath);
-          nsBundle[modPath] = computeExports(modPath, exportPowers);
+          // Break cycles, but be tolerant of modules
+          // that completely override their exports object.
+          nsBundle[modPath] = {};
+          nsBundle[modPath] = computeExports(
+            modPath,
+            exportPowers,
+            nsBundle[modPath],
+          );
         }
 
         // log('returning', nsBundle[modPath]);
@@ -245,7 +291,7 @@ ${sourceMap}`;
       }
 
       // log('evaluating', code);
-      return nestedEvaluate(code)(contextRequire);
+      return nestedEvaluate(code)(contextRequire, exports);
     }
 
     source = `\
@@ -264,8 +310,9 @@ function getExportWithNestedEvaluate(filePrefix) {
 
   ${computeExports}
 
-  // Evaluate the entrypoint recursively.
-  return computeExports(entrypoint, { require });
+  // Evaluate the entrypoint recursively, seeding the exports.
+  const systemRequire = typeof require === 'undefined' ? undefined : require;
+  return computeExports(entrypoint, { require: systemRequire }, {});
 }
 ${sourceMap}`;
   }

@@ -1,13 +1,13 @@
-import harden from '@agoric/harden';
+/* global harden */
 
-export const makeContract = zoe => {
-  const invite = zoe.makeInvitation(() => {}, 'tester');
-  return harden({
-    invite,
-    publicAPI: {
+export const makeContract = zcf => {
+  const invite = zcf.makeInvitation(() => {}, 'tester');
+  zcf.initPublicAPI(
+    harden({
       doTest: () => {
-        new Array(1e7).map(Object.create);
+        new Array(1e9).map(Object.create);
       },
-    },
-  });
+    }),
+  );
+  return invite;
 };

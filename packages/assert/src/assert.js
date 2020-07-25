@@ -1,13 +1,10 @@
 // Copyright (C) 2019 Agoric, under Apache License 2.0
+
 // @ts-check
 
 // This module assumes the de-facto standard `console` host object.
 // To the extent that this `console` is considered a resource,
 // this module must be considered a resource module.
-
-import rawHarden from '@agoric/harden';
-
-const harden = /** @type {<T>(x: T) => T} */ (rawHarden);
 
 /**
  * Prepend the correct indefinite article onto a noun, typically a typeof result
@@ -25,13 +22,40 @@ function an(str) {
 }
 harden(an);
 
+/**
+ * Like `JSON.stringify` but does not blow up if given a cycle. This is not
+ * intended to be a serialization to support any useful unserialization,
+ * or any programmatic use of the resulting string. The string is intended
+ * only for showing a human, in order to be informative enough for some
+ * logging purposes. As such, this `cycleTolerantStringify` has an
+ * imprecise specification and may change over time.
+ *
+ * The current `cycleTolerantStringify` possibly emits too many "seen"
+ * markings: Not only for cycles, but also for repeated subtrees by
+ * object identity.
+ */
+function cycleTolerantStringify(payload) {
+  const seenSet = new Set();
+  const replacer = (_, val) => {
+    if (typeof val === 'object' && val !== null) {
+      if (seenSet.has(val)) {
+        return '<**seen**>';
+      }
+      seenSet.add(val);
+    }
+    return val;
+  };
+  return JSON.stringify(payload, replacer);
+}
+
 const declassifiers = new WeakSet();
 
 /**
- * To "declassify" a substitution value used in a details`...` template literal,
- * enclose that substitution expression in a call to openDetail. This states
- * that the argument should appear, stringified, in the error message of the
- * thrown error.
+ * To "declassify" and quote a substitution value used in a
+ * details`...` template literal, enclose that substitution expression
+ * in a call to `q`. This states that the argument should appear quoted (with
+ * `JSON.stringify`), in the error message of the thrown error. The payload
+ * itself is still passed unquoted to the console as it would be without q.
  *
  * Starting from the example in the `details` comment, say instead that the
  * color the sky is supposed to be is also computed. Say that we still don't
@@ -41,7 +65,7 @@ const declassifiers = new WeakSet();
  * assert.equal(
  *   sky.color,
  *   color,
- *   details`${sky.color} should be ${openDetail(color)}`,
+ *   details`${sky.color} should be ${q(color)}`,
  * );
  * ```
  *
@@ -52,24 +76,23 @@ const declassifiers = new WeakSet();
  * @param {*} payload What to declassify
  * @returns {StringablePayload} The declassified payload
  */
-function openDetail(payload) {
-  const result = harden({
+function q(payload) {
+  // Don't harden the payload
+  const result = Object.freeze({
     payload,
-    toString() {
-      return payload.toString();
-    },
+    toString: Object.freeze(() => cycleTolerantStringify(payload)),
   });
   declassifiers.add(result);
   return result;
 }
-harden(openDetail);
+harden(q);
 
 /**
  * Use the `details` function as a template literal tag to create
  * informative error messages. The assertion functions take such messages
  * as optional arguments:
  * ```js
- * assert(sky.isBlue(), details`${sky.color} should be blue`);
+ * assert(sky.isBlue(), details`${sky.color} should be "blue"`);
  * ```
  * The details template tag returns an object that can print itself with the
  * formatted message in two ways. It will report the real details to the
@@ -98,7 +121,7 @@ harden(openDetail);
  *
  * @typedef {string|Complainer} Details Either a plain string, or made by details``
  *
- * @param {TemplateStringsArray} template The template to format
+ * @param {TemplateStringsArray | string[]} template The template to format
  * @param {any[]} args Arguments to the template
  * @returns {Complainer} The complainer for these details
  */
@@ -112,15 +135,15 @@ function details(template, ...args) {
         let arg = args[i];
         let argStr;
         if (declassifiers.has(arg)) {
-          arg = arg.payload;
           argStr = `${arg}`;
+          arg = arg.payload;
         } else {
           argStr = `(${an(typeof arg)})`;
         }
 
         // Remove the extra spaces (since console.error puts them
         // between each interleaved).
-        const priorWithoutSpace = interleaved.pop().replace(/ $/, '');
+        const priorWithoutSpace = (interleaved.pop() || '').replace(/ $/, '');
         if (priorWithoutSpace !== '') {
           interleaved.push(priorWithoutSpace);
         }
@@ -155,13 +178,66 @@ harden(details);
  * The optional `optDetails` can be a string for backwards compatibility
  * with the nodejs assertion library.
  * @param {Details} [optDetails] The details of what was asserted
+ * @returns {never}
  */
 function fail(optDetails = details`Assert failed`) {
   if (typeof optDetails === 'string') {
-    optDetails = details`${openDetail(optDetails)}`;
+    // If it is a string, use it as the literal part of the template so
+    // it doesn't get quoted.
+    optDetails = details([optDetails]);
   }
   throw optDetails.complain();
 }
+
+/**
+ * @param {*} flag The truthy/falsy value
+ * @param {Details} [optDetails] The details to throw
+ * @returns {asserts flag}
+ */
+function assert(flag, optDetails = details`Check failed`) {
+  if (!flag) {
+    throw fail(optDetails);
+  }
+}
+
+/**
+ * Assert that two values must be `Object.is`.
+ * @param {*} actual The value we received
+ * @param {*} expected What we wanted
+ * @param {Details} [optDetails] The details to throw
+ * @returns {void}
+ */
+function equal(
+  actual,
+  expected,
+  optDetails = details`Expected ${actual} is same as ${expected}`,
+) {
+  assert(Object.is(actual, expected), optDetails);
+}
+
+/**
+ * Assert an expected typeof result.
+ * @type {AssertTypeof}
+ * @param {any} specimen The value to get the typeof
+ * @param {string} typename The expected name
+ * @param {Details} [optDetails] The details to throw
+ */
+const assertTypeof = (specimen, typename, optDetails) => {
+  assert(
+    typeof typename === 'string',
+    details`${q(typename)} must be a string`,
+  );
+  if (optDetails === undefined) {
+    // Like
+    // ```js
+    // optDetails = details`${specimen} must be ${q(an(typename))}`;
+    // ```
+    // except it puts the typename into the literal part of the template
+    // so it doesn't get quoted.
+    optDetails = details(['', ` must be ${an(typename)}`], specimen);
+  }
+  equal(typeof specimen, typename, optDetails);
+};
 
 /**
  * assert that expr is truthy, with an optional details to describe
@@ -182,48 +258,13 @@ function fail(optDetails = details`Assert failed`) {
  *
  * The optional `optDetails` can be a string for backwards compatibility
  * with the nodejs assertion library.
- * @param {*} flag The truthy/falsy value
- * @param {Details} [optDetails] The details to throw
+ * @type {typeof assert & { typeof: AssertTypeof, fail: typeof fail, equal: typeof equal }}
  */
-function assert(flag, optDetails = details`check failed`) {
-  if (!flag) {
-    fail(optDetails);
-  }
-}
+const assertCombined = Object.assign(assert, {
+  equal,
+  fail,
+  typeof: assertTypeof,
+});
+harden(assertCombined);
 
-/**
- * Assert that two values must be `===`.
- * @param {*} actual The value we received
- * @param {*} expected What we wanted
- * @param {Details} [optDetails] The details to throw
- */
-function equal(
-  actual,
-  expected,
-  optDetails = details`Expected ${actual} === ${expected}`,
-) {
-  assert(actual === expected, optDetails);
-}
-
-/**
- * Assert an expected typeof result.
- *
- * @param {*} specimen The value to get the typeof
- * @param {string} typename The expected name
- * @param {Details} [optDetails] The details to throw
- */
-function assertTypeof(
-  specimen,
-  typename,
-  optDetails = details`${specimen} must be ${openDetail(an(typename))}`,
-) {
-  assert(typeof typename === 'string', details`${typename} must be a string`);
-  equal(typeof specimen, typename, optDetails);
-}
-
-assert.equal = equal;
-assert.fail = fail;
-assert.typeof = assertTypeof;
-harden(assert);
-
-export { assert, details, openDetail, an };
+export { assertCombined as assert, details, q, an };

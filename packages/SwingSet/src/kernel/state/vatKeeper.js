@@ -1,8 +1,9 @@
+/* global harden */
+
 /**
  * Kernel's keeper of persistent state for a vat.
  */
 
-import harden from '@agoric/harden';
 import Nat from '@agoric/nat';
 import { assert, details } from '@agoric/assert';
 import { parseKernelSlot } from '../parseKernelSlots';
@@ -40,7 +41,7 @@ export function initializeVatState(storage, vatID) {
  * @param vatID  The vat ID string of the vat in question
  * @param addKernelObject  Kernel function to add a new object to the kernel's
  *    mapping tables.
- * @param addKernelPromise  Kernel function to add a new promise to the
+ * @param addKernelPromiseForVat  Kernel function to add a new promise to the
  *    kernel's mapping tables.
  *
  * @return an object to hold and access the kernel's state for the given vat
@@ -49,7 +50,11 @@ export function makeVatKeeper(
   storage,
   vatID,
   addKernelObject,
-  addKernelPromise,
+  addKernelPromiseForVat,
+  incrementRefCount,
+  decrementRefCount,
+  incStat,
+  decStat,
 ) {
   insistVatID(vatID);
 
@@ -77,11 +82,13 @@ export function makeVatKeeper(
         } else if (type === 'device') {
           throw new Error(`normal vats aren't allowed to export device nodes`);
         } else if (type === 'promise') {
-          kernelSlot = addKernelPromise(vatID);
+          kernelSlot = addKernelPromiseForVat(vatID);
         } else {
           throw new Error(`unknown type ${type}`);
         }
+        incrementRefCount(kernelSlot, `${vatID}|vk|clist`);
         const kernelKey = `${vatID}.c.${kernelSlot}`;
+        incStat('clistEntries');
         storage.set(kernelKey, vatSlot);
         storage.set(vatKey, kernelSlot);
         kdebug(`Add mapping v->k ${kernelKey}<=>${vatKey}`);
@@ -125,9 +132,11 @@ export function makeVatKeeper(
       } else {
         throw new Error(`unknown type ${type}`);
       }
+      incrementRefCount(kernelSlot, `${vatID}[kv|clist`);
       const vatSlot = makeVatSlot(type, false, id);
 
       const vatKey = `${vatID}.c.${vatSlot}`;
+      incStat('clistEntries');
       storage.set(vatKey, kernelSlot);
       storage.set(kernelKey, vatSlot);
       kdebug(`Add mapping k->v ${kernelKey}<=>${vatKey}`);
@@ -148,8 +157,12 @@ export function makeVatKeeper(
     const kernelKey = `${vatID}.c.${kernelSlot}`;
     const vatKey = `${vatID}.c.${vatSlot}`;
     kdebug(`Delete mapping ${kernelKey}<=>${vatKey}`);
-    storage.delete(kernelKey);
-    storage.delete(vatKey);
+    if (storage.has(kernelKey)) {
+      decrementRefCount(kernelSlot, `${vatID}|del|clist`);
+      decStat('clistEntries');
+      storage.delete(kernelKey);
+      storage.delete(vatKey);
+    }
   }
 
   /**

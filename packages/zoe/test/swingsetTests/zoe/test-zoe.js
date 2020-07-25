@@ -1,3 +1,4 @@
+import '@agoric/install-metering-and-ses';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { test } from 'tape-promise/tape';
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -5,7 +6,6 @@ import { loadBasedir, buildVatController } from '@agoric/swingset-vat';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import bundleSource from '@agoric/bundle-source';
 
-import path from 'path';
 import fs from 'fs';
 
 const CONTRACT_FILES = [
@@ -15,13 +15,15 @@ const CONTRACT_FILES = [
   'publicAuction',
   'atomicSwap',
   'simpleExchange',
+  'sellItems',
+  'mintAndSellNFT',
 ];
 const generateBundlesP = Promise.all(
   CONTRACT_FILES.map(async contract => {
-    const { source, moduleFormat } = await bundleSource(
+    const bundle = await bundleSource(
       `${__dirname}/../../../src/contracts/${contract}`,
     );
-    const obj = { source, moduleFormat, contract };
+    const obj = { bundle, contract };
     fs.writeFileSync(
       `${__dirname}/bundle-${contract}.js`,
       `export default ${JSON.stringify(obj)};`,
@@ -29,15 +31,10 @@ const generateBundlesP = Promise.all(
   }),
 );
 
-async function main(withSES, basedir, argv) {
-  const dir = path.resolve('test/swingsetTests', basedir);
-  const config = await loadBasedir(dir);
-  const ldSrcPath = require.resolve(
-    '@agoric/swingset-vat/src/devices/loopbox-src',
-  );
-  config.devices = [['loopbox', ldSrcPath, {}]];
+async function main(argv) {
+  const config = await loadBasedir(__dirname);
   await generateBundlesP;
-  const controller = await buildVatController(config, withSES, argv);
+  const controller = await buildVatController(config, argv);
   await controller.run();
   return controller.dump();
 }
@@ -47,23 +44,20 @@ const expectedAutomaticRefundOkLog = [
   '=> alice.doCreateAutomaticRefund called',
   'The offer was accepted',
   'The offer was accepted',
-  'bobMoolaPurse: balance {"brand":{},"extent":0}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":17}',
-  'aliceMoolaPurse: balance {"brand":{},"extent":3}',
-  'aliceSimoleanPurse: balance {"brand":{},"extent":0}',
+  'bobMoolaPurse: balance {"brand":{},"value":0}',
+  'bobSimoleanPurse: balance {"brand":{},"value":17}',
+  'aliceMoolaPurse: balance {"brand":{},"value":3}',
+  'aliceSimoleanPurse: balance {"brand":{},"value":0}',
 ];
 
-test('zoe - automaticRefund - valid inputs - with SES', async t => {
+test('zoe - automaticRefund - valid inputs', async t => {
   t.plan(1);
   try {
-    const startingExtents = [
+    const startingValues = [
       [3, 0, 0],
       [0, 17, 0],
     ];
-    const dump = await main(true, 'zoe', [
-      'automaticRefundOk',
-      startingExtents,
-    ]);
+    const dump = await main(['automaticRefundOk', startingValues]);
     t.deepEquals(dump.log, expectedAutomaticRefundOkLog);
   } catch (e) {
     t.isNot(e, e, 'unexpected exception');
@@ -75,20 +69,20 @@ const expectedCoveredCallOkLog = [
   '=> alice.doCreateCoveredCall called',
   '@@ schedule task for:1, currently: 0 @@',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'bobMoolaPurse: balance {"brand":{},"extent":3}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":0}',
-  'aliceMoolaPurse: balance {"brand":{},"extent":0}',
-  'aliceSimoleanPurse: balance {"brand":{},"extent":7}',
+  'bobMoolaPurse: balance {"brand":{},"value":3}',
+  'bobSimoleanPurse: balance {"brand":{},"value":0}',
+  'aliceMoolaPurse: balance {"brand":{},"value":0}',
+  'aliceSimoleanPurse: balance {"brand":{},"value":7}',
 ];
 
-test('zoe - coveredCall - valid inputs - with SES', async t => {
+test('zoe - coveredCall - valid inputs', async t => {
   t.plan(1);
   try {
-    const startingExtents = [
+    const startingValues = [
       [3, 0, 0],
       [0, 7, 0],
     ];
-    const dump = await main(true, 'zoe', ['coveredCallOk', startingExtents]);
+    const dump = await main(['coveredCallOk', startingValues]);
     t.deepEquals(dump.log, expectedCoveredCallOkLog);
   } catch (e) {
     t.isNot(e, e, 'unexpected exception');
@@ -103,26 +97,26 @@ const expectedSwapForOptionOkLog = [
   'swap invite made',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'daveMoolaPurse: balance {"brand":{},"extent":3}',
-  'daveSimoleanPurse: balance {"brand":{},"extent":0}',
-  'daveBucksPurse: balance {"brand":{},"extent":0}',
-  'bobMoolaPurse: balance {"brand":{},"extent":0}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":0}',
-  'bobBucksPurse;: balance {"brand":{},"extent":1}',
-  'aliceMoolaPurse: balance {"brand":{},"extent":0}',
-  'aliceSimoleanPurse: balance {"brand":{},"extent":7}',
+  'daveMoolaPurse: balance {"brand":{},"value":3}',
+  'daveSimoleanPurse: balance {"brand":{},"value":0}',
+  'daveBucksPurse: balance {"brand":{},"value":0}',
+  'bobMoolaPurse: balance {"brand":{},"value":0}',
+  'bobSimoleanPurse: balance {"brand":{},"value":0}',
+  'bobBucksPurse;: balance {"brand":{},"value":1}',
+  'aliceMoolaPurse: balance {"brand":{},"value":0}',
+  'aliceSimoleanPurse: balance {"brand":{},"value":7}',
 ];
 
-test('zoe - swapForOption - valid inputs - with SES', async t => {
+test('zoe - swapForOption - valid inputs', async t => {
   t.plan(1);
   try {
-    const startingExtents = [
+    const startingValues = [
       [3, 0, 0], // Alice starts with 3 moola
       [0, 0, 0], // Bob starts with nothing
       [0, 0, 0], // Carol starts with nothing
       [0, 7, 1], // Dave starts with 7 simoleans and 1 buck
     ];
-    const dump = await main(true, 'zoe', ['swapForOptionOk', startingExtents]);
+    const dump = await main(['swapForOptionOk', startingValues]);
     t.deepEquals(dump.log, expectedSwapForOptionOkLog);
   } catch (e) {
     t.isNot(e, e, 'unexpected exception');
@@ -135,25 +129,25 @@ const expectedPublicAuctionOkLog = [
   'The offer has been accepted. Once the contract has been completed, please check your payout',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'bobMoolaPurse: balance {"brand":{},"extent":1}',
-  'carolMoolaPurse: balance {"brand":{},"extent":0}',
-  'daveMoolaPurse: balance {"brand":{},"extent":0}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":4}',
-  'carolSimoleanPurse: balance {"brand":{},"extent":7}',
-  'daveSimoleanPurse: balance {"brand":{},"extent":5}',
-  'aliceMoolaPurse: balance {"brand":{},"extent":0}',
-  'aliceSimoleanPurse: balance {"brand":{},"extent":7}',
+  'bobMoolaPurse: balance {"brand":{},"value":1}',
+  'carolMoolaPurse: balance {"brand":{},"value":0}',
+  'daveMoolaPurse: balance {"brand":{},"value":0}',
+  'bobSimoleanPurse: balance {"brand":{},"value":4}',
+  'carolSimoleanPurse: balance {"brand":{},"value":7}',
+  'daveSimoleanPurse: balance {"brand":{},"value":5}',
+  'aliceMoolaPurse: balance {"brand":{},"value":0}',
+  'aliceSimoleanPurse: balance {"brand":{},"value":7}',
 ];
-test('zoe - publicAuction - valid inputs - with SES', async t => {
+test('zoe - publicAuction - valid inputs', async t => {
   t.plan(1);
   try {
-    const startingExtents = [
+    const startingValues = [
       [1, 0, 0],
       [0, 11, 0],
       [0, 7, 0],
       [0, 5, 0],
     ];
-    const dump = await main(true, 'zoe', ['publicAuctionOk', startingExtents]);
+    const dump = await main(['publicAuctionOk', startingValues]);
     t.deepEquals(dump.log, expectedPublicAuctionOkLog);
   } catch (e) {
     t.isNot(e, e, 'unexpected exception');
@@ -163,19 +157,19 @@ test('zoe - publicAuction - valid inputs - with SES', async t => {
 const expectedAtomicSwapOkLog = [
   '=> alice, bob, carol and dave are set up',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'aliceMoolaPurse: balance {"brand":{},"extent":0}',
-  'bobMoolaPurse: balance {"brand":{},"extent":3}',
-  'aliceSimoleanPurse: balance {"brand":{},"extent":7}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":0}',
+  'aliceMoolaPurse: balance {"brand":{},"value":0}',
+  'bobMoolaPurse: balance {"brand":{},"value":3}',
+  'aliceSimoleanPurse: balance {"brand":{},"value":7}',
+  'bobSimoleanPurse: balance {"brand":{},"value":0}',
 ];
-test('zoe - atomicSwap - valid inputs - with SES', async t => {
+test('zoe - atomicSwap - valid inputs', async t => {
   t.plan(1);
   try {
-    const startingExtents = [
+    const startingValues = [
       [3, 0, 0],
       [0, 7, 0],
     ];
-    const dump = await main(true, 'zoe', ['atomicSwapOk', startingExtents]);
+    const dump = await main(['atomicSwapOk', startingValues]);
     t.deepEquals(dump.log, expectedAtomicSwapOkLog);
   } catch (e) {
     t.isNot(e, e, 'unexpected exception');
@@ -186,20 +180,20 @@ const expectedSimpleExchangeOkLog = [
   '=> alice, bob, carol and dave are set up',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'bobMoolaPurse: balance {"brand":{},"extent":3}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":0}',
-  'aliceMoolaPurse: balance {"brand":{},"extent":0}',
-  'aliceSimoleanPurse: balance {"brand":{},"extent":7}',
+  'bobMoolaPurse: balance {"brand":{},"value":3}',
+  'bobSimoleanPurse: balance {"brand":{},"value":3}',
+  'aliceMoolaPurse: balance {"brand":{},"value":0}',
+  'aliceSimoleanPurse: balance {"brand":{},"value":4}',
 ];
 
-test('zoe - simpleExchange - valid inputs - with SES', async t => {
+test('zoe - simpleExchange - valid inputs', async t => {
   t.plan(1);
   try {
-    const startingExtents = [
+    const startingValues = [
       [3, 0, 0],
       [0, 7, 0],
     ];
-    const dump = await main(true, 'zoe', ['simpleExchangeOk', startingExtents]);
+    const dump = await main(['simpleExchangeOk', startingValues]);
     t.deepEquals(dump.log, expectedSimpleExchangeOkLog);
   } catch (e) {
     t.isNot(e, e, 'unexpected exception');
@@ -208,63 +202,77 @@ test('zoe - simpleExchange - valid inputs - with SES', async t => {
 
 const expectedSimpleExchangeNotificationLog = [
   '=> alice, bob, carol and dave are set up',
-  '',
-  '{"buys":[],"sells":[{"want":{"Price":{"brand":{},"extent":4}},"give":{"Asset":{"brand":{},"extent":3}}}]}',
+  '{"buys":[],"sells":[]}',
+  '{"buys":[],"sells":[{"want":{"Price":{"brand":{},"value":4}},"give":{"Asset":{"brand":{},"value":3}}}]}',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
   '{"buys":[],"sells":[]}',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'bobMoolaPurse: balance {"brand":{},"extent":0}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":17}',
-  '{"buys":[{"want":{"Asset":{"brand":{},"extent":8}},"give":{"Price":{"brand":{},"extent":2}}}],"sells":[]}',
+  'bobMoolaPurse: balance {"brand":{},"value":0}',
+  'bobSimoleanPurse: balance {"brand":{},"value":20}',
+  '{"buys":[{"want":{"Asset":{"brand":{},"value":8}},"give":{"Price":{"brand":{},"value":2}}}],"sells":[]}',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'bobMoolaPurse: balance {"brand":{},"extent":3}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":15}',
-  '{"buys":[{"want":{"Asset":{"brand":{},"extent":8}},"give":{"Price":{"brand":{},"extent":2}}},{"want":{"Asset":{"brand":{},"extent":20}},"give":{"Price":{"brand":{},"extent":13}}}],"sells":[]}',
+  'bobMoolaPurse: balance {"brand":{},"value":3}',
+  'bobSimoleanPurse: balance {"brand":{},"value":18}',
+  '{"buys":[{"want":{"Asset":{"brand":{},"value":8}},"give":{"Price":{"brand":{},"value":2}}},{"want":{"Asset":{"brand":{},"value":20}},"give":{"Price":{"brand":{},"value":13}}}],"sells":[]}',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'bobMoolaPurse: balance {"brand":{},"extent":3}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":2}',
-  '{"buys":[{"want":{"Asset":{"brand":{},"extent":8}},"give":{"Price":{"brand":{},"extent":2}}},{"want":{"Asset":{"brand":{},"extent":20}},"give":{"Price":{"brand":{},"extent":13}}},{"want":{"Asset":{"brand":{},"extent":5}},"give":{"Price":{"brand":{},"extent":2}}}],"sells":[]}',
+  'bobMoolaPurse: balance {"brand":{},"value":3}',
+  'bobSimoleanPurse: balance {"brand":{},"value":5}',
+  '{"buys":[{"want":{"Asset":{"brand":{},"value":8}},"give":{"Price":{"brand":{},"value":2}}},{"want":{"Asset":{"brand":{},"value":20}},"give":{"Price":{"brand":{},"value":13}}},{"want":{"Asset":{"brand":{},"value":5}},"give":{"Price":{"brand":{},"value":2}}}],"sells":[]}',
   'The offer has been accepted. Once the contract has been completed, please check your payout',
-  'bobMoolaPurse: balance {"brand":{},"extent":3}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":0}',
-  'aliceMoolaPurse: balance {"brand":{},"extent":0}',
-  'aliceSimoleanPurse: balance {"brand":{},"extent":7}',
+  'bobMoolaPurse: balance {"brand":{},"value":3}',
+  'bobSimoleanPurse: balance {"brand":{},"value":3}',
+  'aliceMoolaPurse: balance {"brand":{},"value":0}',
+  'aliceSimoleanPurse: balance {"brand":{},"value":4}',
 ];
 
-test('zoe - simpleExchange - state Update - with SES', async t => {
+test('zoe - simpleExchange - state Update', async t => {
   t.plan(1);
-  const startingExtents = [
+  const startingValues = [
     [3, 0, 0],
     [0, 24, 0],
   ];
-  const dump = await main(true, 'zoe', [
-    'simpleExchangeNotifier',
-    startingExtents,
-  ]);
+  const dump = await main(['simpleExchangeNotifier', startingValues]);
   t.deepEquals(dump.log, expectedSimpleExchangeNotificationLog);
 });
 
 const expectedAutoswapOkLog = [
   '=> alice, bob, carol and dave are set up',
   'Added liquidity.',
-  'simoleanAmounts {"brand":{},"extent":1}',
+  'simoleanAmounts {"brand":{},"value":1}',
   'Swap successfully completed.',
-  'moolaAmounts {"brand":{},"extent":5}',
+  'moolaAmounts {"brand":{},"value":5}',
   'Swap successfully completed.',
-  'bobMoolaPurse: balance {"brand":{},"extent":5}',
-  'bobSimoleanPurse: balance {"brand":{},"extent":5}',
+  'bobMoolaPurse: balance {"brand":{},"value":5}',
+  'bobSimoleanPurse: balance {"brand":{},"value":5}',
   'Liquidity successfully removed.',
-  'poolAmounts{"TokenA":{"brand":{},"extent":0},"TokenB":{"brand":{},"extent":0},"Liquidity":{"brand":{},"extent":10}}',
-  'aliceMoolaPurse: balance {"brand":{},"extent":8}',
-  'aliceSimoleanPurse: balance {"brand":{},"extent":7}',
-  'aliceLiquidityTokenPurse: balance {"brand":{},"extent":0}',
+  'poolAmounts{"TokenA":{"brand":{},"value":0},"TokenB":{"brand":{},"value":0},"Liquidity":{"brand":{},"value":10}}',
+  'aliceMoolaPurse: balance {"brand":{},"value":8}',
+  'aliceSimoleanPurse: balance {"brand":{},"value":7}',
+  'aliceLiquidityTokenPurse: balance {"brand":{},"value":0}',
 ];
-test('zoe - autoswap - valid inputs - with SES', async t => {
+test('zoe - autoswap - valid inputs', async t => {
   t.plan(1);
-  const startingExtents = [
+  const startingValues = [
     [10, 5, 0],
     [3, 7, 0],
   ];
-  const dump = await main(true, 'zoe', ['autoswapOk', startingExtents]);
+  const dump = await main(['autoswapOk', startingValues]);
   t.deepEquals(dump.log, expectedAutoswapOkLog);
+});
+
+const expectedSellTicketsOkLog = [
+  '=> alice, bob, carol and dave are set up',
+  'availableTickets: {"brand":{},"value":[{"show":"Steven Universe, the Opera","start":"Wed, March 25th 2020 at 8pm","number":1},{"show":"Steven Universe, the Opera","start":"Wed, March 25th 2020 at 8pm","number":2},{"show":"Steven Universe, the Opera","start":"Wed, March 25th 2020 at 8pm","number":3}]}',
+  'boughtTicketAmount: {"brand":{},"value":[{"show":"Steven Universe, the Opera","start":"Wed, March 25th 2020 at 8pm","number":1}]}',
+  'after ticket1 purchased: {"brand":{},"value":[{"show":"Steven Universe, the Opera","start":"Wed, March 25th 2020 at 8pm","number":2},{"show":"Steven Universe, the Opera","start":"Wed, March 25th 2020 at 8pm","number":3}]}',
+  'alice earned: {"brand":{},"value":22}',
+];
+test('zoe - sellTickets - valid inputs', async t => {
+  t.plan(1);
+  const startingValues = [
+    [0, 0, 0],
+    [22, 0, 0],
+  ];
+  const dump = await main(['sellTicketsOk', startingValues]);
+  t.deepEquals(dump.log, expectedSellTicketsOkLog);
 });

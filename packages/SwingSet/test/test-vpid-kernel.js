@@ -1,8 +1,10 @@
 // eslint-disable-next-line no-redeclare
-/* global setImmediate */
+/* global harden */
+
+import '@agoric/install-ses';
 import { test } from 'tape-promise/tape';
-import harden from '@agoric/harden';
 import { initSwingStore } from '@agoric/swing-store-simple';
+import { waitUntilQuiescent } from '../src/waitUntilQuiescent';
 
 import buildKernel from '../src/kernel/index';
 
@@ -18,7 +20,7 @@ function capargs(args, slots = []) {
 
 function makeEndowments() {
   return {
-    setImmediate,
+    waitUntilQuiescent,
     hostStorage: initSwingStore().storage,
     runEndOfCrank: () => {},
   };

@@ -1,9 +1,7 @@
+/* global harden */
 // @ts-check
-import rawHarden from '@agoric/harden';
-import makeStore from '@agoric/store';
 
-/* TODO: remove when types are done */
-const harden = /** @type {<T>(x: T) => T} */ (rawHarden);
+import makeStore from '@agoric/store';
 
 /**
  * @template T
@@ -30,7 +28,7 @@ const harden = /** @type {<T>(x: T) => T} */ (rawHarden);
 /**
  * Create a handler that demuxes/muxes the bridge device by its first argument.
  *
- * @param {<T>(target: T) => T} E The eventual sender
+ * @param {import('@agoric/eventual-send').EProxy} E The eventual sender
  * @param {<T>(target: Device<T>) => T} D The device sender
  * @param {Device<BridgeDevice>} bridgeDevice The bridge to manage
  * @returns {BridgeManager} admin facet for this handler

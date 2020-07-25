@@ -1,4 +1,6 @@
-import harden from '@agoric/harden';
+/* global harden */
+
+const log = console.log;
 
 function makePR() {
   let r;
@@ -8,10 +10,10 @@ function makePR() {
   return [p, r];
 }
 
-function build(_E, log) {
+export function buildRootObject(_vatPowers) {
   let r1;
   let r2;
-  return {
+  return harden({
     first() {
       log('=> Bob: first begins');
       let p1;
@@ -35,18 +37,5 @@ function build(_E, log) {
       r2(`Bob's resolution to p2`);
       return `Bob's answer to third`;
     },
-  };
-}
-
-export default function setup(syscall, state, helpers) {
-  function log(what) {
-    helpers.log(what);
-    console.log(what);
-  }
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => harden(build(E, log)),
-    helpers.vatID,
-  );
+  });
 }

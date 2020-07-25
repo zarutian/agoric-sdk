@@ -1,7 +1,8 @@
 // Copyright (C) 2019 Agoric, under Apache License 2.0
+
+/* global harden */
 // @ts-check
 
-import harden from '@agoric/harden';
 import { assert, details } from '@agoric/assert';
 import makeStore from '@agoric/weak-store';
 import { isPromise } from '@agoric/produce-promise';
@@ -10,7 +11,7 @@ import makeAmountMath from './amountMath';
 
 /**
  * @typedef {import('./amountMath').Amount} Amount
- * @typedef {import('./amountMath').Extent} Extent
+ * @typedef {import('./amountMath').Value} Value
  * @typedef {import('./amountMath').AmountMath} AmountMath
  * @typedef {Payment|Promise<Payment>} PaymentP
  */
@@ -97,7 +98,7 @@ import makeAmountMath from './amountMath';
  * @typedef {Object} IssuerMaker
  * Makes Issuers.
  *
- * @property {(allegedName: string, mathHelperName: string) => IssuerResults} produceIssuer
+ * @property {(allegedName: string, mathHelperName: string) => IssuerResults} makeIssuerKit
  * The allegedName becomes part of the brand in asset descriptions. The
  * allegedName doesn't have to be a string, but it will only be used for
  * its value. The allegedName is useful for debugging and double-checking
@@ -108,7 +109,7 @@ import makeAmountMath from './amountMath';
  * default, is used for basic fungible tokens.
  *
  * @typedef {Object} IssuerResults
- * The return value of produceIssuer
+ * The return value of makeIssuerKit
  *
  * @property {Mint} mint
  * @property {Issuer} issuer
@@ -127,6 +128,16 @@ import makeAmountMath from './amountMath';
  */
 
 /**
+ * @typedef {Object} DepositFacet
+ * @property {(payment: Payment, optAmount?: Amount) => Amount} receive
+ * Deposit all the contents of payment into the purse that made this facet, returning the
+ * amount. If the optional argument `optAmount` does not equal the
+ * amount of digital assets in the payment, throw an error.
+ *
+ * If payment is an unresolved promise, throw an error.
+ */
+
+/**
  * @typedef {Object} Purse
  * Purses hold amount of digital assets of the same brand, but unlike Payments, they are
  * not meant to be sent to others. To transfer digital assets, a
@@ -142,12 +153,15 @@ import makeAmountMath from './amountMath';
  * @property {() => Amount} getCurrentAmount
  * Get the amount contained in this purse, confirmed by the issuer.
  *
- * @property {(payment: PaymentP, optAmount?: Amount) => Amount} deposit
+ * @property {(payment: Payment, optAmount?: Amount) => Amount} deposit
  * Deposit all the contents of payment into this purse, returning the
  * amount. If the optional argument `optAmount` does not equal the
  * amount of digital assets in the payment, throw an error.
  *
  * If payment is an unresolved promise, throw an error.
+ *
+ * @property {() => DepositFacet} makeDepositFacet
+ * Create an object whose `deposit` method deposits to the current Purse.
  *
  * @property {(amount: Amount) => Payment} withdraw
  * Withdraw amount from this purse into a new Payment.
@@ -178,33 +192,33 @@ import makeAmountMath from './amountMath';
 /**
  * @typedef {Object} MathHelpers
  * All of the difference in how digital asset amount are manipulated can be reduced to
- * the behavior of the math on extents. We extract this
- * custom logic into mathHelpers. MathHelpers are about extent
+ * the behavior of the math on values. We extract this
+ * custom logic into mathHelpers. MathHelpers are about value
  * arithmetic, whereas AmountMath is about amounts, which are the
- * extents labeled with a brand. AmountMath use mathHelpers to do their extent arithmetic,
+ * values labeled with a brand. AmountMath use mathHelpers to do their value arithmetic,
  * and then brand the results, making a new amount.
  *
- * @property {(allegedExtent: Extent) => Extent} doCoerce
- * Check the kind of this extent and throw if it is not the
+ * @property {(allegedValue: Value) => Value} doCoerce
+ * Check the kind of this value and throw if it is not the
  * expected kind.
  *
- * @property {() => Extent} doGetEmpty
+ * @property {() => Value} doGetEmpty
  * Get the representation for the identity element (often 0 or an
  * empty array)
  *
- * @property {(extent: Extent) => boolean} doIsEmpty
- * Is the extent the identity element?
+ * @property {(value: Value) => boolean} doIsEmpty
+ * Is the value the identity element?
  *
- * @property {(left: Extent, right: Extent) => boolean} doIsGTE
+ * @property {(left: Value, right: Value) => boolean} doIsGTE
  * Is the left greater than or equal to the right?
  *
- * @property {(left: Extent, right: Extent) => boolean} doIsEqual
+ * @property {(left: Value, right: Value) => boolean} doIsEqual
  * Does left equal right?
  *
- * @property {(left: Extent, right: Extent) => Extent} doAdd
+ * @property {(left: Value, right: Value) => Value} doAdd
  * Return the left combined with the right.
  *
- * @property {(left: Extent, right: Extent) => Extent} doSubtract
+ * @property {(left: Value, right: Value) => Value} doSubtract
  * Return what remains after removing the right from the left. If
  * something in the right was not in the left, we throw an error.
  */
@@ -213,8 +227,9 @@ import makeAmountMath from './amountMath';
  *
  * @param {string} allegedName
  * @param {string} mathHelpersName
+ * @returns {IssuerResults}
  */
-function produceIssuer(allegedName, mathHelpersName = 'nat') {
+function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
   assert.typeof(allegedName, 'string');
 
   const brand = harden({
@@ -276,7 +291,7 @@ function produceIssuer(allegedName, mathHelpersName = 'nat') {
           }),
         );
         assert(payments.length === 0, 'no payments should be returned');
-        return newPurseBalance;
+        return srcPaymentBalance;
       },
       withdraw: amount => {
         amount = amountMath.coerce(amount);
@@ -295,6 +310,7 @@ function produceIssuer(allegedName, mathHelpersName = 'nat') {
       },
       getCurrentAmount: () => purseLedger.get(purse),
       getAllegedBrand: () => brand,
+      makeDepositFacet: () => harden({ receive: purse.deposit }),
     });
     return purse;
   };
@@ -484,6 +500,6 @@ function produceIssuer(allegedName, mathHelpersName = 'nat') {
   });
 }
 
-harden(produceIssuer);
+harden(makeIssuerKit);
 
-export default produceIssuer;
+export default makeIssuerKit;

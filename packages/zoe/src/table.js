@@ -1,13 +1,15 @@
-import harden from '@agoric/harden';
+/* global harden */
+
 import makeStore from '@agoric/weak-store';
 import { assert, details } from '@agoric/assert';
 
 export const makeTable = (
   validateFn,
+  key = undefined,
   makeCustomMethodsFn = () => undefined,
 ) => {
   // The WeakMap that stores the records
-  const handleToRecord = makeStore();
+  const handleToRecord = makeStore(key);
 
   const table = harden({
     validate: validateFn,
@@ -59,7 +61,7 @@ export const makeValidateProperties = ([...expectedProperties]) => {
     for (let i = 0; i < actualProperties.length; i += 1) {
       assert(
         expectedProperties[i] === actualProperties[i],
-        details`property ${expectedProperties[i]} did not equal actual property ${actualProperties[i]}`,
+        details`property '${expectedProperties[i]}' did not equal actual property '${actualProperties[i]}'`,
       );
     }
     return true;

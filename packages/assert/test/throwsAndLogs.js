@@ -1,5 +1,3 @@
-import harden from '@agoric/harden';
-
 const { defineProperty } = Object;
 
 // Patterned after

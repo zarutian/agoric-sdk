@@ -1,4 +1,4 @@
-import harden from '@agoric/harden';
+/* global harden */
 
 /**
  * A Vat management device that provides a capability that can be used to
@@ -33,8 +33,9 @@ export default function setup(syscall, state, helpers, endowments) {
       // Called by the wrapper vat to create a new vat. Gets a new ID from the
       // kernel's vat creator fn. Remember that the root object will arrive
       // separately. Clean up the outgoing and incoming arguments.
-      create(code) {
-        return kernelVatCreationFn(`${code}`);
+      create(bundle, options) {
+        const vatID = kernelVatCreationFn(bundle, options);
+        return vatID;
       },
       terminate(_vatID) {
         // TODO(hibbert)

@@ -1,5 +1,7 @@
+/* global harden */
+
+import '@agoric/install-ses';
 import { test } from 'tape-promise/tape';
-import harden from '@agoric/harden';
 import { producePromise } from '@agoric/produce-promise';
 
 import { makeMarshaller } from '../src/kernel/liveSlots';
@@ -11,7 +13,7 @@ async function prep() {
     vats: new Map(),
     bootstrapIndexJS: undefined,
   };
-  const controller = await buildVatController(config, true);
+  const controller = await buildVatController(config);
   await controller.run();
 }
 

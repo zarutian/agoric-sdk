@@ -1,13 +1,14 @@
-import harden from '@agoric/harden';
-import produceIssuer from '@agoric/ertp';
+/* global harden */
+
+import makeIssuerKit from '@agoric/ertp';
 
 import makeStore from '@agoric/store';
 
 // This vat contains two starting mints for demos: moolaMint and
 // simoleanMint.
 
-function build(_E, _log) {
-  const mintsAndMath = makeStore();
+export function buildRootObject(_vatPowers) {
+  const mintsAndMath = makeStore('issuerName');
 
   const api = harden({
     getAllIssuerNames: () => mintsAndMath.keys(),
@@ -24,29 +25,20 @@ function build(_E, _log) {
     getMints: issuerNames => issuerNames.map(api.getMint),
     // For example, issuerNameSingular might be 'moola', or 'simolean'
     makeMintAndIssuer: issuerNameSingular => {
-      const { mint, issuer, amountMath } = produceIssuer(issuerNameSingular);
+      const { mint, issuer, amountMath } = makeIssuerKit(issuerNameSingular);
       mintsAndMath.init(issuerNameSingular, { mint, amountMath });
       return issuer;
     },
-    mintInitialPayment: (issuerName, extent) => {
+    mintInitialPayment: (issuerName, value) => {
       const { mint, amountMath } = mintsAndMath.get(issuerName);
-      const amount = amountMath.make(extent);
+      const amount = amountMath.make(value);
       return mint.mintPayment(amount);
     },
-    mintInitialPayments: (issuerNames, extents) =>
+    mintInitialPayments: (issuerNames, values) =>
       issuerNames.map((issuerName, i) =>
-        api.mintInitialPayment(issuerName, extents[i]),
+        api.mintInitialPayment(issuerName, values[i]),
       ),
   });
 
   return api;
-}
-
-export default function setup(syscall, state, helpers) {
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => build(E, helpers.log),
-    helpers.vatID,
-  );
 }

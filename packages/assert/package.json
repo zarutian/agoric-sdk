@@ -1,13 +1,13 @@
 {
   "name": "@agoric/assert",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Assert expression support that protects sensitive data",
   "main": "src/assert.js",
   "engines": {
     "node": ">=11.0"
   },
   "scripts": {
-    "build": "exit 0",
+    "build": "tsc -p jsconfig.json",
     "test": "tape -r esm test/**/test*.js",
     "lint-fix": "eslint --fix '**/*.js'",
     "lint-check": "eslint '**/*.js'",
@@ -29,10 +29,10 @@
   },
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
   "dependencies": {
-    "@agoric/harden": "^0.0.8"
   },
   "devDependencies": {
     "esm": "^3.2.25",
+    "@agoric/install-ses": "^0.2.0",
     "tap-spec": "^5.0.0",
     "tape": "^4.11.0",
     "tape-promise": "^4.0.0"
@@ -48,6 +48,9 @@
     ],
     "env": {
       "es6": true
+    },
+    "globals": {
+      "harden": "readonly"
     },
     "rules": {
       "implicit-arrow-linebreak": "off",

@@ -1,10 +1,12 @@
-import harden from '@agoric/harden';
+/* global harden */
+
+import { E } from '@agoric/eventual-send';
 import { assert, details } from '@agoric/assert';
 import { sameStructure } from '@agoric/same-structure';
 import { showPurseBalance, setupIssuers } from '../helpers';
 import { makeGetInstanceHandle } from '../../../src/clientSupport';
 
-const build = async (E, log, zoe, issuers, payments, installations, timer) => {
+const build = async (log, zoe, issuers, payments, installations, timer) => {
   const {
     moola,
     simoleans,
@@ -23,27 +25,27 @@ const build = async (E, log, zoe, issuers, payments, installations, timer) => {
     doPublicAuction: async inviteP => {
       const invite = await inviteP;
       const exclInvite = await E(inviteIssuer).claim(invite);
-      const { extent: inviteExtent } = await E(inviteIssuer).getAmountOf(
+      const { value: inviteValue } = await E(inviteIssuer).getAmountOf(
         exclInvite,
       );
 
       const { installationHandle, terms, issuerKeywordRecord } = await E(
         zoe,
-      ).getInstanceRecord(inviteExtent[0].instanceHandle);
+      ).getInstanceRecord(inviteValue[0].instanceHandle);
       assert(
         installationHandle === installations.publicAuction,
         details`wrong installation`,
       );
       assert(
         sameStructure(
-          harden({ Asset: moolaIssuer, Bid: simoleanIssuer }),
+          harden({ Asset: moolaIssuer, Ask: simoleanIssuer }),
           issuerKeywordRecord,
         ),
         details`issuerKeywordRecord were not as expected`,
       );
       assert(terms.numBidsAllowed === 3, details`terms not as expected`);
-      assert(sameStructure(inviteExtent[0].minimumBid, simoleans(3)));
-      assert(sameStructure(inviteExtent[0].auctionedAssets, moola(1)));
+      assert(sameStructure(inviteValue[0].minimumBid, simoleans(3)));
+      assert(sameStructure(inviteValue[0].auctionedAssets, moola(1)));
 
       const proposal = harden({
         want: { Asset: moola(1) },
@@ -75,26 +77,28 @@ const build = async (E, log, zoe, issuers, payments, installations, timer) => {
       // 3 moola, and is willing to pay 1 buck for the option.
       const invite = await inviteP;
       const exclInvite = await E(inviteIssuer).claim(invite);
-      const { extent: inviteExtent } = await E(inviteIssuer).getAmountOf(
+      const { value: inviteValue } = await E(inviteIssuer).getAmountOf(
         exclInvite,
       );
       const instanceHandle = await getInstanceHandle(exclInvite);
       const { installationHandle, issuerKeywordRecord } = await E(
         zoe,
       ).getInstanceRecord(instanceHandle);
-      const installationCode = await E(zoe).getInstallation(installationHandle);
+      const installationBundle = await E(zoe).getInstallation(
+        installationHandle,
+      );
       // pick some arbitrary code points as a signature.
       assert(
-        installationCode.includes('asset: give.Asset,'),
-        details`source code didn't match at "asset: give.Asset,"`,
+        installationBundle.source.includes('asset: give.Asset,'),
+        details`source bundle didn't match at "asset: give.Asset,"`,
       );
       assert(
-        installationCode.includes('firstOfferExpected'),
-        details`source code didn't match at "firstOfferExpected"`,
+        installationBundle.source.includes('firstOfferExpected'),
+        details`source bundle didn't match at "firstOfferExpected"`,
       );
       assert(
-        installationCode.includes('makeMatchingInvite'),
-        details`source code didn't match at "makeMatchingInvite"`,
+        installationBundle.source.includes('makeMatchingInvite'),
+        details`source bundle didn't match at "makeMatchingInvite"`,
       );
       assert(
         installationHandle === installations.atomicSwap,
@@ -111,31 +115,31 @@ const build = async (E, log, zoe, issuers, payments, installations, timer) => {
       // Dave expects that Bob has already made an offer in the swap
       // with the following rules:
       assert(
-        sameStructure(inviteExtent[0].asset, optionAmounts),
+        sameStructure(inviteValue[0].asset, optionAmounts),
         details`asset is the option`,
       );
       assert(
-        sameStructure(inviteExtent[0].price, bucks(1)),
+        sameStructure(inviteValue[0].price, bucks(1)),
         details`price is 1 buck`,
       );
-      const optionExtent = optionAmounts.extent;
+      const optionValue = optionAmounts.value;
       assert(
-        optionExtent[0].inviteDesc === 'exerciseOption',
+        optionValue[0].inviteDesc === 'exerciseOption',
         details`wrong invite`,
       );
       assert(
-        moolaAmountMath.isEqual(optionExtent[0].underlyingAsset, moola(3)),
+        moolaAmountMath.isEqual(optionValue[0].underlyingAsset, moola(3)),
         details`wrong underlying asset`,
       );
       assert(
-        simoleanAmountMath.isEqual(optionExtent[0].strikePrice, simoleans(7)),
+        simoleanAmountMath.isEqual(optionValue[0].strikePrice, simoleans(7)),
         details`wrong strike price`,
       );
       assert(
-        optionExtent[0].expirationDate === 100,
+        optionValue[0].expirationDate === 100,
         details`wrong expiration date`,
       );
-      assert(optionExtent[0].timerAuthority === timer, details`wrong timer`);
+      assert(optionValue[0].timerAuthority === timer, details`wrong timer`);
 
       // Dave escrows his 1 buck with Zoe and forms his proposal
       const daveSwapProposal = harden({
@@ -187,10 +191,8 @@ const build = async (E, log, zoe, issuers, payments, installations, timer) => {
   });
 };
 
-const setup = (syscall, state, helpers) =>
-  helpers.makeLiveSlots(syscall, state, E =>
-    harden({
-      build: (...args) => build(E, helpers.log, ...args),
-    }),
-  );
-export default harden(setup);
+export function buildRootObject(vatPowers) {
+  return harden({
+    build: (...args) => build(vatPowers.testLog, ...args),
+  });
+}

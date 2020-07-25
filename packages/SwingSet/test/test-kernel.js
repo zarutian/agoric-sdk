@@ -1,12 +1,15 @@
-// eslint-disable-next-line no-redeclare
-/* global setImmediate */
+/* global harden */
+
+import '@agoric/install-ses';
 import { test } from 'tape-promise/tape';
-import harden from '@agoric/harden';
 import { initSwingStore } from '@agoric/swing-store-simple';
+import { waitUntilQuiescent } from '../src/waitUntilQuiescent';
 
 import buildKernel from '../src/kernel/index';
 import { makeVatSlot } from '../src/parseVatSlots';
 import { checkKT } from './util';
+
+const RETIRE_KPIDS = true;
 
 function capdata(body, slots = []) {
   return harden({ body, slots });
@@ -33,7 +36,7 @@ function emptySetup(_syscall) {
 
 function makeEndowments() {
   return {
-    setImmediate,
+    waitUntilQuiescent,
     hostStorage: initSwingStore().storage,
     runEndOfCrank: () => {},
   };
@@ -54,7 +57,7 @@ test('simple call', async t => {
   function setup1(syscall, state, helpers) {
     function deliver(facetID, method, args) {
       log.push([facetID, method, args]);
-      helpers.log(JSON.stringify({ facetID, method, args }));
+      helpers.testLog(JSON.stringify({ facetID, method, args }));
     }
     return { deliver };
   }
@@ -75,7 +78,7 @@ test('simple call', async t => {
       msg: {
         method: 'foo',
         args: capdata('args'),
-        result: null,
+        result: 'kp40',
       },
     },
   ]);
@@ -126,7 +129,7 @@ test('map inbound', async t => {
       msg: {
         method: 'foo',
         args: capdata('args', [koFor5, koFor6]),
-        result: null,
+        result: 'kp40',
       },
     },
   ]);
@@ -138,6 +141,7 @@ test('map inbound', async t => {
     [koFor6, vat1, 'o-50'],
     [koFor6, vat2, 'o+6'],
     ['ko22', vat1, 'o+1'],
+    ['kp40', vat1, 'p-60'],
   ]);
 
   t.end();
@@ -234,7 +238,7 @@ test('outbound call', async t => {
       msg: {
         method: 'foo',
         args: capdata('args'),
-        result: null,
+        result: 'kp40',
       },
     },
   ]);
@@ -251,8 +255,8 @@ test('outbound call', async t => {
       target: vat2Obj5,
       msg: {
         method: 'bar',
-        args: capdata('bargs', [vat2Obj5, 'ko22', 'kp40']),
-        result: 'kp41',
+        args: capdata('bargs', [vat2Obj5, 'ko22', 'kp41']),
+        result: 'kp42',
       },
     },
   ]);
@@ -260,6 +264,7 @@ test('outbound call', async t => {
     {
       id: 'kp40',
       state: 'unresolved',
+      refCount: 1,
       decider: vat1,
       subscribers: [],
       queue: [],
@@ -267,6 +272,15 @@ test('outbound call', async t => {
     {
       id: 'kp41',
       state: 'unresolved',
+      refCount: 2,
+      decider: vat1,
+      subscribers: [],
+      queue: [],
+    },
+    {
+      id: 'kp42',
+      state: 'unresolved',
+      refCount: 2,
       decider: undefined,
       subscribers: [],
       queue: [],
@@ -274,8 +288,9 @@ test('outbound call', async t => {
   ]);
 
   kt.push(['ko22', vat1, 'o+7']);
-  kt.push(['kp40', vat1, p7]);
-  kt.push(['kp41', vat1, 'p+5']);
+  kt.push(['kp40', vat1, 'p-60']);
+  kt.push(['kp41', vat1, p7]);
+  kt.push(['kp42', vat1, 'p+5']);
   checkKT(t, kernel, kt);
 
   await kernel.step();
@@ -288,6 +303,7 @@ test('outbound call', async t => {
         {
           id: 'kp40',
           state: 'unresolved',
+          refCount: 1,
           decider: vat1,
           subscribers: [],
           queue: [],
@@ -295,6 +311,15 @@ test('outbound call', async t => {
         {
           id: 'kp41',
           state: 'unresolved',
+          refCount: 2,
+          decider: vat1,
+          subscribers: [],
+          queue: [],
+        },
+        {
+          id: 'kp42',
+          state: 'unresolved',
+          refCount: 2,
           decider: vat2,
           subscribers: [],
           queue: [],
@@ -304,14 +329,23 @@ test('outbound call', async t => {
   ]);
 
   kt.push(['ko22', vat2, 'o-50']);
-  kt.push(['kp41', vat2, 'p-61']);
-  kt.push(['kp40', vat2, 'p-60']);
+  kt.push(['kp42', vat2, 'p-61']);
+  kt.push(['kp41', vat2, 'p-60']);
   checkKT(t, kernel, kt);
 
   t.deepEqual(kernel.dump().promises, [
     {
       id: 'kp40',
       state: 'unresolved',
+      refCount: 1,
+      decider: vat1,
+      subscribers: [],
+      queue: [],
+    },
+    {
+      id: 'kp41',
+      state: 'unresolved',
+      refCount: 2,
       decider: vat1,
       // Sending a promise from vat1 to vat2 doesn't cause vat2 to be
       // subscribed unless they want it. Liveslots will always subscribe,
@@ -321,8 +355,9 @@ test('outbound call', async t => {
       queue: [],
     },
     {
-      id: 'kp41',
+      id: 'kp42',
       state: 'unresolved',
+      refCount: 2,
       decider: vat2,
       subscribers: [],
       queue: [],
@@ -420,7 +455,7 @@ test('three-party', async t => {
       msg: {
         method: 'intro',
         args: capdata('bargs', [carol]),
-        result: 'kp41',
+        result: 'kp42',
       },
     },
   ]);
@@ -428,6 +463,7 @@ test('three-party', async t => {
     {
       id: ap,
       state: 'unresolved',
+      refCount: 1,
       decider: vatA,
       subscribers: [],
       queue: [],
@@ -435,18 +471,28 @@ test('three-party', async t => {
     {
       id: 'kp41',
       state: 'unresolved',
+      refCount: 1,
+      decider: vatA,
+      subscribers: [],
+      queue: [],
+    },
+    {
+      id: 'kp42',
+      state: 'unresolved',
+      refCount: 2,
       decider: undefined,
       subscribers: [],
       queue: [],
     },
   ]);
-  kt.push(['kp41', vatA, 'p+5']);
+  kt.push(['kp41', vatA, 'p-60']);
+  kt.push(['kp42', vatA, 'p+5']);
   checkKT(t, kernel, kt);
 
   await kernel.step();
   t.deepEqual(log, [['vatB', 'o+5', 'intro', capdata('bargs', ['o-50'])]]);
   kt.push([carol, vatB, 'o-50']);
-  kt.push(['kp41', vatB, 'p-60']);
+  kt.push(['kp42', vatB, 'p-60']);
   checkKT(t, kernel, kt);
 
   t.end();
@@ -517,6 +563,7 @@ test('transfer promise', async t => {
   kp.push({
     id: 'kp40',
     state: 'unresolved',
+    refCount: 2,
     decider: vatA,
     subscribers: [],
     queue: [],
@@ -586,6 +633,7 @@ test('subscribe to promise', async t => {
     {
       id: kp,
       state: 'unresolved',
+      refCount: 2,
       decider: vat2,
       subscribers: [vat1],
       queue: [],
@@ -637,6 +685,7 @@ test('promise resolveToData', async t => {
     {
       id: pForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: vatB,
       subscribers: [vatA],
       queue: [],
@@ -658,13 +707,16 @@ test('promise resolveToData', async t => {
   // the kernelPromiseID gets mapped back to the vat PromiseID
   t.deepEqual(log.shift(), ['notify', pForA, capdata('args', ['o-50'])]);
   t.deepEqual(log, []); // no other dispatch calls
-  t.deepEqual(kernel.dump().promises, [
-    {
-      id: pForKernel,
-      state: 'fulfilledToData',
-      data: capdata('args', ['ko20']),
-    },
-  ]);
+  if (!RETIRE_KPIDS) {
+    t.deepEqual(kernel.dump().promises, [
+      {
+        id: pForKernel,
+        state: 'fulfilledToData',
+        refCount: 0,
+        data: capdata('args', ['ko20']),
+      },
+    ]);
+  }
   t.deepEqual(kernel.dump().runQueue, []);
 
   t.end();
@@ -716,6 +768,7 @@ test('promise resolveToPresence', async t => {
     {
       id: pForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: vatB,
       subscribers: [vatA],
       queue: [],
@@ -735,13 +788,16 @@ test('promise resolveToPresence', async t => {
   await kernel.step();
   t.deepEqual(log.shift(), ['notify', pForA, bobForA]);
   t.deepEqual(log, []); // no other dispatch calls
-  t.deepEqual(kernel.dump().promises, [
-    {
-      id: pForKernel,
-      state: 'fulfilledToPresence',
-      slot: bobForKernel,
-    },
-  ]);
+  if (!RETIRE_KPIDS) {
+    t.deepEqual(kernel.dump().promises, [
+      {
+        id: pForKernel,
+        state: 'fulfilledToPresence',
+        refCount: 0,
+        slot: bobForKernel,
+      },
+    ]);
+  }
   t.deepEqual(kernel.dump().runQueue, []);
   t.end();
 });
@@ -786,6 +842,7 @@ test('promise reject', async t => {
     {
       id: pForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: vatB,
       subscribers: [vatA],
       queue: [],
@@ -807,13 +864,16 @@ test('promise reject', async t => {
   // the kernelPromiseID gets mapped back to the vat PromiseID
   t.deepEqual(log.shift(), ['notify', pForA, capdata('args', ['o-50'])]);
   t.deepEqual(log, []); // no other dispatch calls
-  t.deepEqual(kernel.dump().promises, [
-    {
-      id: pForKernel,
-      state: 'rejected',
-      data: capdata('args', ['ko20']),
-    },
-  ]);
+  if (!RETIRE_KPIDS) {
+    t.deepEqual(kernel.dump().promises, [
+      {
+        id: pForKernel,
+        state: 'rejected',
+        refCount: 0,
+        data: capdata('args', ['ko20']),
+      },
+    ]);
+  }
   t.deepEqual(kernel.dump().runQueue, []);
 
   t.end();
@@ -858,7 +918,7 @@ test('transcript', async t => {
       aliceForAlice,
       'store',
       capdata('args string', [aliceForAlice, bobForAlice]),
-      null,
+      'p-60',
     ],
     syscalls: [
       {
@@ -919,6 +979,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p1ForKernel,
       state: 'unresolved',
+      refCount: 3,
       decider: undefined,
       subscribers: [],
       queue: [],
@@ -926,6 +987,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p2ForKernel,
       state: 'unresolved',
+      refCount: 3,
       decider: undefined,
       subscribers: [],
       queue: [],
@@ -933,6 +995,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p3ForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: undefined,
       subscribers: [],
       queue: [],
@@ -949,6 +1012,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p1ForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: vatB,
       subscribers: [],
       queue: [
@@ -962,6 +1026,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p2ForKernel,
       state: 'unresolved',
+      refCount: 1,
       decider: undefined,
       subscribers: [],
       queue: [
@@ -975,6 +1040,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p3ForKernel,
       state: 'unresolved',
+      refCount: 1,
       decider: undefined,
       subscribers: [],
       queue: [],
@@ -1030,6 +1096,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p1ForKernel,
       state: 'unresolved',
+      refCount: 3,
       decider: undefined,
       subscribers: [],
       queue: [],
@@ -1037,6 +1104,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p2ForKernel,
       state: 'unresolved',
+      refCount: 3,
       decider: undefined,
       subscribers: [],
       queue: [],
@@ -1044,6 +1112,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p3ForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: undefined,
       subscribers: [],
       queue: [],
@@ -1064,6 +1133,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p1ForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: vatB,
       subscribers: [],
       queue: [],
@@ -1071,6 +1141,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p2ForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: vatB,
       subscribers: [],
       queue: [],
@@ -1078,6 +1149,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p3ForKernel,
       state: 'unresolved',
+      refCount: 2,
       decider: vatB,
       subscribers: [],
       queue: [],

@@ -1,13 +1,15 @@
+/* global harden */
+
+import '@agoric/install-ses';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { test } from 'tape-promise/tape';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import bundleSource from '@agoric/bundle-source';
 
-import harden from '@agoric/harden';
-
+// noinspection ES6PreferShortImport
 import { makeZoe } from '../../../src/zoe';
-// TODO: Remove setupBasicMints and rename setupBasicMints2
 import { setup } from '../setupBasicMints';
+import fakeVatAdmin from './fakeVatAdmin';
 
 const automaticRefundRoot = `${__dirname}/brokenAutoRefund`;
 
@@ -15,10 +17,10 @@ test('zoe - brokenAutomaticRefund', async t => {
   t.plan(1);
   // Setup zoe and mints
   const { moolaR } = setup();
-  const zoe = makeZoe({ require });
+  const zoe = makeZoe(fakeVatAdmin);
   // Pack the contract.
-  const { source, moduleFormat } = await bundleSource(automaticRefundRoot);
-  const installationHandle = zoe.install(source, moduleFormat);
+  const bundle = await bundleSource(automaticRefundRoot);
+  const installationHandle = await zoe.install(bundle);
 
   const issuerKeywordRecord = harden({ Contribution: moolaR.issuer });
 

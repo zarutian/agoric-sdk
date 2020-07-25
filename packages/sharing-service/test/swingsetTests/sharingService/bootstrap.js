@@ -1,11 +1,12 @@
 // Copyright (C) 2019 Agoric, under Apache License 2.0
 
-import harden from '@agoric/harden';
-
+/* global harden */
+import { E } from '@agoric/eventual-send';
 import { makeSharedMap } from '../../../src/sharedMap';
 import { makeSharingService } from '../../../src/sharing';
 
-function build(E, log) {
+export function buildRootObject(vatPowers) {
+  const log = vatPowers.testLog;
   function testSharedMapStorage() {
     log('starting testSharedMapStorage');
     const wb = makeSharedMap('whiteboard');
@@ -102,19 +103,3 @@ function build(E, log) {
   };
   return harden(obj0);
 }
-harden(build);
-
-function setup(syscall, state, helpers) {
-  function log(...args) {
-    helpers.log(...args);
-    console.log(...args);
-  }
-  log(`=> setup called`);
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => build(E, log),
-    helpers.vatID,
-  );
-}
-export default harden(setup);

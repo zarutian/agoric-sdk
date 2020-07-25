@@ -1,9 +1,10 @@
-import harden from '@agoric/harden';
+/* global harden */
+
+import { E } from '@agoric/eventual-send';
 import { producePromise } from '@agoric/produce-promise';
 
-console.log(`loading bootstrap`);
-
-function build(E, log) {
+export function buildRootObject(vatPowers) {
+  const log = vatPowers.testLog;
   return harden({
     bootstrap(argv, vats) {
       const mode = argv[0];
@@ -32,18 +33,4 @@ function build(E, log) {
       }
     },
   });
-}
-
-export default function setup(syscall, state, helpers) {
-  function log(what) {
-    helpers.log(what);
-    console.log(what);
-  }
-  log(`bootstrap called`);
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => build(E, log),
-    helpers.vatID,
-  );
 }

@@ -1,6 +1,7 @@
-import harden from '@agoric/harden';
+/* global harden */
+import { E } from '@agoric/eventual-send';
 
-function makeAliceMaker(E, log) {
+function makeAliceMaker(log) {
   return harden({
     make(issuer, unitOps, oldPaymentP) {
       const alice = harden({
@@ -25,17 +26,10 @@ function makeAliceMaker(E, log) {
   });
 }
 
-function setup(syscall, state, helpers) {
-  function log(...args) {
-    helpers.log(...args);
-    console.log(...args);
-  }
-  return helpers.makeLiveSlots(syscall, state, E =>
-    harden({
-      makeAliceMaker(host) {
-        return harden(makeAliceMaker(E, log, host));
-      },
-    }),
-  );
+export function buildRootObject(vatPowers) {
+  return harden({
+    makeAliceMaker(host) {
+      return harden(makeAliceMaker(vatPowers.testLog, host));
+    },
+  });
 }
-export default harden(setup);

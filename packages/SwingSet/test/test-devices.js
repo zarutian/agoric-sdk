@@ -1,5 +1,7 @@
+/* global harden */
+
+import '@agoric/install-ses';
 import { test } from 'tape-promise/tape';
-import harden from '@agoric/harden';
 import { initSwingStore, getAllState } from '@agoric/swing-store-simple';
 
 import { buildVatController } from '../src/index';
@@ -14,13 +16,13 @@ function capargs(args, slots = []) {
   return capdata(JSON.stringify(args), slots);
 }
 
-async function test0(t, withSES) {
+test('d0', async t => {
   const config = {
     vats: new Map(),
     devices: [['d0', require.resolve('./files-devices/device-0'), {}]],
     bootstrapIndexJS: require.resolve('./files-devices/bootstrap-0'),
   };
-  const c = await buildVatController(config, withSES);
+  const c = await buildVatController(config);
   await c.step();
   // console.log(util.inspect(c.dump(), { depth: null }));
   t.deepEqual(JSON.parse(c.dump().log[0]), [
@@ -37,13 +39,9 @@ async function test0(t, withSES) {
   ]);
   t.deepEqual(JSON.parse(c.dump().log[1]), ['o+0', 'o-50', 'd-70', 'd-71']);
   t.end();
-}
-
-test('d0 with SES', async t => {
-  await test0(t, true);
 });
 
-async function test1(t, withSES) {
+test('d1', async t => {
   const sharedArray = [];
   const config = {
     vats: new Map(),
@@ -58,7 +56,7 @@ async function test1(t, withSES) {
     ],
     bootstrapIndexJS: require.resolve('./files-devices/bootstrap-1'),
   };
-  const c = await buildVatController(config, withSES);
+  const c = await buildVatController(config);
   await c.step();
   c.queueToVatExport('_bootstrap', 'o+0', 'step1', capargs([]));
   await c.step();
@@ -70,13 +68,9 @@ async function test1(t, withSES) {
   ]);
   t.deepEqual(sharedArray, ['pushed']);
   t.end();
-}
-
-test('d1 with SES', async t => {
-  await test1(t, true);
 });
 
-async function test2(t, mode, withSES) {
+async function test2(t, mode) {
   const config = {
     vats: new Map(),
     devices: [['d2', require.resolve('./files-devices/device-2'), {}]],
@@ -85,7 +79,7 @@ async function test2(t, mode, withSES) {
   config.vats.set('left', {
     sourcepath: require.resolve('./files-devices/vat-left.js'),
   });
-  const c = await buildVatController(config, withSES, [mode]);
+  const c = await buildVatController(config, [mode]);
   await c.step();
   if (mode === '1') {
     t.deepEqual(c.dump().log, ['calling d2.method1', 'method1 hello', 'done']);
@@ -136,27 +130,27 @@ async function test2(t, mode, withSES) {
   t.end();
 }
 
-test('d2.1 with SES', async t => {
-  await test2(t, '1', true);
+test('d2.1', async t => {
+  await test2(t, '1');
 });
 
-test('d2.2 with SES', async t => {
-  await test2(t, '2', true);
+test('d2.2', async t => {
+  await test2(t, '2');
 });
 
-test('d2.3 with SES', async t => {
-  await test2(t, '3', true);
+test('d2.3', async t => {
+  await test2(t, '3');
 });
 
-test('d2.4 with SES', async t => {
-  await test2(t, '4', true);
+test('d2.4', async t => {
+  await test2(t, '4');
 });
 
-test('d2.5 with SES', async t => {
-  await test2(t, '5', true);
+test('d2.5', async t => {
+  await test2(t, '5');
 });
 
-async function testState(t, withSES) {
+test('device state', async t => {
   const { storage } = initSwingStore();
   const config = {
     vats: new Map(),
@@ -167,7 +161,7 @@ async function testState(t, withSES) {
 
   // The initial state should be missing (null). Then we set it with the call
   // from bootstrap, and read it back.
-  const c1 = await buildVatController(config, withSES, ['write+read']);
+  const c1 = await buildVatController(config, ['write+read']);
   const d3 = c1.deviceNameToID('d3');
   await c1.run();
   t.deepEqual(c1.dump().log, ['undefined', 'w+r', 'called', 'got {"s":"new"}']);
@@ -176,13 +170,9 @@ async function testState(t, withSES) {
   t.deepEqual(JSON.parse(s[`${d3}.o.nextID`]), 10);
 
   t.end();
-}
-
-test('device state with SES', async t => {
-  await testState(t, true);
 });
 
-async function testMailboxOutbound(t, withSES) {
+test('mailbox outbound', async t => {
   const s = buildMailboxStateMap();
   const mb = buildMailbox(s);
   const config = {
@@ -191,7 +181,7 @@ async function testMailboxOutbound(t, withSES) {
     bootstrapIndexJS: require.resolve('./files-devices/bootstrap-2'),
   };
 
-  const c = await buildVatController(config, withSES, ['mailbox1']);
+  const c = await buildVatController(config, ['mailbox1']);
   await c.run();
   t.deepEqual(s.exportToData(), {
     peer1: {
@@ -216,13 +206,9 @@ async function testMailboxOutbound(t, withSES) {
   t.deepEqual(s.exportToData(), s2.exportToData());
 
   t.end();
-}
-
-test('mailbox outbound with SES', async t => {
-  await testMailboxOutbound(t, true);
 });
 
-async function testMailboxInbound(t, withSES) {
+test('mailbox inbound', async t => {
   const s = buildMailboxStateMap();
   const mb = buildMailbox(s);
   const config = {
@@ -233,7 +219,7 @@ async function testMailboxInbound(t, withSES) {
 
   let rc;
 
-  const c = await buildVatController(config, withSES, ['mailbox2']);
+  const c = await buildVatController(config, ['mailbox2']);
   await c.run();
   rc = mb.deliverInbound(
     'peer1',
@@ -333,13 +319,9 @@ async function testMailboxInbound(t, withSES) {
   ]);
 
   t.end();
-}
-
-test('mailbox inbound with SES', async t => {
-  await testMailboxInbound(t, true);
 });
 
-async function testCommandBroadcast(t, withSES) {
+test('command broadcast', async t => {
   const broadcasts = [];
   const cm = buildCommand(body => broadcasts.push(body));
   const config = {
@@ -348,18 +330,14 @@ async function testCommandBroadcast(t, withSES) {
     bootstrapIndexJS: require.resolve('./files-devices/bootstrap-2'),
   };
 
-  const c = await buildVatController(config, withSES, ['command1']);
+  const c = await buildVatController(config, ['command1']);
   await c.run();
   t.deepEqual(broadcasts, [{ hello: 'everybody' }]);
 
   t.end();
-}
-
-test('command broadcast with SES', async t => {
-  await testCommandBroadcast(t, true);
 });
 
-async function testCommandDeliver(t, withSES) {
+test('command deliver', async t => {
   const cm = buildCommand(() => {});
   const config = {
     vats: new Map(),
@@ -367,7 +345,7 @@ async function testCommandDeliver(t, withSES) {
     bootstrapIndexJS: require.resolve('./files-devices/bootstrap-2'),
   };
 
-  const c = await buildVatController(config, withSES, ['command2']);
+  const c = await buildVatController(config, ['command2']);
   await c.run();
 
   t.deepEqual(c.dump().log.length, 0);
@@ -388,8 +366,4 @@ async function testCommandDeliver(t, withSES) {
   t.deepEqual(rejection, { response: 'body' });
 
   t.end();
-}
-
-test('command deliver with SES', async t => {
-  await testCommandDeliver(t, true);
 });

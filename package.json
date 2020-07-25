@@ -1,11 +1,11 @@
 {
   "name": "@agoric/sdk",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "private": true,
   "useWorkspaces": true,
   "workspaces": [
     "packages/assert",
-    "packages/ses-adapter",
+    "packages/install-ses",
     "packages/import-manager",
     "packages/sparse-ints",
     "packages/registrar",
@@ -19,8 +19,7 @@
     "packages/transform-eventual-send",
     "packages/tame-metering",
     "packages/transform-metering",
-    "packages/default-evaluate-options",
-    "packages/evaluate",
+    "packages/install-metering-and-ses",
     "packages/marshal",
     "packages/same-structure",
     "packages/captp",
@@ -35,7 +34,6 @@
     "packages/zoe",
     "packages/wallet-frontend",
     "packages/cosmic-swingset",
-    "packages/generator-agoric-dapp",
     "packages/agoric-cli",
     "packages/deployment",
     "packages/notifier"
@@ -65,5 +63,8 @@
     "lint-check": "yarn workspaces run lint-check",
     "test": "yarn workspaces run test",
     "build": "yarn workspaces run build"
+  },
+  "dependencies": {
+    "@agoric/store": "^0.2.0"
   }
 }

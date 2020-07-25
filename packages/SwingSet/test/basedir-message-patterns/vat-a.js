@@ -1,13 +1,14 @@
-import harden from '@agoric/harden';
+/* global harden */
+
 import { buildPatterns } from '../message-patterns';
 
-function build(E, log) {
+export function buildRootObject(vatPowers) {
   const amy = harden({ toString: () => 'obj-amy' });
   let alice;
 
   const root = harden({
     init(bob, bert) {
-      const { setA, setB, objA } = buildPatterns(E, log);
+      const { setA, setB, objA } = buildPatterns(vatPowers.testLog);
       alice = objA;
       const a = harden({ alice, amy });
       setA(a);
@@ -21,13 +22,4 @@ function build(E, log) {
     },
   });
   return root;
-}
-
-export default function setup(syscall, state, helpers) {
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => build(E, helpers.log),
-    helpers.vatID,
-  );
 }

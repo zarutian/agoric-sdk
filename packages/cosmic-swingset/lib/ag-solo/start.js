@@ -7,7 +7,6 @@ import { promisify } from 'util';
 import anylogger from 'anylogger';
 
 // import connect from 'lotion-connect';
-// import harden from '@agoric/harden';
 // import djson from 'deterministic-json';
 
 import {
@@ -77,7 +76,6 @@ async function atomicReplaceFile(filename, contents) {
 async function buildSwingset(
   kernelStateDBDir,
   mailboxStateFile,
-  withSES,
   vatsDir,
   argv,
   broadcast,
@@ -108,7 +106,7 @@ async function buildSwingset(
   const { storage, commit } = openSwingStore(kernelStateDBDir);
   config.hostStorage = storage;
 
-  const controller = await buildVatController(config, withSES, argv);
+  const controller = await buildVatController(config, argv);
 
   async function saveState() {
     const ms = JSON.stringify(mbs.exportToData());
@@ -134,7 +132,7 @@ async function buildSwingset(
   // other inbound messages.
   const queuedDeliverInboundToMbx = withInputQueue(
     async function deliverInboundToMbx(sender, messages, ack) {
-      if (!(messages instanceof Array)) {
+      if (!Array.isArray(messages)) {
         throw new Error(`inbound given non-Array: ${messages}`);
       }
       // console.debug(`deliverInboundToMbx`, messages, ack);
@@ -222,7 +220,7 @@ async function buildSwingset(
   };
 }
 
-export default async function start(basedir, withSES, argv) {
+export default async function start(basedir, argv) {
   const mailboxStateFile = path.resolve(
     basedir,
     'swingset-kernel-mailbox.json',
@@ -245,7 +243,6 @@ export default async function start(basedir, withSES, argv) {
   const d = await buildSwingset(
     stateDBDir,
     mailboxStateFile,
-    withSES,
     vatsDir,
     argv,
     broadcast,

@@ -1,7 +1,7 @@
-/* global E */
 // Copyright (C) 2019 Agoric, under Apache License 2.0
 
-import harden from '@agoric/harden';
+/* global harden E */
+
 import { mustBeSameStructure, sameStructure } from '@agoric/same-structure';
 
 /**
@@ -67,16 +67,16 @@ const coveredCall = harden({
   },
   checkUnits: (installation, allegedInviteUnits, expectedTerms) => {
     mustBeSameStructure(
-      allegedInviteUnits.extent.installation,
+      allegedInviteUnits.value.installation,
       installation,
       'coveredCall checkUnits installation',
     );
     const [termsMoney, termsStock, termsTimer, termsDeadline] = expectedTerms;
-    const allegedInviteTerms = allegedInviteUnits.extent.terms;
+    const allegedInviteTerms = allegedInviteUnits.value.terms;
     const allegedInviteMoney = allegedInviteTerms.money;
-    if (allegedInviteMoney.extent !== termsMoney.extent) {
+    if (allegedInviteMoney.value !== termsMoney.value) {
       throw new Error(
-        `Wrong money extent: ${allegedInviteMoney.extent}, expected ${termsMoney.extent}`,
+        `Wrong money value: ${allegedInviteMoney.value}, expected ${termsMoney.value}`,
       );
     }
     if (!sameStructure(allegedInviteMoney, termsMoney)) {

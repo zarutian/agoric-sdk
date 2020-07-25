@@ -1,11 +1,11 @@
-import harden from '@agoric/harden';
+/* global harden */
+import { E } from '@agoric/eventual-send';
+import makeIssuerKit from '../../../src/issuer';
 
-import produceIssuer from '../../../src/issuer';
-
-function build(E, log) {
+export function buildRootObject(vatPowers) {
   function testSplitPayments(aliceMaker) {
-    log('start test splitPayments');
-    const { mint: moolaMint, issuer, amountMath } = produceIssuer('moola');
+    vatPowers.testLog('start test splitPayments');
+    const { mint: moolaMint, issuer, amountMath } = makeIssuerKit('moola');
     const moolaPayment = moolaMint.mintPayment(amountMath.make(1000));
 
     const aliceP = E(aliceMaker).make(issuer, amountMath, moolaPayment);
@@ -27,19 +27,3 @@ function build(E, log) {
   };
   return harden(obj0);
 }
-harden(build);
-
-function setup(syscall, state, helpers) {
-  function log(...args) {
-    helpers.log(...args);
-    console.log(...args);
-  }
-  log(`=> setup called`);
-  return helpers.makeLiveSlots(
-    syscall,
-    state,
-    E => build(E, log),
-    helpers.vatID,
-  );
-}
-export default harden(setup);
