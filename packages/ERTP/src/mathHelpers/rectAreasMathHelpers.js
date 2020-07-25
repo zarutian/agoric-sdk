@@ -74,4 +74,5 @@ const rectHelper = harden({
       return l.reduce((b, il) => (isInside(ir, il) ? true : b), false) ? a : false;
     }, true);
   },
+  doIsEqual: (l, r) => ((rectHelper.doIsGTE(l, r) && rectHelper.doIsGTE(r, l))),
 });
