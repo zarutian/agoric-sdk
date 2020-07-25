@@ -50,8 +50,21 @@ const ArrayOf = (perItemGuard) => {
     }
   });
 };
+const throwingEjector = (e) => { throw e; };
 // -inline ends-
 const rectGuard = ArrayOf(RecordOf({
   x: NumberGuard, y: NumberGuard, w: NatGuard, h: NatGuard
 }));
 const isInside = (a, b) => ((a.x >= b.x) && (a.y >= b.y) && (a.w <= b.w) && (a.h <= b.h));
+const rectHelper = harden({
+  doAssertKind: (extent) => { rectGuard(extent, throwingEjector); },
+  doGetEmpty: () => harden([{ x: 0, y: 0, w: 0, h: 0}]),
+  doIsEmpty: (extent) => {
+    rectHelper.doAssertKind(extent);
+    return ((extent.length == 1) &&
+            (BigInt(extent[0].x) == 0n) &&
+            (BigInt(extent[0].y) == 0n) &&
+            (BigInt(extent[0].w) == 0n) &&
+            (BigInt(extent[0].h) == 0n));
+  },
+});
