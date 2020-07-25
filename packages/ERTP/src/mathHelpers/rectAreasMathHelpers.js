@@ -6,7 +6,12 @@ const RecordOf = (template) => {
   const templateAsEntries = Object.entries(template);
   return harden({
     coerce: (specimen, ejector) => {
-      const specimenAsEntries = Object.entries(specimen);
+      if (Object.entries(specimen).length != templateAsEntries.length) {
+        ejector(new Error("specimen does not have equal number of own properties as this guard expects"));
+      }
+      return harden(Object.fromEntries(templateAsEntries.map(([prop, guard]) => {
+        return [prop, guard.coerce(specimen[prop], ejector)];
+      })));
     },
     toString: () => {
       return "";
