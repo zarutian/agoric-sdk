@@ -54,3 +54,4 @@ const ArrayOf = (perItemGuard) => {
 const rectGuard = ArrayOf(RecordOf({
   x: NumberGuard, y: NumberGuard, w: NatGuard, h: NatGuard
 }));
+const isInside = (a, b) => ((a.x >= b.x) && (a.y >= b.y) && (a.w <= b.w) && (a.h <= b.h));
