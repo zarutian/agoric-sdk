@@ -85,7 +85,9 @@ const consolidate = (extent) => {
   return curr;
 };
 const subtract = (a, b) => {
-  return harden();
+  return harden(a.reduce((acc, atem) => {
+    const intersects = b.filter((btem) => intersect(atem, btem));
+  }, []));
 };
 const rectHelper = harden({
   doAssertKind: (extent) => { rectGuard(extent, throwingEjector); },
