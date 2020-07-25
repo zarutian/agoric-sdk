@@ -91,6 +91,7 @@ const subtract = (a, b) => {
     if (intersects.reduce((covered, item) => (isInside(atem, item) ? true : covered), false)) {
       return acc;
     }
+    const { x: a_x1, y: a_y1 } = atem;
   }, []));
 };
 const rectHelper = harden({
