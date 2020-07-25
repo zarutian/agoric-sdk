@@ -50,6 +50,17 @@ const ArrayOf = (perItemGuard) => {
     }
   });
 };
+const TupleOf = (template) => {
+  return harden({
+    coerce: (specimen, ejector) => {
+      if (specimen.length != template.length) {
+        ejector(new Error("given specimen wasnt of equal length as expected"))
+      }
+      return template.map((guard, i) => guard.coerce(specimen[i]));
+    },
+    toString: () => "«tuple guard of (".concat(template.map((guard) => guard.toString().concat(", ")),")»");
+  });
+}
 const throwingEjector = (e) => { throw e; };
 // -inline ends-
 const rectGuard = ArrayOf(RecordOf({
