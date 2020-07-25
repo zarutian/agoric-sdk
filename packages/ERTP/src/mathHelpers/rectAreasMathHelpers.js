@@ -178,5 +178,5 @@ const rectHelper = harden({
     return consolidate(subtract(l,r));
   }
 });
-const rectAreasHelpers = rectHelper;
-export default rectAreasHelpers;
+const rectAreasMathHelpers = rectHelper;
+export default rectAreasMathHelpers;
