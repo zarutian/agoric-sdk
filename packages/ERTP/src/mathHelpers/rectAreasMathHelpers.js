@@ -102,6 +102,18 @@ const subtract = (a, b) => {
     const a2 = { x: b_x1, y: a_y1, w: btem.w, h: (b_y1 - a_y1) };
     const a3 = { x: b_x1, y: b_y2, w: btem.w, h: (a_y2 - b_y2) };
     const a4 = { x: b_x2, y: a_y1, w: (a_x2 - b_x2), h: atem.h };
+    const args = [];
+    if ((a1.w > 0) && (a1.h > 0)) { args.push(a1); }
+    if ((a2.w > 0) && (a2.h > 0)) { args.push(a2); }
+    if ((a3.w > 0) && (a3.h > 0)) { args.push(a3); }
+    if ((a4.w > 0) && (a4.h > 0)) { args.push(a4); }
+    if (args.length == 0) { return acc; }
+    const res = subtract(args, intersects.slice(1));
+    if (res.length > 0) {
+      return acc.concat(res);
+    } else {
+      return acc;
+    }
   }, []));
 };
 const rectHelper = harden({
