@@ -84,6 +84,9 @@ const consolidate = (extent) => {
   }
   return curr;
 };
+const subtract = (a, b) => {
+  return harden();
+};
 const rectHelper = harden({
   doAssertKind: (extent) => { rectGuard(extent, throwingEjector); },
   doGetEmpty: () => harden([{ x: 0, y: 0, w: 0, h: 0}]),
