@@ -59,39 +59,31 @@ const isInside = (a, b) => ((a.x >= b.x) && (a.y >= b.y) && (a.w <= b.w) && (a.h
 const compare = (a, b) => (((a.y < b.y) || (a.x < b.x) || (a.w < b.w) || (a.h < b.h)) ? -1 : 1);
 const isEqual = (a, b) => ((BigInt(a.x) == BigInt(b.x)) && (BigInt(a.y) == BigInt(b.y)) && (BigInt(a.w) == BigInt(b.w)) && (BigInt(a.h) == BigInt(b.h)));
 const consolidate = (extent) => {
-            var curr = (new Array(extent)).sort(compare);
-            var prev = rectHelper.doGetEmpty();
-            while (!rectHelper.isEqual(curr, prev)) {
-              prev = curr;
-              curr = curr.reduce((acc, b, idx) => {
-                const a = acc[-1];
-                if (a === undefined) {
-                  acc.push(b);
-                  return acc;
-                }
-                if (isEqual(a, b)) { return acc; }
-                // do we have two rect of equal height abutting?
-                if ((a.h == b.h) && (a.y == b.y) &&
-                    ((a.x + a.w) == b.x)) {
-                  // combine them
-                  acc[-1] = { x: a.x, y: b.y,
-                              w: (a.w + b.w), h: a.h };
-                  return acc;
-                }
-                // do we have two rect of equal width abutting?
-                if ((a.w == b.w) && (a.x == b.x) &&
-                    ((a.y + a.h) == b.y)) {
-                  // combine them
-                  acc[-1] = { x: a.x, y: a.y,
-                              w: b.w, h: (a.h + b.h)];
-                  return acc;
-                }
-                acc.push(b);
-                return acc;
-              }, []).sort(compare);
-            }
-            return curr;
-          };
+  var curr = (new Array(extent)).sort(compare);
+  var prev = rectHelper.doGetEmpty();
+  while (!rectHelper.isEqual(curr, prev)) {
+    prev = curr;
+    curr = curr.reduce((acc, b, idx) => {
+      const a = acc[-1];
+      if (a === undefined) { acc.push(b); return acc; }
+      if (isEqual(a, b)) { return acc; }
+      // do we have two rect of equal height abutting?
+      if ((a.h == b.h) && (a.y == b.y) && ((a.x + a.w) == b.x)) {
+        // combine them
+        acc[-1] = { x: a.x, y: b.y, w: (a.w + b.w), h: a.h };
+        return acc;
+      }
+      // do we have two rect of equal width abutting?
+      if ((a.w == b.w) && (a.x == b.x) && ((a.y + a.h) == b.y)) {
+        // combine them
+        acc[-1] = { x: a.x, y: a.y, w: b.w, h: (a.h + b.h)};
+        return acc;
+      }
+      acc.push(b); return acc;
+    }, []).sort(compare);
+  }
+  return curr;
+};
 const rectHelper = harden({
   doAssertKind: (extent) => { rectGuard(extent, throwingEjector); },
   doGetEmpty: () => harden([{ x: 0, y: 0, w: 0, h: 0}]),
