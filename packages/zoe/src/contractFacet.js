@@ -407,7 +407,8 @@ export function buildRootObject(_vatPowers) {
             complete: () => completeOffer(),
           };
         } else if (exitKind === "onCondition") {
-          // z:merkill
+          const { conditionor, condition } = exit.onCondition;
+          const skaft = E(conditionor).onTrue(condition, harden({ "do": () => completeOffer() }));
         } else {
           // if exitRule.kind is 'waived' the user has no ability to complete
           // on demand
