@@ -406,6 +406,8 @@ export function buildRootObject(_vatPowers) {
           completeObj = {
             complete: () => completeOffer(),
           };
+        } else if (exitKind === "onCondition") {
+          // z:merkill
         } else {
           // if exitRule.kind is 'waived' the user has no ability to complete
           // on demand
