@@ -164,13 +164,18 @@ import zcfContractBundle from '../bundles/bundle-contractFacet';
  * @typedef {Object} Timer
  * @typedef {number} Deadline
  *
+ * @typedef {Object} Conditionor ««meta-comment: I blame the Agora nomic for this name -Zarutian»»
+ * @typedef {Object} Condition
+ *
  * @typedef {{waived:null}} Waived
  * @typedef {{onDemand:null}} OnDemand
  *
  * @typedef {{afterDeadline:{timer:Timer, deadline:Deadline}}} AfterDeadline
  *
- * @typedef {(Waived|OnDemand|AfterDeadline)} ExitRule
- * The possible keys are 'waived', 'onDemand', and 'afterDeadline'.
+ * @typedef {{onCondition:{conditionor:Conditionor, condition:Condition}}} OnCondition
+ *
+ * @typedef {(Waived|OnDemand|AfterDeadline|OnCondition)} ExitRule
+ * The possible keys are 'waived', 'onDemand', 'afterDeadline', and 'onCondition'.
  * `timer` and `deadline` only are used for the `afterDeadline` key.
  * The possible records are:
  * `{ waived: null }`
