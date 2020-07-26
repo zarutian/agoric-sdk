@@ -3,16 +3,18 @@
 import { E } from "@agoric/eventual-send";
 import { jsonlogic } from "@jsonlogic/jsonlogic";
 
-const makeConditionor = (timerService, environ, defaultInterval=300) => {
+const makeConditionorKit = (timerService, environ, defaultInterval=300) => {
   const Cs = new Map();
   const newC = (condition, callback) => {
-    const handle = harden({ cancel: () => {
-      try {
-        const { callback } = Cs.get(handle);
-        void E(callback).cancelled();
+    const handle = harden({
+      cancel: () => {
+        try {
+          const { callback } = Cs.get(handle);
+          void E(callback).cancelled();
+        }
+        Cs.delete(handle);
       }
-      Cs.delete(handle);
-    } });
+    });
     Cs.set(handle, { condition, callback });
     return handle;
   }
@@ -43,7 +45,11 @@ const makeConditionor = (timerService, environ, defaultInterval=300) => {
       });
     }
   }));
-  return harden({ onTrue, onChange });
+  return harden({
+    ConditionorService: harden({ onTrue, onChange }),
+    disable: () => repeater.disable(),
+    getCs: () => Cs
+  });
 }
 
-export default makeConditionor;
+export default makeConditionorKit;
