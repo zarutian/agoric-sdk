@@ -63,12 +63,21 @@ const TupleOf = (template) => {
 }
 const throwingEjector = (e) => { throw e; };
 const escape_primitive = (block) => {
+  var   active = true;
   const internalMarker = {};
-  const ejector = (value) => { throw [internalMarker, value] };
+  const ejector = (value) => {
+    if (active) {
+      throw [internalMarker, value];
+    } else {
+      throw new Error("ejector used outside its escape expr");
+    }
+  };
   try { return [false, block(ejector)]; } catch (e) {
     if (!Array.isArray(e)) { throw e; }
     if (e[0] !== internalMarker) { throw e; }
     return [true, e[1]];
+  } finally {
+    active = false;
   }
 }
 const escape = (mainblock, catchblock) => {
