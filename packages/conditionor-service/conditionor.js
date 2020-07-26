@@ -13,7 +13,8 @@ const makeConditionorKit = (timerService, environ, defaultInterval=300) => {
           void E(callback).cancelled();
         }
         Cs.delete(handle);
-      }
+      },
+      toString: () => "«a handle from ConditionorService»"
     });
     Cs.set(handle, { condition, callback });
     return handle;
