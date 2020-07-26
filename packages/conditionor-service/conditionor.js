@@ -19,8 +19,10 @@ const makeConditionor = (timerService, zoeService, defaultInterval=300) => {
   const onTrue   = (condition, callback) => {
     const handle = newC(condition, harden({
       do: (result) => {
-        void E(callback).do(result);
-        handle.cancel();
+        if (result) {
+          void E(callback).do(result);
+          handle.cancel();
+        }
       },
       cancelled: () => { void E(callback).cancelled(); }
     });
