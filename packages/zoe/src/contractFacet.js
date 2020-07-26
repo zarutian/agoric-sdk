@@ -409,6 +409,8 @@ export function buildRootObject(_vatPowers) {
         } else if (exitKind === "onCondition") {
           const { conditionor, condition } = exit.onCondition;
           const skaft = E(conditionor).onTrue(condition, harden({ "do": () => completeOffer() }));
+          const cancel = (ignored) => { void E(skaft).cancel(); }
+          E(E(zoeForZcf).getVatAdmin()).done().then(cancel, cancel);
         } else {
           // if exitRule.kind is 'waived' the user has no ability to complete
           // on demand
