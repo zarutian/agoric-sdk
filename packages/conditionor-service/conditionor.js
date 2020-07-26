@@ -3,7 +3,7 @@
 import { E } from "@agoric/eventual-send";
 import { jsonlogic } from "@jsonlogic/jsonlogic";
 
-const makeConditionor = (timerService, zoeService, defaultInterval=300) => {
+const makeConditionor = (timerService, environ, defaultInterval=300) => {
   const Cs = new Map();
   const newC = (condition, callback) => {
     const handle = harden({ cancel: () => {
@@ -32,6 +32,15 @@ const makeConditionor = (timerService, zoeService, defaultInterval=300) => {
   const repeater = E(timerService).createRepeater(0, defaultInterval);
   E(repeater).schedule(harden({
     wake: (time) => {
+      Cs.forEach((value, handle) => {
+        const { condition, callback } = value;
+        // prevent plan interference?
+        Promise.resolve(condition).then((cond) => {
+          E(jl).apply(cond, environ).then((result) => {
+            void E(callback).do(result);
+          });
+        });
+      });
     }
   }));
   return harden({ onTrue, onChange });
