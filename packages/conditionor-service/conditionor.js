@@ -3,7 +3,7 @@
 import { E } from "@agoric/eventual-send";
 import { jsonlogic } from "@jsonlogic/jsonlogic";
 
-const makeConditionorKit = (timerService, environ, defaultInterval=300) => {
+const makeConditionorKit = (timerService, environ, interval=300) => {
   const Cs = new Map();
   const newC = (condition, callback) => {
     const handle = harden({
@@ -32,9 +32,10 @@ const makeConditionorKit = (timerService, environ, defaultInterval=300) => {
     return handle;
   };
   const onChange = newC;
-  const repeater = E(timerService).createRepeater(0, defaultInterval);
+  const repeater = E(timerService).createRepeater(0, interval);
   E(repeater).schedule(harden({
     wake: (time) => {
+      environ.timeOfCheck = harden({ time, timer: timerService, interval });
       Cs.forEach((value, handle) => {
         const { condition, callback } = value;
         // prevent plan interference?
