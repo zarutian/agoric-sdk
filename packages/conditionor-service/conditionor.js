@@ -16,7 +16,7 @@ const makeConditionorKit = (timerService, environ, interval=300) => {
       },
       toString: () => "«a handle from ConditionorService»"
     });
-    Cs.set(handle, { condition, callback });
+    Cs.set(handle, { condition, callback, lastResult: false });
     return handle;
   }
   const onTrue   = (condition, callback) => {
@@ -28,10 +28,22 @@ const makeConditionorKit = (timerService, environ, interval=300) => {
         }
       },
       cancelled: () => { void E(callback).cancelled(); }
-    });
+    }));
     return handle;
   };
-  const onChange = newC;
+  const onChange = (condition, callback) => {
+    const handle = newC(condition, harden({
+      do: (result) => {
+        const record = Cs.get(handle);
+        const { lastResult } = record;
+        if (lastResult != result) {
+          void E(callback).do(result);
+          record.lastResult = result;
+        }
+      },
+      cancelled: () => { void E(callback).cancelled(); }
+    }));
+  }
   const repeater = E(timerService).createRepeater(0, interval);
   E(repeater).schedule(harden({
     wake: (time) => {
