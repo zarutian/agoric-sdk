@@ -1,6 +1,7 @@
 
 /* global harden */
 import { E } from "@agoric/eventual-send";
+import { jsonlogic } from "@jsonlogic/jsonlogic";
 
 const makeConditionor = (timerService, zoeService, defaultInterval=300000) => {
   const Cs = new Map();
@@ -15,8 +16,17 @@ const makeConditionor = (timerService, zoeService, defaultInterval=300000) => {
     Cs.set(handle, { condition, callback });
     return handle;
   }
-  const onTrue   = (condition, callback) => {};
-  const onChange = (condition, callback) => {};
+  const onTrue   = (condition, callback) => {
+    const handle = newC(condition, harden({
+      do: (result) => {
+        void E(callback).do(result);
+        handle.cancel();
+      },
+      cancelled: () => { void E(callback).cancelled(); }
+    });
+    return handle;
+  };
+  const onChange = newC;
   return harden({ onTrue, onChange });
 }
 
