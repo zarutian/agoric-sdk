@@ -1,9 +1,10 @@
 
 /* global harden */
 import { E } from "@agoric/eventual-send";
-import { jsonlogic } from "@jsonlogic/jsonlogic";
+import { jsonLogic } from "@jsonlogic/jsonlogic";
 
 const makeConditionorKit = (timerService, environ, interval=300) => {
+  const jl = jsonLogic;
   const Cs = new Map();
   const newC = (condition, callback) => {
     const handle = harden({
