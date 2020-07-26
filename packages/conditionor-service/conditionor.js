@@ -48,7 +48,11 @@ const makeConditionorKit = (timerService, environ, interval=300) => {
     }
   }));
   return harden({
-    ConditionorService: harden({ onTrue, onChange }),
+    ConditionorService: harden({
+      onTrue, onChange
+      checkInterval: interval,
+      toString: () => "«Conditionor service»"
+    }),
     disable: () => repeater.disable(),
     getCs: () => Cs
   });
