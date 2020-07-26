@@ -62,6 +62,129 @@ const TupleOf = (template) => {
   });
 }
 const throwingEjector = (e) => { throw e; };
+Open
+Remove MathHelpers from public view
+#1324
+tyg opened this issue 4 days ago · 9 comments 
+Assignees
+ @tyg  @katelynsills
+Labels
+ERTP
+enhancement
+Projects
+ ERTP
+Comments
+@tyg
+ 
+tyg commented 4 days ago
+As discussed on Keybase, there is no need for our users to know that amountMath methods are really having their work done by similarly named MathHelper methods, and we’re not using any of the MathHelpers in our examples. Thus, we can simplify our documentation and lessen how much developers need to read and know by removing all references to MathHelpers from the docs and our examples.
+
+The one thing currently associated with MathHelpers that developers need to know is that they can be one of three kinds, depending on how the issuer specifies how amount values are represented. These are ‘nat’, the default, for natural numbers/fungible assets, ‘str’ for strings/non-fungible assets, and ‘strSet’ for more complex objects/non-fungible assets. Instead of associating a kind with MathHandlers, we will henceforth associate a kind with a brand’s amountMath object. In code, this will be referred to as amountMathKind; i.e. what kind of amountMath is implementing the common set of methods.
+
+This will require the following changes in docs and example code and for consistency, preferably in internal code:
+
+In public-facing code and docs, remove all mention of MathHelper methods.
+
+Instead of “You have your choice of three MathHelpers”, replace it with “You have your choice of three kinds of amountMath, each of which polymorphically implements all the specified amountMath methods.” or similar. Note the use of “kinds” rather than “types” to avoid confusing with system/JS typing.
+
+Move general explanation of the three kinds to AmountMath doc pages.
+
+makeIssuerKit() and docs will refer to specifying an “amountMath kind argument” rather than
+any mention of MathHelpers.
+
+When possible, have the makeIssuerKit’s second, optional, parameter be referred to as “amountMathKind”
+
+The name and docs of method “amountMath.getMathHelpersName()” is changed to “amountMath.getAmountMathKind()’
+
+The name and docs of method "issuer.getMathHelperName()" is changed to "issuer.getAmountMathKind()"
+
+ @tyg tyg added the enhancement  label 4 days ago
+@tyg tyg assigned tyg and katelynsills 4 days ago
+ @zarutian zarutian commented 3 days ago
+I really should finish writing the "rectAreas" and "cubeVolumes" mathHelpers.
+So, no, I recommend against removing MathHelpers from the documentation. But I am open to ideas on how to enable local reconstruction of amountMaths so that amount calculations can be done without doing eventual-sends.
+
+  @tyg tyg commented 2 days ago
+ Let's see if I correctly conveyed what I want to do (which was already
+discussed on Keybase with no objections). I'm not saying get rid of the
+MathHelper methods; they'll still be in the internal codebase, we can still
+call them internally, etc.
+
+But every one of them has an equivalent method at the amountMath level,
+which can and is being used by developers instead of the MathHelper. The
+only thing unique to MathHelpers is the nat, str, strSat, which can be
+pushed up to the amountMath level.
+
+So if you don't want MathHelper removed from the docs because you're
+writing two new ones (and honestly, I'm not sure from the names you give
+just what they'd do; the names read more like UI methods than financial
+math type things), I have to ask
+
+1) will these not have the same type of equivalent method at the amountMath
+level as every existing MathHelper? If they will have amountMath
+equivalents, then we can still remove MathHandlers in general from docs.
+
+2) If you weren't planning to have such amountMath equivalents, is there
+any reason why you can't add such that they just call the MathHandler
+version and nothing else?
+
+Thanks,
+Tom
+…
+ @zarutian zarutian commented 2 days ago
+"rectAreas" (not the final name but works for now) MathHelper deals with extents of the form of a list of non-overlapping spefic rectangular areas.
+These kind of extents are usefull when dealing with Minecraft (sur)real estate. "cubeVolumes" is similar, just adds extra dimension.
+
+I am mainly writing them for my own edification and amusement but they do demonstrate that the list of kinds of MathHelpers is non exhaustive. Therefor we should not limit the kinds of extents expressible in Agoric smart contracts.
+
+  @tyg tyg commented 2 days ago
+ Ah. Thanks for the explanation. I don't think I explained well what I want
+to do and why though. It has nothing to do with limiting values (the new
+name for extents, already implemented) in them, and it doesn't sound like
+it'd be a problem to have an amountMath equivalent like all the existing
+ones. Let's see what Kate has to say about it.
+
+Tom
+…
+ @erights erights commented 2 days ago
+Hi @tyg you are correct about how you should proceed. Agoric is not yet set up for users to extend the MathHelpers namespace, so there's no reason to document how to for normal users. @zarutian 's is a private experiment.
+
+Hi @zarutian I very much look forward to seeing your MathHelpers. Virtual real estate remains my standard example of an eright which is divisible and recombinable but not fungible. We got a taste of this with the pixel demo, but without a compact rectangle-at-a-time representation.
+
+ @katelynsills katelynsills commented 2 days ago
+I agree with @erights! @zarutian that sounds like an incredibly valuable contribution that I'd love to be able to add to ERTP.
+
+ @katelynsills katelynsills added the ERTP  label 2 days ago
+@katelynsills katelynsills added this to Do This Week in ERTP 2 days ago
+ @zarutian zarutian commented 11 hours ago
+@erights: feast your eyes on https://github.com/zarutian/agoric-sdk/blob/rectAreas-MathHelper/packages/ERTP/src/mathHelpers/rectAreasMathHelpers.js
+
+needs testing and probably quite a few explanation comments.
+
+ @erights erights commented 11 hours ago
+OMG did you implement the E guards/ejectors architecture? Cool!
+
+ @zarutian
+ 
+zarutian commented 1 hour ago
+OMG did you implement the E guards/ejectors architecture? Cool!
+
+Some of it. Though faking escapeExpr with
+
+const escape_primitive = (block) => {
+  const internalMarker = {};
+  const ejector = (value) => { throw [internalMarker, value] };
+  try { return [false, block(ejector)]; } catch (e) {
+    if (!Array.isArray(e)) { throw e; }
+    if (e[0] !== internalMarker) { throw e; }
+    return [true, e[1]];
+  }
+}
+const escape = (mainblock, catchblock) => {
+  const [escapement, value] = escape_primitive(mainblock);
+  if (escapement) { return catchblock(value); }
+  return value;
+}
 // -inline ends-
 const rectGuard = ArrayOf(RecordOf({
   x: NumberGuard, y: NumberGuard, w: NatGuard, h: NatGuard
