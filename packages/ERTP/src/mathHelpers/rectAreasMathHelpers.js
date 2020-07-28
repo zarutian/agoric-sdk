@@ -85,6 +85,21 @@ const escape = (mainblock, catchblock) => {
   if (escapement) { return catchblock(value); }
   return value;
 }
+const AnyOf = (guards) => {
+  return harden({
+    coerce: (specimen, ejector) => {
+      const t = guards.map((guard) => {
+        return escape_primitive((ejector) => guard(specimen, ejector));
+      }).filter(([ejected, result]) => !ejected);
+      if (t.length == 0) {
+        ejector(new Error("all of the guards of an AnyOf guard ejected"));
+      } else {
+        return t[0];
+      }
+    },
+    toString: () => "«AnyOf guard of ".concat(guards, " »")
+  });
+}
 // -inline ends-
 const rectGuard = ArrayOf(RecordOf({
   x: NumberGuard, y: NumberGuard, w: NatGuard, h: NatGuard
