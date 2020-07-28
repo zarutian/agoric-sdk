@@ -20,10 +20,10 @@
       return [qid, rdr, q];
     }
 
-    const makeRemote = (tdesc, interfaceDescription, executor=()=>{}) => {
+    const makeRemote = (tdesc, interfaceDescription={}, executor=()=>{}) => {
       const handler = {
         eventualGet: (_o, prop) => {
-          const [qid, rdr, q] = makeQuestion(null);
+          const [qid, rdr, q] = makeQuestion(interfaceDescription[prop]);
           send(["get", Datum.coerce(qid), desc(rdr), tdesc, Datum.coerce(prop)]);
           return q;
         },
@@ -46,7 +46,7 @@
           send(["applyOnly", tdesc, args.map(desc)]);
         },
         eventualSend: (_o, verb, args) => {
-          const [qid, rdr, q] = makeQuestion(null);
+          const [qid, rdr, q] = makeQuestion(interfaceDescription[verb]);
           send(["send", Datum.coerce(qid), desc(rdr), tdesc, Datum.coerce(verb), args.map(desc)]);
           return q;
         },
