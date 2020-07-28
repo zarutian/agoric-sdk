@@ -14,5 +14,6 @@
     "strictNullChecks": true,
     "moduleResolution": "node",
   },
-  "include": ["src/**/*.js", "exports.js"],
+  //"include": ["src/**/*.js", "exports.js"],
+  "include": ["marshal.js"],
 }
