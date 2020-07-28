@@ -1,5 +1,3 @@
-/* global harden */
-
 import '@agoric/install-ses';
 
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -58,7 +56,7 @@ test('simpleExchange with valid offers', async t => {
 
   const { value: initialOrders } = await E(
     E(publicAPI).getNotifier(),
-  ).getCurrentUpdate();
+  ).getUpdateSince();
   t.deepEquals(
     initialOrders,
     { buys: [], sells: [] },
@@ -85,7 +83,7 @@ test('simpleExchange with valid offers', async t => {
 
   const { value: afterAliceOrders } = await E(
     E(publicAPI).getNotifier(),
-  ).getCurrentUpdate();
+  ).getUpdateSince();
   t.deepEquals(
     afterAliceOrders,
     {
@@ -100,13 +98,16 @@ test('simpleExchange with valid offers', async t => {
     `order notifier is updated with Alices sell order`,
   );
 
-  aliceOfferHandle.then(handle => {
+  aliceOfferHandle.then(async handle => {
     const aliceNotifier = zoe.getOfferNotifier(handle);
-    const firstUpdate = aliceNotifier.getCurrentUpdate();
+    const firstUpdate = await aliceNotifier.getUpdateSince();
     t.notOk(firstUpdate.value, 'notifier start state is empty');
-    t.notOk(firstUpdate.done, 'notifier start state is not done');
-    t.ok(firstUpdate.updateHandle, 'notifier start state has handle');
-    const nextUpdateP = aliceNotifier.getUpdateSince(firstUpdate.updateHandle);
+    t.notOk(
+      firstUpdate.updateCount === undefined,
+      'notifier start state is not done',
+    );
+    t.ok(firstUpdate.updateCount, 'notifier start state has handle');
+    const nextUpdateP = aliceNotifier.getUpdateSince(firstUpdate.updateCount);
     Promise.all([nextUpdateP]).then(([nextRecord]) => {
       t.ok(nextRecord.value.Asset, 'following state has update');
       t.ok(nextRecord.value.Price, 'following state has Price');
@@ -155,7 +156,7 @@ test('simpleExchange with valid offers', async t => {
 
   const { value: afterBobOrders } = await E(
     E(publicAPI).getNotifier(),
-  ).getCurrentUpdate();
+  ).getUpdateSince();
   t.deepEquals(
     afterBobOrders,
     { buys: [], sells: [] },
@@ -305,7 +306,7 @@ test('simpleExchange with multiple sell offers', async t => {
           ],
         };
         t.deepEquals(
-          (await E(E(publicAPI).getNotifier()).getCurrentUpdate()).value,
+          (await E(E(publicAPI).getNotifier()).getUpdateSince()).value,
           expectedBook,
         );
       },

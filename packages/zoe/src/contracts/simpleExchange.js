@@ -1,8 +1,9 @@
-/* global harden */
 // @ts-check
 
-import { produceNotifier } from '@agoric/notifier';
+import { makeNotifierKit } from '@agoric/notifier';
 import { makeZoeHelpers, defaultAcceptanceMsg } from '../contractSupport';
+
+import '../../exported';
 
 /**
  * SimpleExchange is an exchange with a simple matching algorithm, which allows
@@ -23,14 +24,13 @@ import { makeZoeHelpers, defaultAcceptanceMsg } from '../contractSupport';
  * The invitation returned on installation of the contract is the same as what
  * is returned by calling `await E(publicAPI).makeInvite().
  *
- * @typedef {import('../zoe').ContractFacet} ContractFacet
  * @param {ContractFacet} zcf
  */
 const makeContract = zcf => {
   let sellOfferHandles = [];
   let buyOfferHandles = [];
   // eslint-disable-next-line no-use-before-define
-  const { notifier, updater } = produceNotifier(getBookOrders());
+  const { notifier, updater } = makeNotifierKit(getBookOrders());
 
   const {
     rejectOffer,
