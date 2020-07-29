@@ -452,5 +452,14 @@ export default makeCapTP;
 
 // more experimental stuff:
 const makeCapTPmanager = (ourId, portMaker, receptionist) => {
-  return harden({ portReceptionist });
+  const localConnector = harden({
+    fromOther: (value) => {
+      var result = true;
+      Far.coerce(value, () => { result = false; });
+      return result;
+    },
+    introP: null,
+    getIntroP: null
+  });
+  return harden({ portReceptionist, localConnector, Near, Far, FarVia});
 }
