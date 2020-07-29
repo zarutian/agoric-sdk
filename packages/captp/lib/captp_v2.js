@@ -7,7 +7,10 @@ import { TupleOf,
          ArrayOf,
          AnyGuard, 
          StrGuard,
+         NumberGuard,
          NatGuard } from "@zarutian/ocaps/js/guards";
+
+const Datum = AnyOf(NumberGuard, StrGuard);
 
 // DeliverMsgTuple = Tuple[Str["send"], qid, rdr, target, verb, args]
 const DeliverMsgTuple = TupleOf(StrOf("send"), NatGuard, DescOf("rdr"), DescOf("target"), StrGuard, ArrayOf(DescOf("arg")));
@@ -16,12 +19,15 @@ const DeliverOnlyMsgTuple = TupleOf(StrOf("sendOnly"), DescOf("target"), StrGuar
 // GcAnswerMsgTuple = Tuple[Str["gcAnswer"], questionId]
 const GcAnswerMsgTuple = TupleOf(StrOf("gcAnswer"), NatGuard);
 // GcExportMsgTuple = Tuple[Str["gcExport"],exportId]
-// AbortMsgTuple = Tuple[Str["abort"],Any]
+const GcExportMsgTuple = TupleOf(StrOf("gcExport"), NatGuard);
+// AbortMsgTuple = Tuple[Str["abort"], Data]
+const AbortMsgTuple = TupleOf(StrOf("abort"), DataGuard);
 // msg :AnyOf[DeliverMsgTuple,
 //            DeliverOnlyMsgTuple,
 //            GcAnswerMsgTuple,
 //            GcExportMsgTuple,
 //            AbortMsgTuple]
+const msgTuple = AnyOf(DeliverMsgTuple, DeliverOnlyMsgTuple, GcAnswerMsgTuple, GcExportMsgTuple, AbortMsgTuple);
 
 const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
     let connected = true; // :Bool
