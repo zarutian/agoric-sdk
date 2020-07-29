@@ -447,4 +447,10 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
       }
     }
     return harden({ abort, dispatch, getBootstrap, Near, Far});
-  }
+}
+export default makeCapTP;
+
+// more experimental stuff:
+const makeCapTPmanager = (ourId, portMaker, receptionist) => {
+  return harden({ portReceptionist });
+}
