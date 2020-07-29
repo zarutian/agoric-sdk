@@ -1,9 +1,15 @@
 /* global harden */
 
 import { E } from "@agoric/eventual-send";
-/*
-  // DeliverOnlyMsgTuple = Tuple[Str["sendOnly"],
-      //                             target, verb, args]
+import { TupleOf,
+         AnyOf,
+         StrOf,
+         ArrayOf,
+         AnyGuard, 
+         StrGuard } from "@zarutian/ocaps/js/guards";
+
+// DeliverOnlyMsgTuple = Tuple[Str["sendOnly"], target, verb, args]
+const DeliverOnlyMsgTuple = TupleOf(StrOf("sendOnly"), DescOf("target"), StrGuard, ArrayOf(AnyGuard));
       // GcAnswerMsgTuple = Tuple[Str["gcAnswer"],questionId]
       // GcExportMsgTuple = Tuple[Str["gcExport"],exportId]
       // AbortMsgTuple = Tuple[Str["abort"],Any]
@@ -12,7 +18,6 @@ import { E } from "@agoric/eventual-send";
       //            GcAnswerMsgTuple,
       //            GcExportMsgTuple,
       //            AbortMsgTuple]
-*/
 
 const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
     let connected = true; // :Bool
