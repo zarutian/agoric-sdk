@@ -38,6 +38,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
     const exports = new Map();
     const imports = new Map();
     const descsByValue = new WeakMap();
+    const rejectors = new WeakMap();
 
     const nextExportId = (() => {
       var exportIdCounter = 0;
@@ -67,6 +68,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
           rdr.resolveWithPresence = resWpre;
         });
       descsByValue.set(q, qdesc);
+      rejectors.set(q, rdr.reject);
       return [qid, rdr, q];
     }
 
@@ -233,7 +235,9 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
         case "myNewExport": {
           const [importId, interfaceDescription] = rest;
           const importDesc = ["yourExport", importId];
-          const imported = makeRemote(importDesc, interfaceDescription);
+          var rejector;
+          const imported = makeRemote(importDesc, interfaceDescription, (res, rej, resWpre) => { rejector = rej });
+          rejector.set(imported, rejector);
           descsByValue.set(imported, importDesc);
           imports.set(importId, imported);
           return imported;
@@ -248,6 +252,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
               rdr.reject  = rej;
               rdr.resolveWithPresence = resWpre;
             });
+          rejectors.set(imported, rdr.reject);
           const rdrDesc = ["myAnswer", resolverQuestionId];
           descsByValue.set(rdr, rdrDesc);
           answers.set(resolverQuestionId, rdr);
@@ -393,6 +398,10 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
           reason = dedesc(reason);
           connected = false;
           // todo: go through all questions and imports and reject them with reason.
+          //  tbd: how to do this yet also suppo
+          [].concat(questions.values(), imports.values()).forEach((item) => {
+            rejectors.get(item)(reason);
+          });
         }
       }
     }
