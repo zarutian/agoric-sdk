@@ -278,7 +278,9 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
       }
     };
     const remoteSendOnly = (target, verb, args) => {
-      if (Near.coerce(target) == target) {
+      var isNear = true;
+      Near.coerce(target, (_e) => { isNear = false; });
+      if (isNear) {
         void E(target)[verb].apply(target, args);
         return;
       }
@@ -380,6 +382,7 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
         return bootstrapObj();
       }
     })();
+    sole.vatId = ourid;
     doExport(sole); // will be at exportId 0n
     const getBootstrap = () => {
       const soleDesc = ["yourExport", 0n];
