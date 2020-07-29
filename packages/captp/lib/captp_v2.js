@@ -126,7 +126,8 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
           if (specimen === null) { return true; }
           if (Array.isArray(specimen)) { return true; }
           // is the specimen a record?
-          return true;
+          // btw, this preculdes that records could contain remoteable functions -Zarutian
+          return Object.entries(specimen).reduce((a, [k, v]) => ( isPassByCopy(v) ? a : false ), true);
       }
     }
     const doExport = (value, ifaceDescr=null, newDesctag="myNewExport") => {
