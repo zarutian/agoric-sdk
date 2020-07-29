@@ -31,7 +31,7 @@ const AbortMsgTuple = TupleOf(StrOf("abort"), DataGuard);
 //            AbortMsgTuple]
 const msgTuple = AnyOf(DeliverMsgTuple, DeliverOnlyMsgTuple, GcAnswerMsgTuple, GcExportMsgTuple, AbortMsgTuple);
 
-const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
+const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=undefined) => {
     let connected = true; // :Bool
     const answers = new Map();
     const questions = new Map();
@@ -190,12 +190,10 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
         return res;
       } else {
         // passByProxy
-        /*
         if (connector.fromOther(value)) {
           const [hostVatId, nonce, vine] = connector.getIntroP(ourId, value);
           return ["newPromise3VatIntro", DataGuard.coerce(hostVatId), Datum.coerce(nonce), desc(vine)];
         }
-        */
         if (isPromise(value)) {
           const exportId = nextExportId();
           exports.set(exportId, value);
@@ -431,5 +429,17 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
         }
       }
     });
-    return harden({ abort, dispatch, getBootstrap, Near, FarVia});
+    const Far = harden({
+      coerce: (specimen, ejector) => {
+        const desc = descsByValue.get(specimen);
+        if (desc !== undefined) {
+          if ((kind == "yourExport") ||
+              (kind == "yourAnswer")) {
+            return specimen;
+          }
+        }
+        ejector(new Error("specimen is not a proxy for a remote object"));
+      }
+    }
+    return harden({ abort, dispatch, getBootstrap, Near, Far});
   }
