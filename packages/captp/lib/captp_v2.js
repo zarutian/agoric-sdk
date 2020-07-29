@@ -387,5 +387,21 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
       descsByValue.set(sole, soleDesc);
       return E(sole).G("bootstrap");
     }
-    return harden({ abort, dispatch, getBootstrap, Near });
+    const Near = harden({
+      coerce: (specimen, ejector=(e)=>{ throw e; }) => {
+        const desc = descsByValue.get(specimen);
+        if (desc === undefined) {
+          return specimen;
+        } else {
+          const [kind, ...rest] = desc;
+          if ((kind === "myExport") ||
+              (kind === "myAnswer")) {
+            return specimen;
+          } else {
+            ejector(new Error("specimen not Near this vat (".concat(ourid, ")")));
+          }
+        }
+      }
+    });
+    return harden({ abort, dispatch, getBootstrap, Near, FarVia});
   }
