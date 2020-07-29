@@ -79,6 +79,9 @@
           return true;
       }
     }
+    const doExport = (value, ifaceDescr=null, newDesc=undefined) => {
+ 
+    }
     const desc = (value) => {
       let res = descsByValue.get(value);
       if (res !== undefined) { return res; }
