@@ -38,7 +38,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
     const exports = new Map();
     const imports = new Map();
     const descsByValue = new WeakMap();
-    const rejectors = new WeakMap();
+    const rejectors = new WeakList();
 
     const nextExportId = (() => {
       var exportIdCounter = 0;
@@ -66,9 +66,9 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
           rdr.resolve = res;
           rdr.reject  = rej;
           rdr.resolveWithPresence = resWpre;
+          rejectors.push(rej);
         });
       descsByValue.set(q, qdesc);
-      rejectors.set(q, rdr.reject);
       return [qid, rdr, q];
     }
 
@@ -235,9 +235,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
         case "myNewExport": {
           const [importId, interfaceDescription] = rest;
           const importDesc = ["yourExport", importId];
-          var rejector;
-          const imported = makeRemote(importDesc, interfaceDescription, (res, rej, resWpre) => { rejector = rej });
-          rejector.set(imported, rejector);
+          const imported = makeRemote(importDesc, interfaceDescription, (res, rej, resWpre) => { rejectors.push(rej); });
           descsByValue.set(imported, importDesc);
           imports.set(importId, imported);
           return imported;
@@ -251,8 +249,8 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
               rdr.resolve = res;
               rdr.reject  = rej;
               rdr.resolveWithPresence = resWpre;
+              rejectors.push(rej);
             });
-          rejectors.set(imported, rdr.reject);
           const rdrDesc = ["myAnswer", resolverQuestionId];
           descsByValue.set(rdr, rdrDesc);
           answers.set(resolverQuestionId, rdr);
@@ -278,6 +276,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
           const [oid, ...entries] = rest;
           const record = harden(Object.fromEntries(entries.map(([k, v]) => [dedesc(k), dedesc(v)])));
           return makeRemote(desc(dedesc(oid)), null, (resolve, reject, resoveWithPresence) => {
+            rejectors.push(rej);
             resolveWithPresence(record);
           }); 
         }
@@ -398,10 +397,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
           reason = dedesc(reason);
           connected = false;
           // todo: go through all questions and imports and reject them with reason.
-          //  tbd: how to do this yet also suppo
-          [].concat(questions.values(), imports.values()).forEach((item) => {
-            rejectors.get(item)(reason);
-          });
+          rejectors.forEach((rej) => rej(reason));
         }
       }
     }
