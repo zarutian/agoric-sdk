@@ -1,5 +1,20 @@
 /* global harden */
- const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
+
+import { E } from "@agoric/eventual-send";
+/*
+  // DeliverOnlyMsgTuple = Tuple[Str["sendOnly"],
+      //                             target, verb, args]
+      // GcAnswerMsgTuple = Tuple[Str["gcAnswer"],questionId]
+      // GcExportMsgTuple = Tuple[Str["gcExport"],exportId]
+      // AbortMsgTuple = Tuple[Str["abort"],Any]
+      // msg :AnyOf[DeliverMsgTuple,
+      //            DeliverOnlyMsgTuple,
+      //            GcAnswerMsgTuple,
+      //            GcExportMsgTuple,
+      //            AbortMsgTuple]
+*/
+
+const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
     let connected = true; // :Bool
     const answers = new Map();
     const questions = new Map();
@@ -257,16 +272,6 @@
     }
     const dispatch = (msg) => {
       if (!connected) { return false; }
-      // DeliverOnlyMsgTuple = Tuple[Str["sendOnly"],
-      //                             target, verb, args]
-      // GcAnswerMsgTuple = Tuple[Str["gcAnswer"],questionId]
-      // GcExportMsgTuple = Tuple[Str["gcExport"],exportId]
-      // AbortMsgTuple = Tuple[Str["abort"],Any]
-      // msg :AnyOf[DeliverMsgTuple,
-      //            DeliverOnlyMsgTuple,
-      //            GcAnswerMsgTuple,
-      //            GcExportMsgTuple,
-      //            AbortMsgTuple]
       const [kind, ...rest] = msg;
       switch (kind) {
         case "send": {
