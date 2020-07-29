@@ -190,6 +190,12 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
         return res;
       } else {
         // passByProxy
+        /*
+        if (connector.fromOther(value)) {
+          const [hostVatId, nonce, vine] = connector.getIntroP(ourId, value);
+          return ["newPromise3VatIntro", DataGuard.coerce(hostVatId), Datum.coerce(nonce), desc(vine)];
+        }
+        */
         if (isPromise(value)) {
           const exportId = nextExportId();
           exports.set(exportId, value);
@@ -257,12 +263,12 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
           return questions.get(qid);
         }
         // not quite sure if this is needed yet -Zarutian
-        case "newPromise3rdVatIntro":
+        case "newPromise3VatIntro":
           let [hostVatId, nonce, vine] = rest;
           hostVatId = DataGuard.coerce(hostVatId);
           nonce = Datum.coerce(nonce);
           vine  = dedesc(vine);
-          return E(connector)(ourId, hostVatId, nonce, vine);
+          return connector.introP(ourId, hostVatId, nonce, vine);
         //
         case "array": return rest.map(dedesc);
         case "record": {
