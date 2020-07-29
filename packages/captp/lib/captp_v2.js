@@ -458,8 +458,9 @@ const makeCapTPmanager = (ourId, portMaker, receptionist) => {
       Far.coerce(value, () => { result = false; });
       return result;
     },
-    introP: null,
-    getIntroP: null
+    // const [hostVatId, nonce, vine] = connector.getIntroP(ourId, value);
+    introP: (hostVatId, nonce, vine) => {},
+    getIntroP: (value) => {}
   });
   return harden({ portReceptionist, localConnector, Near, Far, FarVia});
 }
