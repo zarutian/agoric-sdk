@@ -8,12 +8,20 @@
     const descsByValue = new WeakMap();
 
     const nextExportId = (() => {
-      var exportIdCounter = 0n; // who know how much will be exported?
+      var exportIdCounter = 0;
       return () => {
         const exportId = exportIdCounter;
-        exportIdCounter = exportIdCounter + 1n;
+        exportIdCounter = exportIdCounter + 1;
         return exportId;
       };
+    })();
+    const nextQuestionId = (() => {
+      var questionIdCounter = 0;
+      return () => {
+        const qid = questionIdCounter;
+        questionIdCounter = questionIdCounter + 1;
+        return qid;
+      }
     })();
 
     const makeQuestion = (ifaceDescr=null) => {
@@ -30,10 +38,10 @@
       return [qid, rdr, q];
     }
 
-    const makeRemote = (tdesc, interfaceDescription={}, executor=()=>{}) => {
+    const makeRemote = (tdesc, interfaceDescription=()=>{}, executor=()=>{}) => {
       const handler = {
         eventualGet: (_o, prop) => {
-          const [qid, rdr, q] = makeQuestion(interfaceDescription[prop]);
+          const [qid, rdr, q] = makeQuestion(interfaceDescription("get", prop));
           send(["get", Datum.coerce(qid), desc(rdr), tdesc, Datum.coerce(prop)]);
           return q;
         },
@@ -48,7 +56,7 @@
           send(["setOnly", tdesc, Datum.coerce(prob), desc(value)]);
         },
         eventualApply: (_o, args) => {
-          const [qid, rdr, q] = makeQuestion(null);
+          const [qid, rdr, q] = makeQuestion(interfaceDescription("apply"));
           send(["apply", Datum.coerce(qid), desc(rdr), tdesc, args.map(desc)]);
           return q;
         },
@@ -56,7 +64,7 @@
           send(["applyOnly", tdesc, args.map(desc)]);
         },
         eventualSend: (_o, verb, args) => {
-          const [qid, rdr, q] = makeQuestion(interfaceDescription[verb]);
+          const [qid, rdr, q] = makeQuestion(interfaceDescription("send", verb));
           send(["send", Datum.coerce(qid), desc(rdr), tdesc, Datum.coerce(verb), args.map(desc)]);
           return q;
         },
