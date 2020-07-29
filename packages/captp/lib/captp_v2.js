@@ -255,6 +255,13 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
           qid = Datum.coerce(qid);
           return questions.get(qid);
         }
+        // not quite sure if this is needed yet -Zarutian
+        case "newPromise3rdVatIntro":
+          let [hostVatId, nonce, vine] = rest;
+          hostVatId = DataGuard.coerce(hostVatId);
+          nonce = Datum.coerce(nonce);
+          vine  = dedesc(vine);
+          return E(connector)(ourId, hostVatId, nonce, vine);
         //
         case "array": return rest.map(dedesc);
         case "record": {
@@ -393,7 +400,7 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
         return bootstrapObj();
       }
     })();
-    sole.vatId = ourid;
+    sole.vatId = ourId;
     doExport(sole); // will be at exportId 0n
     const getBootstrap = () => {
       const soleDesc = ["yourExport", 0n];
