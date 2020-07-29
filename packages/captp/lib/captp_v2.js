@@ -139,10 +139,10 @@
         return res;
       } else {
         // passByProxy
-        const exportId = nextExportId();
-        exports.set(exportId, value);
-        descsByValue.set(value, ["myExport", exportId]);
         if (isPromise(value)) {
+          const exportId = nextExportId();
+          exports.set(exportId, value);
+          descsByValue.set(value, ["myExport", exportId]);
           const observerQid = nextQuestionId();
           const observer = Object.create(null);
           descsByValue.set(observer, ["yourAnswer", observerQid]);
@@ -153,7 +153,7 @@
           });
           return ["myNewPromise", exportId, observerQid];
         } else {
-          return ["myNewExport", exportId, desc(null)];
+          return doExport(value);
         }
       }
     }
