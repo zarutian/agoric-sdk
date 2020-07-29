@@ -9,8 +9,10 @@ import { TupleOf,
          StrGuard,
          NatGuard } from "@zarutian/ocaps/js/guards";
 
+// DeliverMsgTuple = Tuple[Str["send"], qid, rdr, target, verb, args]
+const DeliverMsgTuple = TupleOf(StrOf("send"), NatGuard, DescOf("rdr"), DescOf("target"), StrGuard, ArrayOf(DescOf("arg")));
 // DeliverOnlyMsgTuple = Tuple[Str["sendOnly"], target, verb, args]
-const DeliverOnlyMsgTuple = TupleOf(StrOf("sendOnly"), DescOf("target"), StrGuard, ArrayOf(AnyGuard));
+const DeliverOnlyMsgTuple = TupleOf(StrOf("sendOnly"), DescOf("target"), StrGuard, ArrayOf(DescOf("arg")));
 // GcAnswerMsgTuple = Tuple[Str["gcAnswer"], questionId]
 const GcAnswerMsgTuple = TupleOf(StrOf("gcAnswer"), NatGuard);
 // GcExportMsgTuple = Tuple[Str["gcExport"],exportId]
