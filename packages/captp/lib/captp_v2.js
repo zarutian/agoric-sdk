@@ -342,7 +342,18 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
           void E(target).apply(target, args);
         }; break;
         case "get": {
-          const [qid, rdr, target, prop] = rest;
+          let [qid, rdr, target, prop] = rest;
+          qid = Datum.coerce(qid);
+          rdr = dedesc(rdr);
+          target = dedesc(target);
+          prop = Datum.coerce(prop);
+          const resultP = E(target)[prop];
+          answers.set(qid, resultP);
+          resultP.then((res) => {
+            void remoteSendOnly(rdr, "resolve", [res]);
+          }, (rej) => {
+            void remoteSendOnly(rdr, "reject", [rej]);
+          });
         }; break;
         case "setOnly": {
           let [target, prop, value] = rest;
