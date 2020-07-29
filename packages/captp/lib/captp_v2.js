@@ -79,8 +79,11 @@
           return true;
       }
     }
-    const doExport = (value, ifaceDescr=null, newDesc=undefined) => {
- 
+    const doExport = (value, ifaceDescr=null, newDesctag="myNewExport") => {
+      const exportId = nextExportId();
+      exports.set(exportId, value);
+      descsByValue.set(value, ["myExport", exportId]);
+      return [newDesctag, exportId, desc(ifaceDescr)];
     }
     const desc = (value) => {
       let res = descsByValue.get(value);
@@ -108,10 +111,7 @@
             if ((const sym = Symbol.keyFor(value)) != undefined) {
               res = ["symbol", sym]; break;
             } else {
-              const exportId = nextExportId();
-              exports.set(exportId, value);
-              descsByValue.set(value, ["myExport", exportId]);
-              res = ["myNewExport", exportId, desc(null)];
+              res = doExport(value);
               break;
             }
           case "function":
@@ -119,6 +119,8 @@
             /*
             
             */
+            res = doExport(value);
+            break;
           case "object":
             if (value === null) {
               res = ["null"]; break;
@@ -129,10 +131,7 @@
             }
             // I guess it is a record then
             // preserve object identity? yes
-            const exportId = nextExportId();
-            exports.set(exportId, value);
-            descsByValue.set(value, ["myExport", exportId]);
-            const foid = ["myNewExport", exportId, desc(null)];
+            const foid = doExport(value);
             return ["record", foid].concat(Object.entries(value).map(([k, v]) => [desc[k], desc[v]]));
         }
         // end of non-belong
