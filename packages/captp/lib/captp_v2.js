@@ -372,7 +372,8 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
       }
     }
     // what is fundemental to boots? soles of course
-    const sole["bootstrap"] = (() => {
+    const sole = {};
+    sole["bootstrap"] = (() => {
       if ((typeof bootstrapObj) == "function") {
         return bootstrapObj();
       } else {
