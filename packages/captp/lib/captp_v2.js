@@ -8,14 +8,16 @@ import { TupleOf,
          AnyGuard, 
          StrGuard,
          NumberGuard,
-         NatGuard } from "@zarutian/ocaps/js/guards";
+         NatGuard,
+         RegisteredSymbolGuard } from "@zarutian/ocaps/js/guards";
 
 const Datum = AnyOf(NumberGuard, StrGuard);
+const VerbGuard = AnyOf(StrGuard, RegisteredSymbolGuard);
 
 // DeliverMsgTuple = Tuple[Str["send"], qid, rdr, target, verb, args]
-const DeliverMsgTuple = TupleOf(StrOf("send"), NatGuard, DescOf("rdr"), DescOf("target"), StrGuard, ArrayOf(DescOf("arg")));
+const DeliverMsgTuple = TupleOf(StrOf("send"), NatGuard, DescOf("rdr"), DescOf("target"), VerbGuard, ArrayOf(DescOf("arg")));
 // DeliverOnlyMsgTuple = Tuple[Str["sendOnly"], target, verb, args]
-const DeliverOnlyMsgTuple = TupleOf(StrOf("sendOnly"), DescOf("target"), StrGuard, ArrayOf(DescOf("arg")));
+const DeliverOnlyMsgTuple = TupleOf(StrOf("sendOnly"), DescOf("target"), VerbGuard, ArrayOf(DescOf("arg")));
 // GcAnswerMsgTuple = Tuple[Str["gcAnswer"], questionId]
 const GcAnswerMsgTuple = TupleOf(StrOf("gcAnswer"), NatGuard);
 // GcExportMsgTuple = Tuple[Str["gcExport"],exportId]
