@@ -4,6 +4,7 @@
     const answers = new Map();
     const questions = new Map();
     const exports = new Map();
+    const imports = new Map();
     const descsByValue = new WeakMap();
 
     const makeQuestion = (ifaceDescr=null) => {
@@ -210,9 +211,9 @@
         case "record": {
           const [oid, ...entries] = rest;
           const record = harden(Object.fromEntries(entries.map(([k, v]) => [dedesc(k), dedesc(v)])));
-          descsByValue.set(record, oid);
-          // todo: make record also a remote
-          return record;
+          return makeRemote(desc(dedesc(oid)), null, (resolve, reject, resoveWithPresence) => {
+            resolveWithPresence(record);
+          }); 
         }
         case "undefined": return undefined;
         case "null": return null;
