@@ -7,6 +7,15 @@
     const imports = new Map();
     const descsByValue = new WeakMap();
 
+    const nextExportId = (() => {
+      var exportIdCounter = 0n; // who know how much will be exported?
+      return () => {
+        const exportId = exportIdCounter;
+        exportIdCounter = exportIdCounter + 1n;
+        return exportId;
+      };
+    })();
+
     const makeQuestion = (ifaceDescr=null) => {
       const qid = nextQuestionId();
       const rdr = {};
@@ -239,6 +248,7 @@
       send(harden(["sendOnly", t, v, a]));
     }
     const dispatch = (msg) => {
+      if (!connected) { return false; }
       // DeliverOnlyMsgTuple = Tuple[Str["sendOnly"],
       //                             target, verb, args]
       // GcAnswerMsgTuple = Tuple[Str["gcAnswer"],questionId]
@@ -329,6 +339,21 @@
           connected = false;
         }
       }
+    }
+    // what is fundemental to boots? soles of course
+    const sole["bootstrap"] = (() => {
+      if ((typeof bootstrapObj) == "function") {
+        return bootstrapObj();
+      } else {
+        return bootstrapObj();
+      }
+    })();
+    doExport(sole); // will be at exportId 0n
+    const getBootstrap = () => {
+      const soleDesc = ["yourExport", 0n];
+      const sole = makeRemote(soleDesc);
+      descsByValue.set(sole, soleDesc);
+      return E(sole).G("bootstrap");
     }
     return harden({ abort, dispatch, getBootstrap, Near });
   }
