@@ -362,9 +362,10 @@ const makeCapTP = (ourId, send, connector, bootstrapObj=undefined) => {
           return true;
         }; break;
         case "abort": {
-          const [reason] = rest;
-          abort_reason = dedesc(reason);
+          let [reason] = rest;
+          reason = dedesc(reason);
           connected = false;
+          // todo: go through all questions and imports and reject them with reason.
         }
       }
     }
