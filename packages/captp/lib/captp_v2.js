@@ -294,14 +294,19 @@
           return true;
         }; break;
         case "applyOnly": {
-          const [target, args] = rest;
+          let [target, args] = rest;
+          target = dedesc(target);
+          args   = args.map(dedesc);
           void E(target).apply(target, args);
         }; break;
         case "get": {
           const [qid, rdr, target, prop] = rest;
         }; break;
         case "setOnly": {
-          const [target, prop, value] = rest;
+          let [target, prop, value] = rest;
+          target = dedesc(target);
+          prop   = Datum.coerce(prop);
+          value  = dedesc(value);
           target[prop] = value;
         }; break;
         case "gcAnswer": {
@@ -320,6 +325,7 @@
         }; break;
         case "abort": {
           const [reason] = rest;
+          abort_reason = dedesc(reason);
           connected = false;
         }
       }
