@@ -458,6 +458,20 @@ export default makeCapTP;
 const makeCapTPmanager = (ourId, portMaker) => {
   const getAbsoluteVatId = (vatId) => vatId; // placeholder for now
   const connections = new Map();
+  const FarGuards = new Map();
+
+  const Far = harden({
+    coerce: (specimen, ejector) => {
+      if ((new Array(FarGuards.values()).reduce((a, guard) => {
+        var b = true; guard.coerce(specimen, () => { b = false; });
+        return (b ? true : a );
+      }, false)) {
+        return specimen;
+      } else {
+        ejector(new Error("specimen is not a proxy for a remote object"));
+      }
+    }
+  });
   
   const nextNonce = (() => {
     var counter = 0n;
@@ -484,6 +498,7 @@ const makeCapTPmanager = (ourId, portMaker) => {
       const { getBootstrap } = makeAconnection(hostVatId);
       const nonce = nextNonce();
       const vine = E(getBootstrap()).provideFor(recipVatId, nonce, value);
+      return [hostVatId, nonce, vine];
     }
   });
   return harden({ portReceptionist, localConnector, Near, Far, FarVia});
