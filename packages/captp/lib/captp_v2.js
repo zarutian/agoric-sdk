@@ -549,6 +549,40 @@ const makeCapTPmanager = (ourId, portMaker) => {
       }
     });
   })();
+  const acceptFrom = (recp, donor, nonce, vine) => {
+    void E(vine)();
+    if (handoffTable.has(donor, recp, nonce)) {
+      const [kind, gift] = handoffTable.get(donor, recp, nonce);
+      if (kind == "gift") {
+        handoffTable.delete(donor, recp, nonce);
+        return Promise.resolve(gift);
+      } else {
+        throw new Error("was expecting a gift");
+      }
+    } else {
+      const resolver = {};
+      const promise  = new Promise((res, rej) => {
+        resolver.resolve = res; resolver.reject = rej;
+      }
+      handoffTable.set(donor, recp, nonce, ["want", resolver]);
+      return promise;
+    }
+  }
+  const provideFor = (donor, recp, nonce, gift) => {
+    const vine = () => "Tarzan!";
+    if (handoffTable.has(donor, recp, nonce)) {
+      const [kind, resolver] = handoffTable.get(donor, recp, nonce);
+      if (kind == "want") {
+        handoffTable.delete(donor, recp, nonce);
+        resolver.resolve(gift);
+      } else {
+        throw new Error("was expecting a resolver for a promise for a gift");
+      }
+    } else {
+      handoffTable.set(donor, recp, nonce, ["gift", gift]);
+    }
+    return vine;
+  }
 
   const makeAconnection = (hostVatId) => {
     if (connections.has(hostVatId)) {
