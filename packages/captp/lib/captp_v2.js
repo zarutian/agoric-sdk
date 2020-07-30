@@ -482,7 +482,7 @@ const makeCapTPmanager = (ourId, portMaker) => {
     }
   })();
 
-  const localConnector = harden({
+  const connector = harden({
     fromOther: (value) => {
       var result = true;
       Far.coerce(value, () => { result = false; });
@@ -494,12 +494,30 @@ const makeCapTPmanager = (ourId, portMaker) => {
       return E(getBootstrap()).acceptFrom(donorVatId, nonce, vine);
     },
     getIntroP: (recipVatId, value) => {
-      const hostVatId;
+      var hostVatId;
+      FarGuards.forEach((guard, vatId) => {
+        var found = true;
+        guard.coerce(value, () => { found = false; });
+        if (found) { hostVatId = vatId; }
+      }
       const { getBootstrap } = makeAconnection(hostVatId);
       const nonce = nextNonce();
       const vine = E(getBootstrap()).provideFor(recipVatId, nonce, value);
       return [hostVatId, nonce, vine];
     }
   });
+  const makeAconnection = (hostVatId) => {
+    if (connections.has(hostVatId)) {
+      return connections.get(hostVatId);
+    } else {
+      const port = portMaker(ourId, hostVatId);
+      const boot = {};
+      const conn = makeCapTP(ourId, port.send, connector, boot);
+      port.onRecieve = conn.dispatch;
+      connections.set(hostVatId);
+      return conn;
+    }
+  }
+
   return harden({ portReceptionist, localConnector, Near, Far, FarVia});
 }
