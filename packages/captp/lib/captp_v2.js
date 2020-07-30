@@ -39,6 +39,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
     const imports = new Map();
     const descsByValue = new WeakMap();
     const rejectors = new WeakList();
+      var remoteId = undefined;
 
     const nextExportId = (() => {
       var exportIdCounter = 0;
@@ -193,8 +194,8 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
       } else {
         // passByProxy
         if (connector.fromOther(value)) {
-          const [hostVatId, nonce, vine] = connector.getIntroP(ourId, value);
-          return ["newPromise3VatIntro", DataGuard.coerce(hostVatId), Datum.coerce(nonce), desc(vine)];
+          const [hostVatId, nonce, vine] = connector.getIntroP(remoteId, value);
+          return ["newPromise3VatIntro", DataGuard.coerce(hostVatId), DataGuard.coerce(donorVatId), Datum.coerce(nonce), desc(vine)];
         }
         if (isPromise(value)) {
           const exportId = nextExportId();
@@ -269,7 +270,7 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
           hostVatId = DataGuard.coerce(hostVatId);
           nonce = Datum.coerce(nonce);
           vine  = dedesc(vine);
-          return connector.introP(ourId, hostVatId, nonce, vine);
+          return connector.introP(hostVatId, remoteId, nonce, vine);
         //
         case "array": return rest.map(dedesc);
         case "record": {
@@ -416,7 +417,10 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
       const soleDesc = ["yourExport", 0n];
       const sole = makeRemote(soleDesc);
       descsByValue.set(sole, soleDesc);
-      return E(sole).G("bootstrap");
+      return E(sole).G("vatId").then((vatId) => {
+        remoteId = vatId;
+        return E(sole).G("bootstrap");
+      });
     }
     const Near = harden({
       coerce: (specimen, ejector=(e)=>{ throw e; }) => {
@@ -451,7 +455,19 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
 export default makeCapTP;
 
 // more experimental stuff:
-const makeCapTPmanager = (ourId, portMaker, receptionist) => {
+const makeCapTPmanager = (ourId, portMaker) => {
+  const getAbsoluteVatId = (vatId) => vatId; // placeholder for now
+  const connections = new Map();
+  
+  const nextNonce = (() => {
+    var counter = 0n;
+    return () => {
+      const nonce = "0d".concat(counter.toString(12));
+      counter = counter + 1n;
+      return nonce;
+    }
+  })();
+
   const localConnector = harden({
     fromOther: (value) => {
       var result = true;
@@ -459,8 +475,16 @@ const makeCapTPmanager = (ourId, portMaker, receptionist) => {
       return result;
     },
     // const [hostVatId, nonce, vine] = connector.getIntroP(ourId, value);
-    introP: (hostVatId, nonce, vine) => {},
-    getIntroP: (value) => {}
+    introP: (hostVatId, donorVatId, nonce, vine) => {
+      const { getBootstrap } = makeAconnection(hostVatId);
+      return E(getBootstrap()).acceptFrom(donorVatId, nonce, vine);
+    },
+    getIntroP: (recipVatId, value) => {
+      const hostVatId;
+      const { getBootstrap } = makeAconnection(hostVatId);
+      const nonce = nextNonce();
+      const vine = E(getBootstrap()).provideFor(recipVatId, nonce, value);
+    }
   });
   return harden({ portReceptionist, localConnector, Near, Far, FarVia});
 }
