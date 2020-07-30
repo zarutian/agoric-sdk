@@ -506,6 +506,24 @@ const makeCapTPmanager = (ourId, portMaker) => {
       return [hostVatId, nonce, vine];
     }
   });
+  
+  const handoffTable = (() => {
+    const s = new Map();
+    return harden({
+      has: (donor, recp, nonce) => {
+        if (s.has(donor)) {
+          const r = s.get(donor);
+          if (r.has(recp)) {
+            return r.get(recp).has(nonce);
+          }
+        }
+        return false;
+      },
+      get: (donor, recp, nonce) => {},
+      set: (donor, recp, nonce, item) => {}
+    });
+  })();
+
   const makeAconnection = (hostVatId) => {
     if (connections.has(hostVatId)) {
       return connections.get(hostVatId);
