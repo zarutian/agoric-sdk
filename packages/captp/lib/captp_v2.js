@@ -511,10 +511,18 @@ const makeCapTPmanager = (ourId, portMaker) => {
       return connections.get(hostVatId);
     } else {
       const port = portMaker(ourId, hostVatId);
-      const boot = {};
+      const boot = {
+        acceptFrom: (donorVatId, nonce, vine) => {
+          return acceptFrom(hostVatId, donorVatId, nonce, vine);
+        },
+        provideFor: (recipVatId, nonce, gift) => {
+          return provideFor(hostVatId, recipVatId, nonce, gift)
+        }
+      };
       const conn = makeCapTP(ourId, port.send, connector, boot);
       port.onRecieve = conn.dispatch;
-      connections.set(hostVatId);
+      connections.set(hostVatId, conn);
+      FarGuards.set(hostVatId, conn.Far);
       return conn;
     }
   }
