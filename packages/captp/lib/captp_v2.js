@@ -519,8 +519,34 @@ const makeCapTPmanager = (ourId, portMaker) => {
         }
         return false;
       },
-      get: (donor, recp, nonce) => {},
-      set: (donor, recp, nonce, item) => {}
+      get: (donor, recp, nonce) => {
+        if (s.has(donor)) {
+          const r = s.get(donor);
+          if (r.has(recp)) {
+            return r.get(recp).get(nonce);
+          }
+        }
+        return undefined;
+      },
+      set: (donor, recp, nonce, item) => {
+        if (!s.has(donor)) { s.set(donor, new Map()); }
+        const r = s.get(donor);
+        if (!r.has(recp)) { r.set(recp, new Map()); }
+        return r.get(recp).set(nonce, item);
+      },
+      delete: (donor, recp, nonce) => {
+        if (!s.has(donor)) { return; }
+        const r = s.get(donor);
+        if (!r.has(recp)) { return; }
+        const n = r.get(recp);
+        n.delete(nonce);
+        if (n.size == 0) {
+          r.delete(recp);
+          if (r.size == 0) {
+            s.delete(donor);
+          }
+        }
+      }
     });
   })();
 
