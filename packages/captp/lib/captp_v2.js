@@ -397,9 +397,19 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
           let [reason] = rest;
           reason = dedesc(reason);
           connected = false;
-          // todo: go through all questions and imports and reject them with reason.
+          // go through all questions and imports and reject them with reason.
           rejectors.forEach((rej) => rej(reason));
-        }
+          abort(reason);
+        }; break;
+        case "shutdown":
+          let [reason] = rest;
+          reason = dedesc(reason);
+          connected = false;
+          rejectors.forEach((rej) => rej(["shutdown", reason]));
+          shutdown(reason);
+          if (connector.shuttedDown !== undefined) {
+            connector.shuttedDown(conn);
+          }
       }
     }
     // what is fundemental to boots? soles of course
@@ -450,7 +460,10 @@ const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=un
         ejector(new Error("specimen is not a proxy for a remote object"));
       }
     }
-    return harden({ abort, dispatch, getBootstrap, Near, Far});
+    const shutdown = (reason) => { send(["shutdown", desc(reason)]); };
+    const abort    = (reason) => { send(["abort", desc(reason)]); };
+    const conn = harden({ abort, dispatch, shutdown, getBootstrap, Near, Far});
+    return conn;
 }
 export default makeCapTP;
 
@@ -504,7 +517,8 @@ const makeCapTPmanager = (ourId, portMaker) => {
       const nonce = nextNonce();
       const vine = E(getBootstrap()).provideFor(recipVatId, nonce, value);
       return [hostVatId, nonce, vine];
-    }
+    },
+    shuttedDown: (conn) => {}
   });
   
   const handoffTable = (() => {
@@ -590,6 +604,7 @@ const makeCapTPmanager = (ourId, portMaker) => {
     } else {
       const port = portMaker(ourId, hostVatId);
       const boot = {
+        getVatId: () => ourId,
         acceptFrom: (donorVatId, nonce, vine) => {
           return acceptFrom(hostVatId, donorVatId, nonce, vine);
         },
@@ -598,12 +613,35 @@ const makeCapTPmanager = (ourId, portMaker) => {
         }
       };
       const conn = makeCapTP(ourId, port.send, connector, boot);
-      port.onRecieve = conn.dispatch;
+      port.onMessage = (e) => conn.dispatch(e.data);
       connections.set(hostVatId, conn);
       FarGuards.set(hostVatId, conn.Far);
       return conn;
     }
   }
-
-  return harden({ portReceptionist, localConnector, Near, Far, FarVia});
+  const portReceptionist = (newPort) => {
+    const boot = { getVatId: () => ourId };
+    const conn = makeCapTP(ourId, newPort.send, connector, boot);
+    newPort.onMessage = (e) => conn.dispatch(e.data);
+    E(conn.getBootstrap()).getVatId().then((hostVatId) => {
+      boot.acceptFrom = (donorVatId, nonce, vine) => {
+        return acceptFrom(hostVatId, donorVatId, nonce, vine);
+      }
+      boot.provideFor = (recipVatId, nonce, gift) => {
+        return provideFor(hostVatId, recipVatId, nonce, gift);
+      }
+      if (connections.has(hostVatId)) {
+        // crossed connections
+        if (vatIdCompare(hostVatId, ourId) == 1) {
+          connections.get(hostVatId).shutdown("crossed connections x");
+        } else {
+          conn.shutdown("crossed connections +");
+        }
+      } else {
+        connections.set(hostVatId, conn);
+        FarGuards.set(hostVatId, conn.Far);
+      }
+    });
+  }
+  return harden({ portReceptionist, connector, Near, Far, FarVia});
 }
