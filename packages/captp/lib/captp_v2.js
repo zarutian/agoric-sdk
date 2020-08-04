@@ -1,6 +1,4 @@
 /* global harden */
-/* global WeakRef */ // see https://github.com/tc39/proposal-weakrefs/blob/master/README.md
-/* global FinalizationRegistry */
 
 import { E } from "@agoric/eventual-send";
 import { TupleOf,
@@ -14,6 +12,14 @@ import { TupleOf,
          RegisteredSymbolGuard } from "@zarutian/ocaps/js/guards";
 // import { WeakValueFinalizingMap } from damn_ether_or_who_knows
 // -inline start-
+/* global harden */
+/* global WeakRef */ // see https://github.com/tc39/proposal-weakrefs/blob/master/README.md
+/* global FinalizationRegistry */
+const WeakValueFinalizingMap = (finalizer, repeater={}) => {
+  const fr = FinalizationRegistry(finalizer);
+  const m  = new Map();
+  return harden({});
+}
 // -inline end-
 
 const Datum = AnyOf(NumberGuard, StrGuard);
