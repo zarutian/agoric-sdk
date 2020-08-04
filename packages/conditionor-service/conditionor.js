@@ -40,6 +40,12 @@ const jsonLogic = (() => {
         return parseFloat(a, 10) + parseFloat(b, 10);
       }, 0);
     },
+    "*": function() {
+      return Array.prototype.reduce.call(arguments, (a, b) => {
+        return parseFloat(a, 10) * parseFloat(b, 10);
+      });
+    },
+    "-": (a, b) => ((b === undefined) ? -a : (a - b)),
   };
   return jsonLogic;
 })();
