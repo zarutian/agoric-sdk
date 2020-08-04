@@ -104,6 +104,12 @@ const jsonLogic = (() => {
     },
     "method": (obj, method, args) => (obj[method].apply(obj, args))
   };
+  jsonLogic.is_logic = (logic) => (
+    typeof logic === "object" &&    // An object
+    logic !== null &&               // but not null
+    ! Array.isArray(logic) &&       // and not an array
+    Object.keys(logic).length === 1 // with exactly one key
+  );
   return jsonLogic;
 })();
 // -inline end-
