@@ -35,6 +35,11 @@ const jsonLogic = (() => {
       }
       return String(source).substr(start, end);
     },
+    "+": function() {
+      return Array.prototype.reduce.call(arguments, (a, b) => {
+        return parseFloat(a, 10) + parseFloat(b, 10);
+      }, 0);
+    },
   };
   return jsonLogic;
 })();
