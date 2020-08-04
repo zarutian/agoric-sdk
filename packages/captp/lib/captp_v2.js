@@ -1,4 +1,6 @@
 /* global harden */
+/* global WeakRef */ // see https://github.com/tc39/proposal-weakrefs/blob/master/README.md
+/* global FinalizationRegistry */
 
 import { E } from "@agoric/eventual-send";
 import { TupleOf,
@@ -34,9 +36,9 @@ const msgTuple = AnyOf(DeliverMsgTuple, DeliverOnlyMsgTuple, GcAnswerMsgTuple, G
 const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=undefined) => {
     let connected = true; // :Bool
     const answers = new Map();
-    const questions = new Map();
+    const questions = new Map(); // qid -> WeakRef(presence)
     const exports = new Map();
-    const imports = new Map();
+    const imports = new Map();   // importId -> WeakRef(presence)
     const descsByValue = new WeakMap();
     const rejectors = new WeakList();
       var remoteId = undefined;
