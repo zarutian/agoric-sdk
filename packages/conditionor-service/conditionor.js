@@ -102,6 +102,8 @@ const jsonLogic = (() => {
     return !! value;
   };
   jsonLogic.get_operator = (logic) => Object.keys(logic)[0];
+  jsonLogic.get_values = (logic) => logic[jsonLogic.get_operator(logic)];
+
   return jsonLogic;
 })();
 // -inline end-
