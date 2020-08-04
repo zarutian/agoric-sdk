@@ -2,105 +2,134 @@
 // eslint-disable-next-line spaced-comment
 /// <reference types="ses"/>
 
-import { producePromise } from '@agoric/produce-promise';
+import { makePromiseKit } from '@agoric/promise-kit';
+import { assert } from '@agoric/assert';
+import {
+  makeAsyncIterableFromNotifier,
+  updateFromIterable,
+} from './asyncIterableAdaptor';
 
-/**
- * @typedef {Object} UpdateHandle a value used to mark the position in the update stream
- */
-
-/**
- * @template T the type of the state value
- * @typedef {Object} UpdateRecord<T>
- * @property {T} value is whatever state the service wants to publish
- * @property {UpdateHandle} updateHandle is a value that identifies the update
- * @property {boolean} done false until the updater publishes a final state
- */
-
-/**
- * @template T the type of the notifier state
- * @callback GetUpdateSince<T> Can be called repeatedly to get a sequence of update records
- * @param {UpdateHandle} [updateHandle] return update record as of a handle
- * If the handle argument is omitted or differs from the current handle, return the current record.
- * Otherwise, after the next state change, the promise will resolve to the then-current value of the record.
- * @returns {Promise<UpdateRecord<T>>} resolves to the corresponding update
- */
-
-/**
- * @template T the type of the notifier state
- * @typedef {Object} Notifier<T> an object that can be used to get the current state or updates
- * @property {GetUpdateSince<T>} getUpdateSince return update record as of a handle
- * @property {() => UpdateRecord<T>} getCurrentUpdate return the current update record
- */
-
-/**
- * @template T the type of the notifier state
- * @typedef {Object} Updater<T> an object that should be closely held, as anyone with access to
- * it can provide updates
- * @property {(state: T) => void} updateState sets the new state, and resolves the outstanding promise to send an update
- * @property {(finalState: T) => void} resolve sets the final state, sends a final update, and freezes the
- * updater
- */
-
-/**
- * @template T the type of the notifier state
- * @typedef {Object} NotifierRecord<T> the produced notifier/updater pair
- * @property {Notifier<T>} notifier the (widely-held) notifier consumer
- * @property {Updater<T>} updater the (closely-held) notifier producer
- */
+import './types';
 
 /**
  * Produces a pair of objects, which allow a service to produce a stream of
  * update promises.
  *
+ * The initial state argument has to be truly optional even though it can
+ * be any first class value including `undefined`. We need to distinguish the
+ * presence vs the absence of it, which we cannot do with the optional argument
+ * syntax. Rather we use the arity of the arguments array.
+ *
+ * If no initial state is provided to `makeNotifierKit`, then it starts without
+ * an initial state. Its initial state will instead be the state of the first
+ * update.
+ *
  * @template T the type of the notifier state
- * @param {T} [initialState] the first state to be returned
+ * @param {[] | [T]} args the first state to be returned
  * @returns {NotifierRecord<T>} the notifier and updater
  */
-export const produceNotifier = (initialState = undefined) => {
-  let currentPromiseRec = producePromise();
-  let currentResponse = harden({
-    value: initialState,
-    updateHandle: {},
-    done: false,
+export const makeNotifierKit = (...args) => {
+  /** @type {PromiseRecord<UpdateRecord<T>>|undefined} */
+  let nextPromiseKit = makePromiseKit();
+  /** @type {UpdateCount} */
+  let currentUpdateCount = 1; // avoid falsy numbers
+  /** @type {UpdateRecord<T>|undefined} */
+  let currentResponse;
+
+  const hasState = () => currentResponse !== undefined;
+
+  const final = () => currentUpdateCount === undefined;
+
+  const baseNotifier = harden({
+    // NaN matches nothing
+    getUpdateSince(updateCount = NaN) {
+      if (
+        hasState() &&
+        (final() ||
+          (currentResponse && currentResponse.updateCount !== updateCount))
+      ) {
+        // If hasState() and either it is final() or it is
+        // not the state of updateCount, return the current state.
+        assert(currentResponse !== undefined);
+        return Promise.resolve(currentResponse);
+      }
+      // otherwise return a promise for the next state.
+      assert(nextPromiseKit);
+      return nextPromiseKit.promise;
+    },
   });
 
-  function getCurrentUpdate() {
-    return currentResponse;
+  const asyncIterable = makeAsyncIterableFromNotifier(baseNotifier);
+
+  const notifier = harden({
+    ...baseNotifier,
+    ...asyncIterable,
+  });
+
+  const updater = harden({
+    updateState(state) {
+      if (final()) {
+        throw new Error('Cannot update state after termination.');
+      }
+
+      // become hasState() && !final()
+      assert(nextPromiseKit && currentUpdateCount);
+      currentUpdateCount += 1;
+      currentResponse = harden({
+        value: state,
+        updateCount: currentUpdateCount,
+      });
+      nextPromiseKit.resolve(currentResponse);
+      nextPromiseKit = makePromiseKit();
+    },
+
+    finish(finalState) {
+      if (final()) {
+        throw new Error('Cannot finish after termination.');
+      }
+
+      // become hasState() && final()
+      assert(nextPromiseKit);
+      currentUpdateCount = undefined;
+      currentResponse = harden({
+        value: finalState,
+        updateCount: currentUpdateCount,
+      });
+      nextPromiseKit.resolve(currentResponse);
+      nextPromiseKit = undefined;
+    },
+
+    fail(reason) {
+      if (final()) {
+        throw new Error('Cannot fail after termination.');
+      }
+
+      // become !hasState() && final()
+      assert(nextPromiseKit);
+      currentUpdateCount = undefined;
+      currentResponse = undefined;
+      nextPromiseKit.reject(reason);
+    },
+  });
+
+  if (args.length >= 1) {
+    updater.updateState(args[0]);
   }
 
-  function getUpdateSince(updateHandle = undefined) {
-    if (updateHandle === currentResponse.updateHandle) {
-      return currentPromiseRec.promise;
-    }
-    return Promise.resolve(currentResponse);
-  }
-
-  function updateState(state) {
-    if (!currentResponse.updateHandle) {
-      throw new Error('Cannot update state after resolve.');
-    }
-
-    currentResponse = harden({ value: state, updateHandle: {}, done: false });
-    currentPromiseRec.resolve(currentResponse);
-    currentPromiseRec = producePromise();
-  }
-
-  function resolve(finalState) {
-    if (!currentResponse.updateHandle) {
-      throw new Error('Cannot resolve again.');
-    }
-
-    currentResponse = harden({
-      value: finalState,
-      updateHandle: undefined,
-      done: true,
-    });
-    currentPromiseRec.resolve(currentResponse);
-  }
-
-  // notifier facet is separate so it can be handed out loosely while updater is
-  // tightly held
-  const notifier = harden({ getUpdateSince, getCurrentUpdate });
-  const updater = harden({ updateState, resolve });
+  // notifier facet is separate so it can be handed out while updater
+  // is tightly held
   return harden({ notifier, updater });
+};
+
+/**
+ * Adaptor from async iterable to notifier.
+ *
+ * @template T
+ * @param {AsyncIterable<T>} asyncIterable
+ * @returns {Notifier<T>}
+ */
+export const makeNotifierFromAsyncIterable = asyncIterable => {
+  const { notifier, updater } = makeNotifierKit();
+  updateFromIterable(updater, asyncIterable);
+  return notifier;
 };

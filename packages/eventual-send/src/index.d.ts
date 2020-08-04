@@ -22,7 +22,7 @@ type HandledExecutor<R> = (
 ) => void;
 
 interface HandledPromiseConstructor {
-  new<R> (executor: HandledExecutor<R>, unfulfilledHandler: EHandler<Promise<unknown>>);
+  new<R> (executor: HandledExecutor<R>, unfulfilledHandler?: EHandler<Promise<unknown>>);
   prototype: Promise<unknown>;
   applyFunction(target: unknown, args: unknown[]): Promise<unknown>;
   applyFunctionSendOnly(target: unknown, args: unknown[]): void;
@@ -40,8 +40,8 @@ type ESingleMethod<T> = {
   readonly [P in keyof T]: (...args: Parameters<T[P]>) => Promise<Unpromise<ReturnType<T[P]>>>;
 }
 type ESingleCall<T> = T extends Function ?
-  ((...args: Parameters<T>) => Promise<Unpromise<ReturnType<T>>>) & ESingleMethod<T> :
-  ESingleMethod<T>;
+  ((...args: Parameters<T>) => Promise<Unpromise<ReturnType<T>>>) & ESingleMethod<Required<T>> :
+  ESingleMethod<Required<T>>;
 type ESingleGet<T> = {
   readonly [P in keyof T]: Promise<Unpromise<T[P]>>;
 }

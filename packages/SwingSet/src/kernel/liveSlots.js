@@ -4,11 +4,12 @@ import { HandledPromise } from '@agoric/eventual-send';
 import {
   QCLASS,
   Remotable,
+  getInterfaceOf,
   mustPassByPresence,
   makeMarshal,
 } from '@agoric/marshal';
 import { assert, details } from '@agoric/assert';
-import { isPromise } from '@agoric/produce-promise';
+import { isPromise } from '@agoric/promise-kit';
 import { insistVatType, makeVatSlot, parseVatSlot } from '../parseVatSlots';
 import { insistCapData } from '../capdata';
 
@@ -574,7 +575,11 @@ export function makeLiveSlots(
     notifyFulfillToData,
     notifyFulfillToPresence,
     notifyReject,
-  } = build(syscall, state, buildRootObject, forVatID, vatPowers);
+  } = build(syscall, state, buildRootObject, forVatID, {
+    ...vatPowers,
+    getInterfaceOf,
+    Remotable,
+  });
   return harden({
     deliver,
     notifyFulfillToData,

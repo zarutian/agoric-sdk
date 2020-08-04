@@ -1,10 +1,8 @@
-/* global harden */
-
 import Nat from '@agoric/nat';
 
 import makeIssuerKit from '@agoric/ertp';
 import { assert } from '@agoric/assert';
-import { producePromise } from '@agoric/produce-promise';
+import { makePromiseKit } from '@agoric/promise-kit';
 import { sameStructure } from '@agoric/same-structure';
 import { importBundle } from '@agoric/import-bundle';
 import { HandledPromise } from '@agoric/eventual-send';
@@ -30,7 +28,7 @@ const evalContractBundle = (bundle, additionalEndowments = {}) => {
     harden,
     Nat,
     makeIssuerKit,
-    producePromise,
+    makePromiseKit,
     sameStructure,
     HandledPromise,
   };

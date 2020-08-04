@@ -7,8 +7,10 @@ import {
   base64ToBytes,
 } from '@agoric/swingset-vat/src/vats/network';
 import makeStore from '@agoric/store';
-import { producePromise } from '@agoric/produce-promise';
+import { makePromiseKit } from '@agoric/promise-kit';
 import { generateSparseInts } from '@agoric/sparse-ints';
+
+import '@agoric/swingset-vat/src/vats/network/types';
 
 import { makeWithQueue } from './queue';
 
@@ -22,21 +24,12 @@ const DEFAULT_ACKNOWLEDGEMENT = '\x00';
 const FIXME_ALLOW_NAIVE_RELAYS = true;
 
 /**
- * @typedef {import('@agoric/swingset-vat/src/vats/network').ProtocolHandler} ProtocolHandler
- * @typedef {import('@agoric/swingset-vat/src/vats/network').ProtocolImpl} ProtocolImpl
- * @typedef {import('@agoric/swingset-vat/src/vats/network').ConnectionHandler} ConnectionHandler
- * @typedef {import('@agoric/swingset-vat/src/vats/network').Connection} Connection
- * @typedef {import('@agoric/swingset-vat/src/vats/network').InboundAttempt} InboundAttempt
- * @typedef {import('@agoric/swingset-vat/src/vats/network').Port} Port
- * @typedef {import('@agoric/swingset-vat/src/vats/network').Endpoint} Endpoint
- * @typedef {import('@agoric/swingset-vat/src/vats/network').Bytes} Bytes
- * @typedef {import('@agoric/swingset-vat/src/vats/network').Bytes} Data
  * @typedef {import('./bridge').BridgeHandler} BridgeHandler
  */
 
 /**
  * @template U,V
- * @typedef {import('@agoric/produce-promise').PromiseRecord<U, V>} PromiseRecord
+ * @typedef {import('@agoric/promise-kit').PromiseRecord<U>} PromiseRecord
  */
 
 /**
@@ -168,7 +161,7 @@ export function makeIBCProtocolHandler(E, callIBCDevice) {
     /**
      * @type {PromiseRecord<Bytes, any>}
      */
-    const ackDeferred = producePromise();
+    const ackDeferred = makePromiseKit();
 
     // Register the ack resolver/rejector with this sequence number.
     seqToAck.init(sequence, ackDeferred);
@@ -357,7 +350,7 @@ export function makeIBCProtocolHandler(E, callIBCDevice) {
 
       const channelID = generateChannelID();
 
-      const onConnectP = producePromise();
+      const onConnectP = makePromiseKit();
 
       // FIXME: The destination should be able to choose its own channelID.
       // (That would require sending it as part of channelOpenAck.)
@@ -397,7 +390,10 @@ export function makeIBCProtocolHandler(E, callIBCDevice) {
 
       // We explain to the user how to configure a naive relayer.
       const q = JSON.stringify;
-      E(chandler)
+      E(
+        /** @type {ConnectionHandler&{infoMessage?: (...args: any[]) => void}} */
+        (chandler),
+      )
         .infoMessage(
           `\
 # Set up the relayer for this path:
