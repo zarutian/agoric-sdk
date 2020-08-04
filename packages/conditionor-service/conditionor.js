@@ -4,6 +4,11 @@ import { E } from "@agoric/eventual-send";
 // import { jsonLogic } from "json-logic";
 // see https://github.com/jwadhams/json-logic-js/blob/master/logic.js
 // -inline start-
+// a bit enhanced to deal with eventual-send
+const jsonLogic = (() => {
+  const jsonLogic = {};
+  return jsonLogic;
+})();
 // -inline end-
 
 const makeConditionorKit = (timerService, environ, interval=300) => {
