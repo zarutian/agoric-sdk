@@ -1,7 +1,8 @@
 
 /* global harden */
 import { E } from "@agoric/eventual-send";
-import { jsonLogic } from "@jsonlogic/jsonlogic";
+import { jsonLogic } from "json-logic";
+// see https://github.com/jwadhams/json-logic-js/blob/master/logic.js
 
 const makeConditionorKit = (timerService, environ, interval=300) => {
   const jl = jsonLogic;
