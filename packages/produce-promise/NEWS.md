@@ -1,5 +1,9 @@
 User-visible changes in @agoric/make-promise:
 
+## Release ????
+
+Deprecated in favor of promise-kit
+
 ## Release 0.0.4 (6-Apr-2020)
 
 Created produce-promise to replace make-promise.

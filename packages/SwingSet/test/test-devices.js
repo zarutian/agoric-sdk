@@ -29,15 +29,26 @@ test('d0', async t => {
     [],
     {
       _bootstrap: { '@qclass': 'slot', index: 0 },
-      vatAdmin: { '@qclass': 'slot', index: 1 },
+      comms: { '@qclass': 'slot', index: 1 },
+      timer: { '@qclass': 'slot', index: 2 },
+      vatAdmin: { '@qclass': 'slot', index: 3 },
+      vattp: { '@qclass': 'slot', index: 4 },
     },
     {
       _dummy: 'dummy',
-      d0: { '@qclass': 'slot', index: 2 },
-      vatAdmin: { '@qclass': 'slot', index: 3 },
+      d0: { '@qclass': 'slot', index: 5 },
+      vatAdmin: { '@qclass': 'slot', index: 6 },
     },
   ]);
-  t.deepEqual(JSON.parse(c.dump().log[1]), ['o+0', 'o-50', 'd-70', 'd-71']);
+  t.deepEqual(JSON.parse(c.dump().log[1]), [
+    'o+0',
+    'o-50',
+    'o-51',
+    'o-52',
+    'o-53',
+    'd-70',
+    'd-71',
+  ]);
   t.end();
 });
 
@@ -60,11 +71,10 @@ test('d1', async t => {
   await c.step();
   c.queueToVatExport('_bootstrap', 'o+0', 'step1', capargs([]));
   await c.step();
-  console.log(c.dump().log);
   t.deepEqual(c.dump().log, [
     'callNow',
-    'invoke d+0 set',
-    JSON.stringify(capargs([])),
+    'invoke 1 2',
+    JSON.stringify(capargs({ ret: 3 })),
   ]);
   t.deepEqual(sharedArray, ['pushed']);
   t.end();
@@ -166,7 +176,7 @@ test('device state', async t => {
   await c1.run();
   t.deepEqual(c1.dump().log, ['undefined', 'w+r', 'called', 'got {"s":"new"}']);
   const s = getAllState(storage);
-  t.deepEqual(JSON.parse(s[`${d3}.deviceState`]), { s: 'new' });
+  t.deepEqual(JSON.parse(s[`${d3}.deviceState`]), capargs({ s: 'new' }));
   t.deepEqual(JSON.parse(s[`${d3}.o.nextID`]), 10);
 
   t.end();

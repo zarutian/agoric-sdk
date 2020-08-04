@@ -8,6 +8,8 @@ import { waitUntilQuiescent } from '../src/waitUntilQuiescent';
 
 import buildKernel from '../src/kernel/index';
 
+import { buildDispatch } from './util';
+
 const RETIRE_VPIDS = true;
 
 function capdata(body, slots = []) {
@@ -26,43 +28,6 @@ function makeEndowments() {
   };
 }
 
-function buildDispatch(onDispatchCallback = undefined) {
-  const log = [];
-
-  const dispatch = {
-    deliver(targetSlot, method, args, resultSlot) {
-      const d = { type: 'deliver', targetSlot, method, args, resultSlot };
-      log.push(d);
-      if (onDispatchCallback) {
-        onDispatchCallback(d);
-      }
-    },
-    notifyFulfillToPresence(promiseID, slot) {
-      const d = { type: 'notifyFulfillToPresence', promiseID, slot };
-      log.push(d);
-      if (onDispatchCallback) {
-        onDispatchCallback(d);
-      }
-    },
-    notifyFulfillToData(promiseID, data) {
-      const d = { type: 'notifyFulfillToData', promiseID, data };
-      log.push(d);
-      if (onDispatchCallback) {
-        onDispatchCallback(d);
-      }
-    },
-    notifyReject(promiseID, data) {
-      const d = { type: 'notifyReject', promiseID, data };
-      log.push(d);
-      if (onDispatchCallback) {
-        onDispatchCallback(d);
-      }
-    },
-  };
-
-  return { log, dispatch };
-}
-
 function buildRawVat(name, kernel, onDispatchCallback = undefined) {
   const { log, dispatch } = buildDispatch(onDispatchCallback);
   let syscall;
@@ -74,7 +39,7 @@ function buildRawVat(name, kernel, onDispatchCallback = undefined) {
   function getSyscall() {
     return syscall;
   }
-  kernel.addGenesisVat(name, setup);
+  kernel.addGenesisVatSetup(name, setup);
   return { log, getSyscall };
 }
 

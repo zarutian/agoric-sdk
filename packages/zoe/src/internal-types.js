@@ -10,17 +10,7 @@
 
 /**
  * @template T
- * @typedef {import('@agoric/produce-promise').PromiseRecord<T>} PromiseRecord
- */
-
-/**
- * @template T
- * @typedef {import('@agoric/notifier').Updater<T>} Updater
- */
-
-/**
- * @template T
- * @typedef {import('@agoric/notifier').NotifierRecord<T>} NotifierRecord
+ * @typedef {import('@agoric/promise-kit').PromiseRecord<T>} PromiseRecord
  */
 
 /**
