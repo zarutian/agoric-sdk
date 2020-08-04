@@ -12,6 +12,9 @@ import { TupleOf,
          NumberGuard,
          NatGuard,
          RegisteredSymbolGuard } from "@zarutian/ocaps/js/guards";
+// import { WeakValueFinalizingMap } from damn_ether_or_who_knows
+// -inline start-
+// -inline end-
 
 const Datum = AnyOf(NumberGuard, StrGuard);
 const VerbGuard = AnyOf(StrGuard, RegisteredSymbolGuard);
