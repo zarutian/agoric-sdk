@@ -24,9 +24,7 @@ const jsonLogic = (() => {
       if(!b || typeof b.indexOf === "undefined") { return false; }
       return (b.indexOf(a) !== -1);
     },
-    "cat": function() {
-      return Array.prototype.join.call(arguments, "");
-    },
+    "cat": (...args) => Array.prototype.join.call(args, ""),
     "substr": (source, start, end) => {
       if (end < 0){
         // JavaScript doesn't support negative end, this emulates PHP behavior
@@ -35,27 +33,13 @@ const jsonLogic = (() => {
       }
       return String(source).substr(start, end);
     },
-    "+": function() {
-      return Array.prototype.reduce.call(arguments, (a, b) => {
-        return parseFloat(a, 10) + parseFloat(b, 10);
-      }, 0);
-    },
-    "*": function() {
-      return Array.prototype.reduce.call(arguments, (a, b) => {
-        return parseFloat(a, 10) * parseFloat(b, 10);
-      });
-    },
+    "+": (...args) => Array.prototype.reduce.call(args, (a, b) => (parseFloat(a, 10) + parseFloat(b, 10)), 0),
+    "*": (...args) => Array.prototype.reduce.call(args, (a, b) => (parseFloat(a, 10) * parseFloat(b, 10)), 1),
     "-": (a, b) => ((b === undefined) ? -a : (a - b)),
     "/": (a, b) => (a / b),
-    "min": function () {
-      return Math.min.apply(this, arguments);
-    },
-    "max": function () {
-      return Math.max.apply(this, arguments);
-    },
-    "merge": function () {
-      return Array.prototype.reduce.call(arguments, (a, b) => (a.concat(b)), []);
-    },
+    "min": function () { return Math.min.apply(this, arguments); },
+    "max": function () { return Math.max.apply(this, arguments); },
+    "merge": (...args) => Array.prototype.reduce.call(arguments, (a, b) => (a.concat(b)), []),
     "var": function(a, b) {
       var not_found = (b === undefined) ? null : b;
       var data = this;
