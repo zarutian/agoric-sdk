@@ -20,6 +20,14 @@ const jsonLogic = (() => {
     "!":   (a) => (!jsonLogic.truthy(a)),
     "%":   (a, b) => (a % b),
     "log": (a) => { console.log(a); return a; },
+    "in":  (a, b) => {
+      if(!b || typeof b.indexOf === "undefined") { return false; }
+      return (b.indexOf(a) !== -1);
+    },
+    "cat": function() {
+      return Array.prototype.join.call(arguments, "");
+    },
+    
   };
   return jsonLogic;
 })();
