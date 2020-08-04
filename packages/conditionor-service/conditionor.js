@@ -7,6 +7,12 @@ import { E } from "@agoric/eventual-send";
 // a bit enhanced to deal with eventual-send
 const jsonLogic = (() => {
   const jsonLogic = {};
+  const operations = {
+    "==":  (a, b) => (a == b),
+    "===": (a, b) => (a === b),
+    "!=":  (a, b) => (a != b),
+    "!==": (a, b) => (a !== b)
+  };
   return jsonLogic;
 })();
 // -inline end-
