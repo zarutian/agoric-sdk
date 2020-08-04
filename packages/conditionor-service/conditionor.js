@@ -11,7 +11,10 @@ const jsonLogic = (() => {
     "==":  (a, b) => (a == b),
     "===": (a, b) => (a === b),
     "!=":  (a, b) => (a != b),
-    "!==": (a, b) => (a !== b)
+    "!==": (a, b) => (a !== b),
+    ">":   (a, b) => (a > b),
+    ">=":  (a, b) => (a >= b),
+    "<":   (a, b, c) => ((c === undefined) ? a < b : (a < b) && (b < c)),
   };
   return jsonLogic;
 })();
