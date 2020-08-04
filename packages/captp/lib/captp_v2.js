@@ -15,12 +15,18 @@ import { TupleOf,
 /* global harden */
 /* global WeakRef */ // see https://github.com/tc39/proposal-weakrefs/blob/master/README.md
 /* global FinalizationRegistry */
-const WeakValueFinalizingMap = (finalizer, repeater={}) => {
+const WeakValueFinalizingMap = (finalizer, repeater=()=>{}) => {
   const m   = new Map();
   const fin = (key) => {
     m.delete(key);
     finalizer(key);
   });
+  const gc = () => {
+    void m.forEach((v, k) => {
+      if (v.deref() === undefined) { fin(k); }
+    });
+  };
+  repeater(gc);
   const fr = new FinalizationRegistry(fin);
   return harden({
     set: (key, value) => {
@@ -31,14 +37,20 @@ const WeakValueFinalizingMap = (finalizer, repeater={}) => {
     },
     has: (key) => {
       if (!m.has(key)) { return false; }
-      const ref = m.get(key);
-      const value = ref.deref();
+      const value = m.get(key).deref();
       if (value === undefined) {
         fin(key); return false;
       } else {
         return true;
       }
+    },
+    get: (key) => {
+      if (!m.has(key)) { return undefined; }
+      const value = m.get(key).deref();
+      if (value === undefined) { fin(key); }
+      return value;
     }
+    // todo: fully replicate the interface of Map
   });
 }
 // -inline end-
@@ -66,9 +78,13 @@ const msgTuple = AnyOf(DeliverMsgTuple, DeliverOnlyMsgTuple, GcAnswerMsgTuple, G
 const makeCapTP = (ourId, send, connector={fromOther:()=>false}, bootstrapObj=undefined) => {
     let connected = true; // :Bool
     const answers = new Map();
-    const questions = new Map(); // qid -> WeakRef(presence)
+    const questions = WeakValueFinalizingMap((qid) => {
+      send(["gcAnswer", Datum.coerce(qid)]);
+    });
     const exports = new Map();
-    const imports = new Map();   // importId -> WeakRef(presence)
+    const imports = WeakValueFinalizingMap((importId) => {
+      send(["gcExport", Datum.coerce(importId)]);
+    });
     const descsByValue = new WeakMap();
     const rejectors = new WeakList();
       var remoteId = undefined;
