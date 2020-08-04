@@ -110,6 +110,13 @@ const jsonLogic = (() => {
     ! Array.isArray(logic) &&       // and not an array
     Object.keys(logic).length === 1 // with exactly one key
   );
+  // Spec and rationale here: http://jsonlogic.com/truthy
+  jsonLogic.truthy = (value) => {
+    if(Array.isArray(value) && value.length === 0) {
+      return false;
+    }
+    return !! value;
+  };
   return jsonLogic;
 })();
 // -inline end-
