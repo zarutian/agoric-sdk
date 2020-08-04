@@ -16,14 +16,28 @@ import { TupleOf,
 /* global WeakRef */ // see https://github.com/tc39/proposal-weakrefs/blob/master/README.md
 /* global FinalizationRegistry */
 const WeakValueFinalizingMap = (finalizer, repeater={}) => {
-  const fr = FinalizationRegistry(finalizer);
-  const m  = new Map();
+  const m   = new Map();
+  const fin = (key) => {
+    m.delete(key);
+    finalizer(key);
+  });
+  const fr = new FinalizationRegistry(fin);
   return harden({
     set: (key, value) => {
       // tbd: gc(); // here or omitt it?
       if (m.has(key)) { fr.unregister(key); }
       fr.register(value, key, key);
       return m.set(key, new WeakRef(value));
+    },
+    has: (key) => {
+      if (!m.has(key)) { return false; }
+      const ref = m.get(key);
+      const value = ref.deref();
+      if (value === undefined) {
+        fin(key); return false;
+      } else {
+        return true;
+      }
     }
   });
 }
