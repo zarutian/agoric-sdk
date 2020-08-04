@@ -18,7 +18,14 @@ import { TupleOf,
 const WeakValueFinalizingMap = (finalizer, repeater={}) => {
   const fr = FinalizationRegistry(finalizer);
   const m  = new Map();
-  return harden({});
+  return harden({
+    set: (key, value) => {
+      // tbd: gc(); // here or omitt it?
+      if (m.has(key)) { fr.unregister(key); }
+      fr.register(value, key, key);
+      return m.set(key, new WeakRef(value));
+    }
+  });
 }
 // -inline end-
 
