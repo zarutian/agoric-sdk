@@ -54,9 +54,28 @@ const WeakValueFinalizingMap = (finalizer, repeater=()=>{}) => {
   });
 }
 // -inline end-
+// import WeakList from the_aether_or_somewhere
+// -inline start-
+const WeakList = function () {
+  const storage = []; // E; FlexList
+  return harden({
+    push: (item) => storage.push(new WeakRef(item)),
+    forEach: (func) => storage.forEach((ref) => {
+      const val = ref.deref();
+      if (val !== undefined) { return func(val); }
+    })
+    // todo: populate with rest of Array.prototype expected things
+  });
+}
+// -inline end-
 
 const Datum = AnyOf(NumberGuard, StrGuard);
 const VerbGuard = AnyOf(StrGuard, RegisteredSymbolGuard);
+
+const DescOf = (label) => {
+  return AnyOf(
+              );
+};
 
 // DeliverMsgTuple = Tuple[Str["send"], qid, rdr, target, verb, args]
 const DeliverMsgTuple = TupleOf(StrOf("send"), NatGuard, DescOf("rdr"), DescOf("target"), VerbGuard, ArrayOf(DescOf("arg")));
