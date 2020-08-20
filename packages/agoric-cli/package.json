@@ -24,8 +24,8 @@
   },
   "dependencies": {
     "@agoric/bundle-source": "^1.1.6",
+    "@agoric/install-ses": "^0.2.0",
     "@agoric/captp": "^1.3.3",
-    "@agoric/harden": "^0.0.8",
     "@agoric/promise-kit": "^0.1.3",
     "@iarna/toml": "^2.2.3",
     "anylogger": "^0.21.0",

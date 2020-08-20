@@ -1,10 +1,7 @@
-/* global harden */
-
 import { makeZoe } from '@agoric/zoe';
 
-export function buildRootObject(_vatPowers) {
-  const zoe = makeZoe();
+export function buildRootObject(_vatPowers, vatParameters) {
   return harden({
-    getZoe: () => zoe,
+    buildZoe: vatAdminSvc => makeZoe(vatAdminSvc, vatParameters.zcfBundleName),
   });
 }

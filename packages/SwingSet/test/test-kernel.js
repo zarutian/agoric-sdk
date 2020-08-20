@@ -2,6 +2,7 @@
 
 import '@agoric/install-ses';
 import { test } from 'tape-promise/tape';
+import anylogger from 'anylogger';
 import { initSwingStore } from '@agoric/swing-store-simple';
 import { waitUntilQuiescent } from '../src/waitUntilQuiescent';
 
@@ -34,11 +35,21 @@ function emptySetup(_syscall) {
   return { deliver };
 }
 
+function makeConsole(tag) {
+  const log = anylogger(tag);
+  const cons = {};
+  for (const level of ['debug', 'log', 'info', 'warn', 'error']) {
+    cons[level] = log[level];
+  }
+  return harden(cons);
+}
+
 function makeEndowments() {
   return {
     waitUntilQuiescent,
     hostStorage: initSwingStore().storage,
     runEndOfCrank: () => {},
+    makeConsole,
   };
 }
 
@@ -1071,7 +1082,7 @@ test('pipelined promise queueing', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVatSetup('vatB', setupB, { enablePipelining: true });
+  kernel.addGenesisVatSetup('vatB', setupB, {}, { enablePipelining: true });
   await kernel.start();
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');

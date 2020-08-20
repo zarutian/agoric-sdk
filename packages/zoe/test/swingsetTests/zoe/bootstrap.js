@@ -1,5 +1,5 @@
 import { E } from '@agoric/eventual-send';
-import makeIssuerKit from '@agoric/ertp';
+import { makeIssuerKit } from '@agoric/ertp';
 import buildManualTimer from '../../../tools/manualTimer';
 
 /* eslint-disable import/no-unresolved, import/extensions */
@@ -86,9 +86,9 @@ const makeVats = (log, vats, zoe, installations, startingValues) => {
   return harden(result);
 };
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject(vatPowers, vatParameters) {
   const obj0 = {
-    async bootstrap(argv, vats, devices) {
+    async bootstrap(vats, devices) {
       const vatAdminSvc = await E(vats.vatAdmin).createVatAdminService(
         devices.vatAdmin,
       );
@@ -104,7 +104,7 @@ export function buildRootObject(vatPowers) {
         mintAndSellNFT: await E(zoe).install(mintAndSellNFTBundle.bundle),
       };
 
-      const [testName, startingValues] = argv;
+      const [testName, startingValues] = vatParameters.argv;
 
       const { aliceP, bobP, carolP, daveP } = makeVats(
         vatPowers.testLog,

@@ -1,11 +1,10 @@
 import '@agoric/install-ses';
 import test from 'tape-promise/tape';
-import { E, HandledPromise } from '../src/index';
+import { E, HandledPromise } from './get-hp';
 
 test('E reexports', async t => {
   try {
     t.equals(E.resolve, HandledPromise.resolve, 'E reexports resolve');
-    t.equals(E.unwrap, HandledPromise.unwrap, 'E reexports unwrap');
   } catch (e) {
     t.isNot(e, e, 'unexpected exception');
   } finally {

@@ -23,9 +23,18 @@ export default async function deployMain(progname, rawArgs, powers, opts) {
   const console = anylogger('agoric:deploy');
 
   const args = rawArgs.slice(1);
+  const provide = opts.provide
+    .split(',')
+    .map(dep => dep.trim())
+    .filter(dep => dep);
 
-  if (args.length === 0) {
-    console.error('you must specify at least one deploy.js to run');
+  const need = opts.need
+    .split(',')
+    .map(dep => dep.trim())
+    .filter(dep => dep && !provide.includes(dep));
+
+  if (args.length === 0 && !provide.length) {
+    console.error('you must specify at least one deploy.js (or --provide=XXX)');
     return 1;
   }
 
@@ -41,10 +50,13 @@ export default async function deployMain(progname, rawArgs, powers, opts) {
   const wsurl = `ws://${opts.hostport}/private/captp`;
   const exit = makePromiseKit();
   let connected = false;
-  let retries = 0;
+  process.stdout.write(`Open CapTP connection to ${wsurl}...`);
+  let progressDot = '.';
+  const progressTimer = setInterval(
+    () => process.stdout.write(progressDot),
+    1000,
+  );
   const retryWebsocket = () => {
-    retries += 1;
-    console.info(`Open CapTP connection to ${wsurl} (try=${retries})...`);
     const ws = makeWebSocket(wsurl, { origin: 'http://127.0.0.1' });
     ws.on('open', async () => {
       connected = true;
@@ -69,8 +81,30 @@ export default async function deployMain(progname, rawArgs, powers, opts) {
 
         // Wait for the chain to become ready.
         let bootP = getBootstrap();
-        const loaded = await E.G(bootP).LOADING;
-        console.debug('Chain loaded:', loaded);
+        let lastUpdateCount;
+        let stillLoading = [...need].sort();
+        progressDot = 'o';
+        while (stillLoading.length) {
+          // Wait for the notifier to report a new state.
+          process.stdout.write(progressDot);
+          console.debug('need:', stillLoading.join(', '));
+          const update = await E(E.G(bootP).loadingNotifier).getUpdateSince(
+            lastUpdateCount,
+          );
+          lastUpdateCount = update.updateCount;
+          const nextLoading = [];
+          for (const dep of stillLoading) {
+            if (update.value.includes(dep)) {
+              // A dependency is still loading.
+              nextLoading.push(dep);
+            }
+          }
+          stillLoading = nextLoading;
+        }
+
+        clearInterval(progressTimer);
+        process.stdout.write('\n');
+        console.debug(JSON.stringify(need), 'loaded');
         // Take a new copy, since the chain objects have been added to bootstrap.
         bootP = getBootstrap();
 
@@ -78,7 +112,7 @@ export default async function deployMain(progname, rawArgs, powers, opts) {
           const moduleFile = path.resolve(process.cwd(), arg);
           const pathResolve = (...resArgs) =>
             path.resolve(path.dirname(moduleFile), ...resArgs);
-          console.log('running', moduleFile);
+          console.warn('running', moduleFile);
 
           // use a dynamic import to load the deploy script, it is unconfined
           // eslint-disable-next-line import/no-dynamic-require,global-require
@@ -94,6 +128,11 @@ export default async function deployMain(progname, rawArgs, powers, opts) {
               pathResolve,
             });
           }
+        }
+
+        if (provide.length) {
+          console.debug('provide:', provide.join(', '));
+          await E(E.G(E.G(bootP).local).http).doneLoading(provide);
         }
 
         console.debug('Done!');

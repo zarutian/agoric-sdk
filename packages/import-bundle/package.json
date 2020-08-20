@@ -20,7 +20,7 @@
     "tap": "^14.10.5"
   },
   "peerDependencies": {
-    "ses": "^0.9.1"
+    "ses": "^0.10.1"
   },
   "files": [
     "README.md",
@@ -47,6 +47,8 @@
       "function-paren-newline": "off",
       "arrow-parens": "off",
       "strict": "off",
+      "prefer-destructuring": "off",
+      "no-else-return": "off",
       "no-console": "off",
       "no-unused-vars": [
         "error",
@@ -64,8 +66,8 @@
       "no-unused-expressions": "off",
       "no-loop-func": "off",
       "no-inner-declarations": "off",
-      "import/extensions": "off",
-      "import/prefer-default-export": "off"
+      "import/prefer-default-export": "off",
+      "import/extensions": "off"
     }
   },
   "prettier": {
@@ -74,5 +76,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "ses": "^0.10.1"
   }
 }

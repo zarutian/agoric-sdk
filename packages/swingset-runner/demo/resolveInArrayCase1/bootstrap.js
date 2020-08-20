@@ -1,5 +1,3 @@
-/* global harden */
-
 import { E } from '@agoric/eventual-send';
 
 const log = console.log;
@@ -9,7 +7,7 @@ log(`=> loading bootstrap.js`);
 export function buildRootObject(_vatPowers) {
   log(`=> setup called`);
   return harden({
-    bootstrap(argv, vats) {
+    bootstrap(vats) {
       log('=> Alice: bootstrap() called');
 
       let resolver;

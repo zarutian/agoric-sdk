@@ -3,7 +3,8 @@
 import { makeMarshal, Remotable, getInterfaceOf } from '@agoric/marshal';
 import { assert, details } from '@agoric/assert';
 import { importBundle } from '@agoric/import-bundle';
-import { makeVatManagerFactory } from './vatManager/vatManager';
+import { assertKnownOptions } from '../assertOptions';
+import { makeVatManagerFactory } from './vatManager/factory';
 import makeDeviceManager from './deviceManager';
 import { wrapStorage } from './state/storageWrapper';
 import makeKernelKeeper from './state/kernelKeeper';
@@ -17,6 +18,7 @@ import { insistDeviceID, insistVatID } from './id';
 import { makeMessageResult } from './messageResult';
 import { makeMeterManager } from './metering';
 import { makeKernelSyscallHandler } from './kernelSyscall';
+import { makeSlogger, makeDummySlogger } from './slogger';
 
 import { makeDynamicVatCreator } from './dynamicVat';
 import { makeVatTranslators } from './vatTranslator';
@@ -30,17 +32,34 @@ function abbreviateReviver(_, arg) {
   return arg;
 }
 
+function makeError(s) {
+  // TODO: create a @qclass=error, once we define those or maybe replicate
+  // whatever happens with {}.foo() or 3.foo() etc: "TypeError: {}.foo is not a
+  // function"
+  return harden({ body: JSON.stringify(s), slots: [] });
+}
+
 export default function buildKernel(kernelEndowments) {
   const {
     waitUntilQuiescent,
     hostStorage,
-    makeVatEndowments,
+    debugPrefix,
+    vatEndowments,
+    makeConsole,
     replaceGlobalMeter,
     transformMetering,
     transformTildot,
+    makeNodeWorker,
+    startSubprocessWorker,
+    writeSlogObject,
   } = kernelEndowments;
   insistStorageAPI(hostStorage);
   const { enhancedCrankBuffer, commitCrank } = wrapStorage(hostStorage);
+
+  const kernelSlog = writeSlogObject
+    ? makeSlogger(writeSlogObject)
+    : makeDummySlogger(makeConsole);
+
   const kernelKeeper = makeKernelKeeper(enhancedCrankBuffer);
 
   const meterManager = makeMeterManager(replaceGlobalMeter);
@@ -48,7 +67,7 @@ export default function buildKernel(kernelEndowments) {
   let started = false;
   // this holds externally-added vats, which are present at startup, but not
   // vats that are added later from within the kernel
-  const genesisVats = new Map(); // name -> { setup, options }
+  const genesisVats = new Map(); // name -> { setup, vatParameters, creationOptions }
   // we name this 'genesisDevices' for parallelism, but actually all devices
   // must be present at genesis
   const genesisDevices = new Map(); // name -> { setup, options }
@@ -71,8 +90,19 @@ export default function buildKernel(kernelEndowments) {
   }
   harden(testLog);
 
+  function makeVatConsole(vatID) {
+    const origConsole = makeConsole(`${debugPrefix}SwingSet:${vatID}`);
+    return kernelSlog.vatConsole(vatID, origConsole);
+  }
+
   // track results of externally-injected messages (queueToExport, bootstrap)
   const pendingMessageResults = new Map(); // kpid -> messageResult
+
+  function notePendingMessageResolution(kpid, status, resolution) {
+    const result = pendingMessageResults.get(kpid);
+    pendingMessageResults.delete(kpid);
+    result.noteResolution(status, resolution);
+  }
 
   // runQueue entries are {type, vatID, more..}. 'more' depends on type:
   // * deliver: target, msg
@@ -82,16 +112,21 @@ export default function buildKernel(kernelEndowments) {
   // in the kernel table, promises and resolvers are both indexed by the same
   // value. kernelPromises[promiseID] = { decider, subscribers }
 
-  // The 'staticVatPowers' are given to vats as arguments of setup().
-  // Liveslots provides them, and more, as the only argument to
-  // buildRootObject(). They represent controlled authorities that come from
-  // the kernel but that do not go through the syscall mechanism (so they
-  // aren't included in the replay transcript), so they must not be
-  // particularly stateful. If any of them behave differently from one
-  // invocation to the next, the vat code which uses it will not be a
-  // deterministic function of the transcript, breaking our
-  // orthogonal-persistence model. They can have access to state, but they
-  // must not let it influence the data they return to the vat.
+  // The "Vat Powers" are given to vats as arguments of setup(). Liveslots
+  // provides them, and more, as the only argument to buildRootObject(). They
+  // represent controlled authorities that come from the kernel but that do
+  // not go through the syscall mechanism (so they aren't included in the
+  // replay transcript), so they must not be particularly stateful. If any of
+  // them behave differently from one invocation to the next, the vat code
+  // which uses it will not be a deterministic function of the transcript,
+  // breaking our orthogonal-persistence model. They can have access to
+  // state, but they must not let it influence the data they return to the
+  // vat.
+
+  // Not all vats get all powers. We're phasing out in-vat metering, so
+  // `makeGetMeter` and `transformMetering` are only available to static vats
+  // in a local worker, and will eventually go away entirely once Spawner
+  // uses dynamic vats.
 
   // These will eventually be provided by the in-worker supervisor instead.
 
@@ -101,9 +136,9 @@ export default function buildKernel(kernelEndowments) {
   // maybe transformMetering) are imported by the vat, not passed in an
   // argument. The powerful one (makeGetMeter) should only be given to the
   // root object, to share with (or withhold from) other objects as it sees
-  // fit. TODO: makeGetMeter and transformMetering will go away once #1288
-  // lands and zoe no longer needs to do metering within a vat.
-  const staticVatPowers = harden({
+  // fit. TODO: makeGetMeter and transformMetering will go away
+
+  const allVatPowers = harden({
     Remotable,
     getInterfaceOf,
     makeGetMeter: meterManager.makeGetMeter,
@@ -112,14 +147,6 @@ export default function buildKernel(kernelEndowments) {
     transformTildot: (...args) =>
       meterManager.runWithoutGlobalMeter(transformTildot, ...args),
     testLog,
-  });
-
-  // dynamic vats don't get control over their own metering, nor testLog
-  const dynamicVatPowers = harden({
-    Remotable,
-    getInterfaceOf,
-    transformTildot: (...args) =>
-      meterManager.runWithoutGlobalMeter(transformTildot, ...args),
   });
 
   function vatNameToID(name) {
@@ -162,9 +189,13 @@ export default function buildKernel(kernelEndowments) {
     ephemeral,
     pendingMessageResults,
     // eslint-disable-next-line no-use-before-define
+    notePendingMessageResolution,
+    // eslint-disable-next-line no-use-before-define
     notify,
     // eslint-disable-next-line no-use-before-define
     notifySubscribersAndQueue,
+    // eslint-disable-next-line no-use-before-define
+    resolveToError,
   });
 
   // If `kernelPanic` is set to non-null, vat execution code will throw it as an
@@ -203,31 +234,6 @@ export default function buildKernel(kernelEndowments) {
     return resultRead;
   }
 
-  async function deliverToVat(vatID, target, msg) {
-    insistMessage(msg);
-    const vat = ephemeral.vats.get(vatID);
-    assert(vat, details`unknown vatID ${vatID}`);
-    kernelKeeper.incStat('dispatches');
-    kernelKeeper.incStat('dispatchDeliver');
-    const kd = harden(['message', target, msg]);
-    const vd = vat.translators.kernelDeliveryToVatDelivery(kd);
-    try {
-      await vat.manager.deliver(vd);
-    } catch (e) {
-      // log so we get a stack trace
-      console.error(`error in kernel.deliver:`, e);
-      throw e;
-    }
-  }
-
-  function getKernelResolveablePromise(kpid) {
-    insistKernelType('promise', kpid);
-    const p = kernelKeeper.getKernelPromise(kpid);
-    assert(p.state === 'unresolved', details`${kpid} was already resolved`);
-    assert(!p.decider, details`${kpid} is decided by ${p.decider}, not kernel`);
-    return p;
-  }
-
   function notify(vatID, kpid) {
     const m = harden({ type: 'notify', vatID, kpid });
     kernelKeeper.incrementRefCount(kpid, `enq|notify`);
@@ -254,20 +260,59 @@ export default function buildKernel(kernelEndowments) {
     }
   }
 
-  function makeError(s) {
-    // TODO: create a @qclass=error, once we define those
-    // or maybe replicate whatever happens with {}.foo()
-    // or 3.foo() etc: "TypeError: {}.foo is not a function"
-    return harden({ body: JSON.stringify(s), slots: [] });
+  function resolveToError(kpid, errorData, expectedDecider) {
+    insistCapData(errorData);
+    const p = kernelKeeper.getResolveablePromise(kpid, expectedDecider);
+    const { subscribers, queue } = p;
+    let idx = 0;
+    for (const dataSlot of errorData.slots) {
+      kernelKeeper.incrementRefCount(dataSlot, `reject|s${idx}`);
+      idx += 1;
+    }
+    kernelKeeper.rejectKernelPromise(kpid, errorData);
+    // we don't notify the decider; they already know
+    notifySubscribersAndQueue(kpid, expectedDecider, subscribers, queue);
+    if (pendingMessageResults.has(kpid)) {
+      notePendingMessageResolution(kpid, 'rejected', errorData);
+    }
   }
 
-  function deliverToError(kpid, errorData) {
-    // todo: see if this can be merged with reject()
-    insistCapData(errorData);
-    const p = getKernelResolveablePromise(kpid);
-    const { subscribers, queue } = p;
-    kernelKeeper.rejectKernelPromise(kpid, errorData);
-    notifySubscribersAndQueue(kpid, undefined, subscribers, queue);
+  async function deliverAndLogToVat(vatID, kernelDelivery, vatDelivery) {
+    const vat = ephemeral.vats.get(vatID);
+    const crankNum = kernelKeeper.getCrankNumber();
+    const finish = kernelSlog.delivery(
+      vatID,
+      crankNum,
+      kernelDelivery,
+      vatDelivery,
+    );
+    try {
+      const deliveryResult = await vat.manager.deliver(vatDelivery);
+      finish(deliveryResult);
+      // TODO: eventually
+      // if (deliveryResult === death) {
+      //   vat.notifyTermination(deliveryResult.causeOfDeath);
+      // }
+    } catch (e) {
+      // log so we get a stack trace
+      console.error(`error in kernel.deliver:`, e);
+      throw e;
+    }
+  }
+
+  async function deliverToVat(vatID, target, msg) {
+    insistMessage(msg);
+    const vat = ephemeral.vats.get(vatID);
+    assert(vat, details`unknown vatID ${vatID}`);
+    kernelKeeper.incStat('dispatches');
+    kernelKeeper.incStat('dispatchDeliver');
+    if (vat.dead) {
+      resolveToError(msg.result, makeError('vat is dead'));
+    } else {
+      const kd = harden(['message', target, msg]);
+      const vd = vat.translators.kernelDeliveryToVatDelivery(kd);
+      await deliverAndLogToVat(vatID, kd, vd);
+    }
   }
 
   async function deliverToTarget(target, msg) {
@@ -287,13 +332,13 @@ export default function buildKernel(kernelEndowments) {
       } else if (kp.state === 'fulfilledToData') {
         if (msg.result) {
           const s = `data is not callable, has no method ${msg.method}`;
-          await deliverToError(msg.result, makeError(s));
+          await resolveToError(msg.result, makeError(s));
         }
         // todo: maybe log error?
       } else if (kp.state === 'rejected') {
         // TODO would it be simpler to redirect msg.kpid to kp?
         if (msg.result) {
-          await deliverToError(msg.result, kp.data);
+          await resolveToError(msg.result, kp.data);
         }
       } else if (kp.state === 'unresolved') {
         if (!kp.decider) {
@@ -335,16 +380,14 @@ export default function buildKernel(kernelEndowments) {
     const vat = ephemeral.vats.get(vatID);
     assert(vat, details`unknown vatID ${vatID}`);
     kernelKeeper.incStat('dispatches');
-    const p = kernelKeeper.getKernelPromise(kpid);
-    kernelKeeper.incStat(statNameForNotify(p.state));
-    const kd = harden(['notify', kpid, p]);
-    const vd = vat.translators.kernelDeliveryToVatDelivery(kd);
-    try {
-      await vat.manager.deliver(vd);
-    } catch (e) {
-      // log so we get a stack trace
-      console.error(`error in kernel.processNotify:`, e);
-      throw e;
+    if (vat.dead) {
+      kdebug(`dropping notify of ${kpid} to ${vatID} because vat is dead`);
+    } else {
+      const p = kernelKeeper.getKernelPromise(kpid);
+      kernelKeeper.incStat(statNameForNotify(p.state));
+      const kd = harden(['notify', kpid, p]);
+      const vd = vat.translators.kernelDeliveryToVatDelivery(kd);
+      await deliverAndLogToVat(vatID, kd, vd);
     }
   }
 
@@ -396,47 +439,70 @@ export default function buildKernel(kernelEndowments) {
   }
 
   // this is for unit tests
-  function addGenesisVatSetup(name, setup, options = {}) {
+  function addGenesisVatSetup(
+    name,
+    setup,
+    vatParameters = {},
+    creationOptions = {},
+  ) {
     if (typeof setup !== 'function') {
       throw Error(`setup is not a function, rather ${setup}`);
     }
-    const knownOptions = new Set(['enablePipelining']);
-    for (const k of Object.getOwnPropertyNames(options)) {
-      if (!knownOptions.has(k)) {
-        throw Error(`unknown option ${k}`);
-      }
-    }
-
+    assertKnownOptions(creationOptions, ['enablePipelining', 'metered']);
     if (started) {
       throw Error(`addGenesisVat() cannot be called after kernel.start`);
     }
     if (genesisVats.has(name)) {
       throw Error(`vatID ${name} already added`);
     }
-
-    genesisVats.set(name, { setup, options });
+    const managerOptions = {
+      ...creationOptions,
+      setup,
+      enableSetup: true,
+      vatParameters,
+    };
+    genesisVats.set(name, managerOptions);
   }
 
-  function addGenesisVat(name, bundle, options = {}) {
+  function addGenesisVat(
+    name,
+    bundle,
+    vatParameters = {},
+    creationOptions = {},
+  ) {
     // todo: consider having vats indicate 'enablePipelining' by exporting a
     // boolean, rather than options= . We'd have to retrieve the flag from
     // the VatManager, since it isn't available until the bundle is evaluated
     if (typeof bundle !== 'object') {
       throw Error(`bundle is not an object, rather ${bundle}`);
     }
-    const knownOptions = new Set(['enablePipelining']);
-    for (const k of Object.getOwnPropertyNames(options)) {
-      if (!knownOptions.has(k)) {
-        throw Error(`unknown option ${k}`);
-      }
-    }
+    assertKnownOptions(creationOptions, [
+      'enablePipelining',
+      'metered',
+      'managerType',
+      'enableSetup',
+      'enableInternalMetering',
+    ]);
     if (started) {
       throw Error(`addGenesisVat() cannot be called after kernel.start`);
     }
     if (genesisVats.has(name)) {
       throw Error(`vatID ${name} already added`);
     }
-    genesisVats.set(name, { bundle, options });
+    // TODO: We need to support within-vat metering (for the Spawner) until
+    // #1343 is fixed, after which we can remove
+    // managerOptions.enableInternalMetering . For now, it needs to be
+    // enabled for our internal unit test (which could easily add this to its
+    // config object) and for the spawner vat (not so easy). To avoid deeper
+    // changes, we enable it for *all* static vats here. Once #1343 is fixed,
+    // remove this addition and all support for internal metering.
+    const managerOptions = {
+      ...creationOptions,
+      bundle,
+      enableInternalMetering: true,
+      vatParameters,
+    };
+    genesisVats.set(name, managerOptions);
   }
 
   function addGenesisDevice(name, bundle, endowments) {
@@ -465,18 +531,16 @@ export default function buildKernel(kernelEndowments) {
     return makeVatSlot('object', true, 0);
   }
 
-  function callBootstrap(bootstrapVatID, argvString) {
-    // we invoke obj[0].bootstrap with an object that contains 'vats' and
-    // 'argv'.
+  function callBootstrap(bootstrapVatID) {
+    // we invoke obj[0].bootstrap with an object that contains 'vats'.
     insistVatID(bootstrapVatID);
-    const argv = JSON.parse(`${argvString}`);
     // each key of 'vats' will be serialized as a reference to its obj0
     const vrefs = new Map();
     const vatObj0s = {};
     const vatSlot = makeVatRootObjectSlot();
     kernelKeeper.getAllVatNames().forEach(name => {
       const vatID = kernelKeeper.getVatIDForName(name);
-      // we happen to give _bootstrap to itself, because unit tests that
+      // we happen to give bootstrap to itself, because unit tests that
       // don't have any other vats (bootstrap-only configs) then get a
       // non-empty object as vatObj0s, since an empty object would be
       // serialized as pass-by-presence. It wouldn't make much sense for the
@@ -526,7 +590,7 @@ export default function buildKernel(kernelEndowments) {
     }
 
     const m = makeMarshal(convertValToSlot);
-    const args = harden([argv, vatObj0s, deviceObj0s]);
+    const args = harden([vatObj0s, deviceObj0s]);
     // queueToExport() takes kernel-refs (ko+NN, kd+NN) in s.slots
     const rootSlot = makeVatRootObjectSlot();
     return queueToExport(
@@ -539,45 +603,18 @@ export default function buildKernel(kernelEndowments) {
   }
 
   const vatManagerFactory = makeVatManagerFactory({
-    dynamicVatPowers,
+    allVatPowers,
     kernelKeeper,
-    makeVatEndowments,
+    vatEndowments,
     meterManager,
-    staticVatPowers,
     testLog,
     transformMetering,
     waitUntilQuiescent,
+    makeNodeWorker,
+    startSubprocessWorker,
   });
 
-  /*
-   * Take an existing VatManager (which is already configured to talk to a
-   * VatWorker, loaded with some vat code) and connect it to the rest of the
-   * kernel. The vat must be ready to go: any initial buildRootObject
-   * construction should have happened by this point. However the kernel
-   * might tell the manager to replay the transcript later, if it notices
-   * we're reloading a saved state vector.
-   */
-  function addVatManager(vatID, manager, options) {
-    // addVatManager takes a manager, not a promise for one
-    assert(
-      manager.deliver && manager.setVatSyscallHandler,
-      `manager lacks .deliver, isPromise=${manager instanceof Promise}`,
-    );
-    const { enablePipelining = false } = options;
-    // This should create the vatKeeper. Other users get it from the
-    // kernelKeeper, so we don't need a reference ourselves.
-    kernelKeeper.allocateVatKeeperIfNeeded(vatID);
-    const translators = makeVatTranslators(vatID, kernelKeeper);
-
-    ephemeral.vats.set(
-      vatID,
-      harden({
-        translators,
-        manager,
-        enablePipelining: Boolean(enablePipelining),
-      }),
-    );
-
+  function buildVatSyscallHandler(vatID, translators) {
     // This handler never throws. The VatSyscallResult it returns is one of:
     // * success, no response data: ['ok', null]
     // * success, capdata (callNow) ['ok', capdata]
@@ -585,6 +622,12 @@ export default function buildKernel(kernelEndowments) {
     // the VatManager+VatWorker will see the error case, but liveslots will
     // not
     function vatSyscallHandler(vatSyscallObject) {
+      if (ephemeral.vats.get(vatID).dead) {
+        // This is a safety check -- this case should never happen unless the
+        // vatManager is somehow confused.
+        console.error(`vatSyscallHandler invoked on dead vat ${vatID}`);
+        return harden(['error', 'vat is dead']);
+      }
       let ksc;
       try {
         // this can fail if the vat asks for something not on their clist,
@@ -598,6 +641,7 @@ export default function buildKernel(kernelEndowments) {
         return harden(['error', 'clist violation: prepare to die']);
       }
 
+      const finish = kernelSlog.syscall(vatID, ksc, vatSyscallObject);
       let vres;
       try {
         // this can fail if kernel or device code is buggy
@@ -611,6 +655,7 @@ export default function buildKernel(kernelEndowments) {
         // capdata.
         vres = translators.kernelSyscallResultToVatSyscallResult(kres);
         // here, vres is either ['ok', null] or ['ok', capdata]
+        finish(kres, vres); // TODO call meaningfully on failure too?
       } catch (err) {
         // kernel/device errors cause a kernel panic
         panic(`error during syscall/device.invoke: ${err}`, err);
@@ -621,16 +666,82 @@ export default function buildKernel(kernelEndowments) {
 
       return vres;
     }
+    return vatSyscallHandler;
+  }
+
+  /*
+   * Take an existing VatManager (which is already configured to talk to a
+   * VatWorker, loaded with some vat code) and connect it to the rest of the
+   * kernel. The vat must be ready to go: any initial buildRootObject
+   * construction should have happened by this point. However the kernel
+   * might tell the manager to replay the transcript later, if it notices
+   * we're reloading a saved state vector.
+   */
+  function addVatManager(vatID, manager, managerOptions) {
+    // addVatManager takes a manager, not a promise for one
+    assert(
+      manager.deliver && manager.setVatSyscallHandler,
+      `manager lacks .deliver, isPromise=${manager instanceof Promise}`,
+    );
+    const {
+      enablePipelining = false,
+      notifyTermination = () => {},
+    } = managerOptions;
+    // This should create the vatKeeper. Other users get it from the
+    // kernelKeeper, so we don't need a reference ourselves.
+    kernelKeeper.allocateVatKeeperIfNeeded(vatID);
+    const translators = makeVatTranslators(vatID, kernelKeeper);
+
+    ephemeral.vats.set(
+      vatID,
+      harden({
+        translators,
+        manager,
+        notifyTermination,
+        enablePipelining: Boolean(enablePipelining),
+      }),
+    );
+
+    const vatSyscallHandler = buildVatSyscallHandler(vatID, translators);
     manager.setVatSyscallHandler(vatSyscallHandler);
   }
 
-  const createVatDynamically = makeDynamicVatCreator({
+  function removeVatManager(vatID) {
+    const old = ephemeral.vats.get(vatID);
+    ephemeral.vats.set(vatID, harden({ dead: true }));
+    old.notifyTermination(null);
+    return old.manager.shutdown();
+  }
+
+  const knownBundles = new Map();
+
+  function hasBundle(name) {
+    return knownBundles.has(name);
+  }
+
+  function getBundle(name) {
+    return knownBundles.get(name);
+  }
+
+  function addBundle(name, bundle) {
+    knownBundles.set(name, bundle);
+  }
+
+  const {
+    createVatDynamically,
+    recreateVatDynamically,
+  } = makeDynamicVatCreator({
     allocateUnusedVatID: kernelKeeper.allocateUnusedVatID,
     vatNameToID,
     vatManagerFactory,
+    kernelSlog,
+    makeVatConsole,
     addVatManager,
     addExport,
     queueToExport,
+    getBundle,
+    kernelKeeper,
+    panic,
   });
 
   function buildDeviceManager(deviceID, name, buildRootDeviceNode, endowments) {
@@ -678,7 +789,7 @@ export default function buildKernel(kernelEndowments) {
     return vatKeeper.vatStats();
   }
 
-  async function start(bootstrapVatName, argvString) {
+  async function start(bootstrapVatName) {
     if (started) {
       throw new Error('kernel.start already called');
     }
@@ -691,20 +802,48 @@ export default function buildKernel(kernelEndowments) {
       kernelKeeper.createStartingKernelState();
     }
 
-    // instantiate all vats
+    // instantiate all genesis vats
     for (const name of genesisVats.keys()) {
-      const { setup, bundle, options } = genesisVats.get(name);
       const vatID = kernelKeeper.allocateVatIDForNameIfNeeded(name);
       console.debug(`Assigned VatID ${vatID} for genesis vat ${name}`);
+      kernelSlog.addVat(vatID, false, name);
+      const managerOptions = harden({
+        ...genesisVats.get(name),
+        vatConsole: makeVatConsole(vatID),
+      });
+      const finish = kernelSlog.startup(vatID);
       // eslint-disable-next-line no-await-in-loop
-      const manager = await (setup
-        ? vatManagerFactory.createFromSetup(setup, vatID)
-        : vatManagerFactory.createFromBundle(bundle, vatID, {
-            metered: false,
-            vatPowerType: 'static',
-            allowSetup: true, // TODO: only needed by comms, disallow elsewhere
-          }));
-      addVatManager(vatID, manager, options);
+      const manager = await vatManagerFactory(vatID, managerOptions);
+      finish();
+      addVatManager(vatID, manager, managerOptions);
+    }
+
+    // instantiate all dynamic vats
+    for (const vatID of kernelKeeper.getAllDynamicVatIDs()) {
+      console.debug(`Loading dynamic vat ${vatID}`);
+      const vatKeeper = kernelKeeper.allocateVatKeeperIfNeeded(vatID);
+      const {
+        source,
+        options: dynamicOptions,
+      } = vatKeeper.getSourceAndOptions();
+      // eslint-disable-next-line no-await-in-loop
+      await recreateVatDynamically(vatID, source, dynamicOptions);
+      // now the vatManager is attached and ready for transcript replay
+    }
+
+    function terminateVat(vatID) {
+      const vatKeeper = kernelKeeper.allocateVatKeeperIfNeeded(vatID);
+      if (!vatKeeper.isDead()) {
+        vatKeeper.markAsDead();
+        const err = makeError('vat terminated');
+        for (const kpid of kernelKeeper.findPromisesDecidedByVat(vatID)) {
+          resolveToError(kpid, err, vatID);
+        }
+        removeVatManager(vatID).then(
+          () => kdebug(`terminated vat ${vatID}`),
+          e => console.error(`problem terminating vat ${vatID}`, e),
+        );
+      }
     }
 
     if (vatAdminDeviceBundle) {
@@ -712,7 +851,7 @@ export default function buildKernel(kernelEndowments) {
       const endowments = {
         create: createVatDynamically,
         stats: collectVatStats,
-        /* TODO: terminate */
+        terminate: terminateVat,
       };
       genesisDevices.set('vatAdmin', {
         bundle: vatAdminDeviceBundle,
@@ -725,10 +864,11 @@ export default function buildKernel(kernelEndowments) {
       const deviceID = kernelKeeper.allocateDeviceIDForNameIfNeeded(name);
       console.debug(`Assigned DeviceID ${deviceID} for genesis device ${name}`);
       const { bundle, endowments: devEndowments } = genesisDevices.get(name);
+      const devConsole = makeConsole(`${debugPrefix}SwingSet:dev-${name}`);
       // eslint-disable-next-line no-await-in-loop
       const NS = await importBundle(bundle, {
         filePrefix: `dev-${name}`,
-        endowments: makeVatEndowments(`dev-${name}`),
+        endowments: harden({ ...vatEndowments, console: devConsole }),
       });
       assert(
         typeof NS.buildRootDeviceNode === 'function',
@@ -750,7 +890,7 @@ export default function buildKernel(kernelEndowments) {
     if (!wasInitialized && bootstrapVatName) {
       const bootstrapVatID = vatNameToID(bootstrapVatName);
       console.debug(`=> queueing bootstrap()`);
-      bootstrapResult = callBootstrap(bootstrapVatID, argvString);
+      bootstrapResult = callBootstrap(bootstrapVatID);
     }
 
     // if it *was* initialized, replay the transcripts
@@ -760,15 +900,18 @@ export default function buildKernel(kernelEndowments) {
       for (const vatID of ephemeral.vats.keys()) {
         console.debug(`Replaying transcript of vatID ${vatID}`);
         const vat = ephemeral.vats.get(vatID);
-        // eslint-disable-next-line no-await-in-loop
-        await vat.manager.replayTranscript();
-        console.debug(`finished replaying vatID ${vatID} transcript `);
-      }
-      const newLength = kernelKeeper.getRunQueueLength();
-      if (newLength !== oldLength) {
-        throw new Error(
-          `replayTranscript added run-queue entries, wasn't supposed to`,
-        );
+        if (vat.dead) {
+          console.debug(`skipping reload of dead vat ${vatID}`);
+        } else {
+          // eslint-disable-next-line no-await-in-loop
+          await vat.manager.replayTranscript();
+          console.debug(`finished replaying vatID ${vatID} transcript `);
+          const newLength = kernelKeeper.getRunQueueLength();
+          if (newLength !== oldLength) {
+            console.log(`SPURIOUS RUNQUEUE`, kernelKeeper.dump().runQueue);
+            throw Error(`replay ${vatID} added spurious run-queue entries`);
+          }
+        }
       }
       kernelKeeper.loadStats();
     }
@@ -818,15 +961,26 @@ export default function buildKernel(kernelEndowments) {
     return count;
   }
 
+  // mostly used by tests, only needed with thread/process-based workers
+  function shutdown() {
+    const vatRecs = Array.from(ephemeral.vats.values());
+    return Promise.all(vatRecs.map(rec => rec.manager.shutdown()));
+  }
+
   const kernel = harden({
     // these are meant for the controller
     addGenesisVat,
     addGenesisDevice,
     addVatAdminDevice,
+    addBundle,
+    hasBundle,
+    getBundle, // temporary, until controller can use bundle names
     start,
 
     step,
     run,
+
+    shutdown,
 
     // the rest are for testing and debugging
 

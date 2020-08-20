@@ -48,22 +48,20 @@ function parseArgs(argv) {
 // Used for coordinating on an index in comms for the provisioning service
 const PROVISIONER_INDEX = 1;
 
-export function buildRootObject(vatPowers) {
+function makeVattpFrom(vats) {
+  const { vattp, comms } = vats;
+  return harden({
+    makeNetworkHost(allegedName, console = undefined) {
+      return E(vattp).makeNetworkHost(allegedName, comms, console);
+    },
+  });
+}
+
+export function buildRootObject(vatPowers, vatParameters) {
   const { D } = vatPowers;
   async function setupCommandDevice(httpVat, cmdDevice, roles) {
     await E(httpVat).setCommandDevice(cmdDevice, roles);
     D(cmdDevice).registerInboundHandler(httpVat);
-  }
-
-  async function setupWalletVat(httpObj, httpVat, walletVat) {
-    await E(httpVat).registerURLHandler(walletVat, '/private/wallet');
-    const bridgeURLHandler = await E(walletVat).getBridgeURLHandler();
-    await E(httpVat).registerURLHandler(
-      bridgeURLHandler,
-      '/private/wallet-bridge',
-    );
-    await E(walletVat).setHTTPObject(httpObj);
-    await E(walletVat).setPresences();
   }
 
   // Make services that are provided on the real or virtual chain side
@@ -114,21 +112,44 @@ export function buildRootObject(vatPowers) {
         }
 
         const additionalPowers = {};
-        const { vattp, comms } = vats;
         if (powerFlags.includes('agoric.vattp')) {
           // Give the authority to create a new host for vattp to share objects with.
-          additionalPowers.vattp = {
-            makeNetworkHost(allegedName) {
-              return E(vattp).makeNetworkHost(allegedName, comms);
-            },
-          };
+          additionalPowers.vattp = makeVattpFrom(vats);
         }
+
+        const pursePetnames = {
+          moola: 'Fun budget',
+          simolean: 'Nest egg',
+        };
+
+        const payments = await E(vats.mints).mintInitialPayments(
+          issuerNames,
+          harden([1900, 1900]),
+        );
+
+        const paymentInfo = issuerInfo.map(
+          ({ petname: issuerPetname, issuer }, i) => ({
+            issuerPetname,
+            issuer,
+            payment: payments[i],
+            pursePetname:
+              pursePetnames[issuerPetname] || `${issuerPetname} purse`,
+          }),
+        );
+
+        const faucet = {
+          // A method to reap the spoils of our on-chain provisioning.
+          async tapFaucet() {
+            return paymentInfo;
+          },
+        };
 
         const bundle = harden({
           ...additionalPowers,
           chainTimerService,
           sharingService,
           contractHost,
+          faucet,
           ibcport,
           registrar: registry,
           registry,
@@ -136,15 +157,7 @@ export function buildRootObject(vatPowers) {
           zoe,
         });
 
-        const payments = await E(vats.mints).mintInitialPayments(
-          issuerNames,
-          harden([1900, 1900]),
-        );
-
-        // return payments and issuerInfo separately from the
-        // bundle so that they can be used to initialize a wallet
-        // per user
-        return harden({ payments, issuerInfo, bundle });
+        return bundle;
       },
     });
   }
@@ -225,8 +238,7 @@ export function buildRootObject(vatPowers) {
   // objects that live in the client's solo vat. Some services should only
   // be in the DApp environment (or only in end-user), but we're not yet
   // making a distinction, so the user also gets them.
-  async function createLocalBundle(vats, userBundle, payments, issuerInfo) {
-    const { zoe, board } = userBundle;
+  async function createLocalBundle(vats) {
     // This will eventually be a vat spawning service. Only needed by dev
     // environments.
     const spawner = E(vats.host).makeHost();
@@ -234,69 +246,49 @@ export function buildRootObject(vatPowers) {
     // Needed for DApps, maybe for user clients.
     const uploads = E(vats.uploads).getUploads();
 
-    // Wallet for both end-user client and dapp dev client
-    await E(vats.wallet).startup({ zoe, board });
-    const wallet = E(vats.wallet).getWallet();
-    await Promise.all(
-      issuerInfo.map(({ petname, issuer }) =>
-        E(wallet).addIssuer(petname, issuer),
-      ),
-    );
-
-    // Make empty purses. Have some petnames for them.
-    const pursePetnames = {
-      moola: 'Fun budget',
-      simolean: 'Nest egg',
-    };
-    await Promise.all(
-      issuerInfo.map(({ petname: issuerPetname }) => {
-        let pursePetname = pursePetnames[issuerPetname];
-        if (!pursePetname) {
-          pursePetname = `${issuerPetname} purse`;
-          pursePetnames[issuerPetname] = pursePetname;
-        }
-        return E(wallet).makeEmptyPurse(issuerPetname, pursePetname);
-      }),
-    );
-
-    // deposit payments
-    const [moolaPayment, simoleanPayment] = await Promise.all(payments);
-
-    await E(wallet).deposit(pursePetnames.moola, moolaPayment);
-    await E(wallet).deposit(pursePetnames.simolean, simoleanPayment);
-
     // This will allow dApp developers to register in their api/deploy.js
     const httpRegCallback = {
+      doneLoading(subsystems) {
+        return E(vats.http).doneLoading(subsystems);
+      },
       send(obj, connectionHandles) {
         return E(vats.http).send(obj, connectionHandles);
       },
       registerAPIHandler(handler) {
         return E(vats.http).registerURLHandler(handler, '/api');
       },
+      async registerWallet(wallet, handler, bridgeHandler) {
+        await Promise.all([
+          E(vats.http).registerURLHandler(handler, '/private/wallet'),
+          E(vats.http).registerURLHandler(
+            bridgeHandler,
+            '/private/wallet-bridge',
+          ),
+          E(vats.http).setWallet(wallet),
+        ]);
+      },
     };
 
     return allComparable(
       harden({
-        comms: vats.comms,
         uploads,
         spawner,
-        wallet,
         network: vats.network,
         http: httpRegCallback,
-        vattp: vats.vattp,
+        vattp: makeVattpFrom(vats),
       }),
     );
   }
 
   return harden({
-    async bootstrap(argv, vats, devices) {
+    async bootstrap(vats, devices) {
       const bridgeManager =
         devices.bridge && makeBridgeManager(E, D, devices.bridge);
       const {
         ROLE,
         giveMeAllTheAgoricPowers,
         hardcodedClientAddresses,
-      } = parseArgs(argv);
+      } = parseArgs(vatParameters.argv);
 
       async function addRemote(addr) {
         const { transmitter, setReceiver } = await E(vats.vattp).addRemote(
@@ -354,19 +346,12 @@ export function buildRootObject(vatPowers) {
             GCI,
             PROVISIONER_INDEX,
           );
-          const { payments, bundle, issuerInfo } = await E(
-            demoProvider,
-          ).getDemoBundle();
-          const localBundle = await createLocalBundle(
-            vats,
-            bundle,
-            payments,
-            issuerInfo,
-          );
+          const localBundle = await createLocalBundle(vats);
+          await E(vats.http).setPresences(localBundle);
+          const bundle = await E(demoProvider).getDemoBundle();
           await E(vats.http).setPresences(localBundle, bundle, {
             localTimerService,
           });
-          await setupWalletVat(localBundle.http, vats.http, vats.wallet);
           break;
         }
         case 'two_chain': {
@@ -437,18 +422,12 @@ export function buildRootObject(vatPowers) {
           // addEgress(..., PROVISIONER_INDEX) is called in case two_chain
           const demoProvider = E(vats.comms).addIngress(GCI, PROVISIONER_INDEX);
           // Get the demo bundle from the chain-side provider
-          const b = await E(demoProvider).getDemoBundle('client');
-          const { payments, bundle, issuerInfo } = b;
-          const localBundle = await createLocalBundle(
-            vats,
-            bundle,
-            payments,
-            issuerInfo,
-          );
+          const localBundle = await createLocalBundle(vats);
+          await E(vats.http).setPresences(localBundle);
+          const bundle = await E(demoProvider).getDemoBundle('client');
           await E(vats.http).setPresences(localBundle, bundle, {
             localTimerService,
           });
-          await setupWalletVat(localBundle.http, vats.http, vats.wallet);
           break;
         }
         case 'three_client': {
@@ -467,22 +446,14 @@ export function buildRootObject(vatPowers) {
           await setupCommandDevice(vats.http, devices.command, {
             client: true,
           });
-          const { payments, bundle, issuerInfo } = await E(
-            chainBundler,
-          ).createUserBundle('localuser');
+          const localBundle = await createLocalBundle(vats);
+          await E(vats.http).setPresences(localBundle);
+          const bundle = await E(chainBundler).createUserBundle('localuser');
 
           // Setup of the Local part /////////////////////////////////////
-          const localBundle = await createLocalBundle(
-            vats,
-            bundle,
-            payments,
-            issuerInfo,
-          );
           await E(vats.http).setPresences(localBundle, bundle, {
             localTimerService: bundle.chainTimerService,
           });
-
-          setupWalletVat(localBundle.http, vats.http, vats.wallet);
           break;
         }
         default:

@@ -1,6 +1,4 @@
-/* global harden HandledPromise */
-
-import makeE from './E';
+/* global harden */
 
 const {
   defineProperties,
@@ -9,25 +7,6 @@ const {
   getPrototypeOf,
   isFrozen,
 } = Object;
-
-const { prototype: promiseProto } = Promise;
-const { then: originalThen } = promiseProto;
-
-// 'E' and 'HandledPromise' are exports of the module
-
-// For now:
-// import { HandledPromise, E } from '@agoric/eventual-send';
-// ...
-
-const hp =
-  typeof HandledPromise === 'undefined'
-    ? // eslint-disable-next-line no-use-before-define
-      makeHandledPromise(Promise)
-    : harden(HandledPromise);
-
-// Provide our exports.
-export { hp as HandledPromise };
-export const E = makeE(hp);
 
 // the following method (makeHandledPromise) is part
 // of the shim, and will not be exported by the module once the feature
@@ -45,13 +24,13 @@ export const E = makeE(hp);
  *
  * @return {typeof HandledPromise} Handled promise
  */
-export function makeHandledPromise(Promise) {
+export function makeHandledPromise() {
   // xs doesn't support WeakMap in pre-loaded closures
   // aka "vetted customization code"
   let presenceToHandler;
   let presenceToPromise;
   let promiseToUnsettledHandler;
-  let promiseToPresence; // only for HandledPromise.unwrap
+  let promiseToPresence;
   let forwardedPromiseToPromise; // forwarding, union-find-ish
   function ensureMaps() {
     if (!presenceToHandler) {
@@ -74,7 +53,8 @@ export function makeHandledPromise(Promise) {
    * https://en.wikipedia.org/wiki/Disjoint-set_data_structure
    *
    * @param {*} target Any value.
-   * @returns {*} If the target was a HandledPromise, the most-resolved parent of it, otherwise the target.
+   * @returns {*} If the target was a HandledPromise, the most-resolved parent
+   * of it, otherwise the target.
    */
   function shorten(target) {
     let p = target;
@@ -111,7 +91,6 @@ export function makeHandledPromise(Promise) {
   // handled Promises to their corresponding fulfilledHandler.
   let forwardingHandler;
   let handle;
-  let promiseResolve;
 
   function HandledPromise(executor, unsettledHandler = undefined) {
     if (new.target === undefined) {
@@ -302,20 +281,19 @@ export function makeHandledPromise(Promise) {
     return handledP;
   }
 
-  HandledPromise.prototype = promiseProto;
+  HandledPromise.prototype = Promise.prototype;
   Object.setPrototypeOf(HandledPromise, Promise);
 
   function isFrozenPromiseThen(p) {
     return (
       isFrozen(p) &&
-      getPrototypeOf(p) === promiseProto &&
-      promiseResolve(p) === p &&
-      gopd(p, 'then') === undefined &&
-      gopd(promiseProto, 'then').value === originalThen // unnecessary under SES
+      getPrototypeOf(p) === Promise.prototype &&
+      Promise.resolve(p) === p &&
+      gopd(p, 'then') === undefined
     );
   }
 
-  const staticMethods = harden({
+  const staticMethods = {
     get(target, key) {
       return handle(target, 'get', key);
     },
@@ -339,7 +317,7 @@ export function makeHandledPromise(Promise) {
       // Resolving a Presence returns the pre-registered handled promise.
       let resolvedPromise = presenceToPromise.get(value);
       if (!resolvedPromise) {
-        resolvedPromise = promiseResolve(value);
+        resolvedPromise = Promise.resolve(value);
       }
       // Prevent any proxy trickery.
       harden(resolvedPromise);
@@ -350,47 +328,10 @@ export function makeHandledPromise(Promise) {
       const executeThen = (resolve, reject) =>
         resolvedPromise.then(resolve, reject);
       return harden(
-        promiseResolve().then(_ => new HandledPromise(executeThen)),
+        Promise.resolve().then(_ => new HandledPromise(executeThen)),
       );
     },
-    // TODO verify that this is safe to provide universally, i.e.,
-    // that by itself it doesn't provide access to mutable state in
-    // ways that violate normal ocap module purity rules. The claim
-    // that it does not rests on the handled promise itself being
-    // necessary to perceive this mutable state. In that sense, we
-    // can think of the right to perceive it, and of access to the
-    // target, as being in the handled promise. Note that a .then on
-    // the handled promise will already provide async access to the
-    // target, so the only additional authorities are: 1)
-    // synchronous access for handled promises only, and thus 2) the
-    // ability to tell, from the client side, whether a promise is
-    // handled. Or, at least, the ability to tell given that the
-    // promise is already fulfilled.
-    unwrap(value) {
-      // This check for Thenable is safe, since in a remote-object
-      // environment, our comms system will defend against remote
-      // objects being represented as a tricky local Proxy, otherwise
-      // it is guaranteed to be local and therefore synchronous enough.
-      if (Object(value) !== value || !('then' in value)) {
-        // Not a Thenable, so return it.
-        // This means that local objects will pass through without error.
-        return value;
-      }
-
-      // Try to look up the HandledPromise.
-      ensureMaps();
-      const pr = presenceToPromise.get(value) || value;
-
-      // Find the fulfilled presence for that HandledPromise.
-      const presence = promiseToPresence.get(pr);
-      if (!presence) {
-        throw TypeError(
-          `Value is a Thenble but not a HandledPromise fulfilled to a presence`,
-        );
-      }
-      return presence;
-    },
-  });
+  };
 
   defineProperties(HandledPromise, getOwnPropertyDescriptors(staticMethods));
 
@@ -493,6 +434,8 @@ export function makeHandledPromise(Promise) {
     return returnedP;
   };
 
-  promiseResolve = Promise.resolve.bind(Promise);
-  return harden(HandledPromise);
+  // We cannot harden(HandledPromise) because we're a vetted shim which
+  // runs before lockdown() allows harden to function.  In that case,
+  // though, globalThis.HandledPromise will be hardened after lockdown.
+  return HandledPromise;
 }

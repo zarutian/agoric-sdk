@@ -1,9 +1,7 @@
-/* global harden */
-
 import { E } from '@agoric/eventual-send';
-import makeIssuerKit from '@agoric/ertp';
-import fakeVatAdmin from '@agoric/zoe/test/unitTests/contracts/fakeVatAdmin';
+import { makeIssuerKit } from '@agoric/ertp';
 import buildManualTimer from './manualTimer';
+
 import { makePrintLog } from './printLog';
 
 /* eslint-disable import/no-unresolved, import/extensions */
@@ -16,8 +14,6 @@ import autoswapBundle from './bundle-autoswap';
 import sellItemsBundle from './bundle-sellItems';
 import mintAndSellNFTBundle from './bundle-mintAndSellNFT';
 /* eslint-enable import/no-unresolved, import/extensions */
-
-const log = makePrintLog();
 
 const setupBasicMints = () => {
   const all = [
@@ -36,7 +32,7 @@ const setupBasicMints = () => {
   });
 };
 
-const makeVats = (vats, zoe, installations, startingValues) => {
+const makeVats = (log, vats, zoe, installations, startingValues) => {
   const timer = buildManualTimer(log);
   const { mints, issuers, amountMaths } = setupBasicMints();
   const makePayments = values =>
@@ -92,36 +88,44 @@ const makeVats = (vats, zoe, installations, startingValues) => {
   return harden(result);
 };
 
-export function buildRootObject(_vatPowers) {
+export function buildRootObject(_vatPowers, vatParameters) {
   const obj0 = {
-    async bootstrap(argv, vats) {
-      const zoe = await E(vats.zoe).buildZoe(fakeVatAdmin);
-
+    async bootstrap(vats, devices) {
+      const vatAdminSvc = await E(vats.vatAdmin).createVatAdminService(
+        devices.vatAdmin,
+      );
+      const zoe = await E(vats.zoe).buildZoe(vatAdminSvc);
       const installations = {
-        automaticRefund: await E(zoe).install(automaticRefundBundle),
-        coveredCall: await E(zoe).install(coveredCallBundle),
-        publicAuction: await E(zoe).install(publicAuctionBundle),
-        atomicSwap: await E(zoe).install(atomicSwapBundle),
-        simpleExchange: await E(zoe).install(simpleExchangeBundle),
-        autoswap: await E(zoe).install(autoswapBundle),
-        sellItems: await E(zoe).install(sellItemsBundle),
-        mintAndSellNFT: await E(zoe).install(mintAndSellNFTBundle),
+        automaticRefund: await E(zoe).install(automaticRefundBundle.bundle),
+        coveredCall: await E(zoe).install(coveredCallBundle.bundle),
+        publicAuction: await E(zoe).install(publicAuctionBundle.bundle),
+        atomicSwap: await E(zoe).install(atomicSwapBundle.bundle),
+        simpleExchange: await E(zoe).install(simpleExchangeBundle.bundle),
+        autoswap: await E(zoe).install(autoswapBundle.bundle),
+        sellItems: await E(zoe).install(sellItemsBundle.bundle),
+        mintAndSellNFT: await E(zoe).install(mintAndSellNFTBundle.bundle),
       };
 
-      // automaticRefundOk '[[3,0,0],[0,17,0]]'
-      // coveredCallOk '[[3,0,0],[0,7,0]]'
-      // swapForOptionOk '[[3,0,0],[0,0,0],[0,0,0],[0,7,1]]'
-      // publicAuctionOk '[[1,0,0],[0,11,0],[0,7,0],[0,5,0]]'
-      // atomicSwapOk '[[3,0,0],[0,7,0]]'
-      // simpleExchangeOk '[[3,0,0],[0,7,0]]'
-      // simpleExchangeNotifier '[[3,0,0],[0,24,0]]'
-      // autoswapOk '[[10,5,0],[3,7,0]]'
-      // sellTicketsOk '[[0,0,0],[22,0,0]]'
-
-      const [testName, startingValuesStr] = argv;
-      const startingValues = JSON.parse(startingValuesStr);
+      const testName = vatParameters.argv[0] || 'simpleExchangeOk';
+      const startingValuesStr = vatParameters.argv[1];
+      let startingValues;
+      if (startingValuesStr) {
+        startingValues = JSON.parse(startingValuesStr);
+      } else if (
+        vatParameters.startingValues &&
+        vatParameters.startingValues[testName]
+      ) {
+        startingValues = vatParameters.startingValues[testName];
+      } else {
+        throw Error(
+          `Cannot find startingValues for ${testName} in ${JSON.stringify(
+            vatParameters,
+          )}`,
+        );
+      }
 
       const { aliceP, bobP, carolP, daveP } = makeVats(
+        makePrintLog(),
         vats,
         zoe,
         installations,

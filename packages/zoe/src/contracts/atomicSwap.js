@@ -1,7 +1,11 @@
 // @ts-check
 
 // Eventually will be importable from '@agoric/zoe-contract-support'
-import { makeZoeHelpers } from '../contractSupport';
+import {
+  assertIssuerKeywords,
+  swap,
+  assertProposalShape,
+} from '../contractSupport';
 
 import '../../exported';
 
@@ -14,39 +18,42 @@ import '../../exported';
  * amount no greater than the original's give, and a give amount at least as
  * large as the original's want.
  *
- * @param {ContractFacet} zcf
+ * @type {ContractStartFn}
  */
-const makeContract = zcf => {
-  const { swap, assertKeywords, checkHook } = makeZoeHelpers(zcf);
-  assertKeywords(harden(['Asset', 'Price']));
+const start = zcf => {
+  assertIssuerKeywords(zcf, harden(['Asset', 'Price']));
 
-  const makeMatchingInvite = firstOfferHandle => {
-    const {
-      proposal: { want, give },
-    } = zcf.getOffer(firstOfferHandle);
+  /** @type {OfferHandler} */
+  const makeMatchingInvitation = firstSeat => {
+    const { want, give } = firstSeat.getProposal();
 
-    return zcf.makeInvitation(
-      offerHandle => swap(firstOfferHandle, offerHandle),
+    /** @type {OfferHandler} */
+    const matchingSeatOfferHandler = matchingSeat =>
+      swap(zcf, firstSeat, matchingSeat);
+
+    const matchingSeatInvitation = zcf.makeInvitation(
+      matchingSeatOfferHandler,
       'matchOffer',
-      harden({
-        customProperties: {
-          asset: give.Asset,
-          price: want.Price,
-        },
-      }),
+      {
+        asset: give.Asset,
+        price: want.Price,
+      },
     );
+    return matchingSeatInvitation;
   };
 
-  const firstOfferExpected = harden({
+  const firstProposalExpected = harden({
     give: { Asset: null },
     want: { Price: null },
   });
 
-  return zcf.makeInvitation(
-    checkHook(makeMatchingInvite, firstOfferExpected),
+  const creatorInvitation = zcf.makeInvitation(
+    assertProposalShape(makeMatchingInvitation, firstProposalExpected),
     'firstOffer',
   );
+
+  return { creatorInvitation };
 };
 
-harden(makeContract);
-export { makeContract };
+harden(start);
+export { start };

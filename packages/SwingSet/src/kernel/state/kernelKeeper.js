@@ -31,11 +31,16 @@ const enableKernelPromiseGC = true;
 // The schema is:
 //
 // vat.names = JSON([names..])
+// vat.dynamicIDs = JSON([vatIDs..])
 // vat.name.$NAME = $vatID = v$NN
 // vat.nextID = $NN
 // device.names = JSON([names..])
 // device.name.$NAME = $deviceID = d$NN
 // device.nextID = $NN
+
+// dynamic vats have these too:
+// v$NN.source = JSON({ bundle }) or JSON({ bundleName })
+// v$NN.options = JSON
 
 // v$NN.o.nextID = $NN
 // v$NN.p.nextID = $NN
@@ -44,6 +49,7 @@ const enableKernelPromiseGC = true;
 // v$NN.c.$vatSlot = $kernelSlot = ko$NN/kp$NN/kd$NN
 // v$NN.t.$NN = JSON(transcript entry)
 // v$NN.t.nextID = $NN
+// v$NN.dead = missing | true
 
 // d$NN.o.nextID = $NN
 // d$NN.c.$kernelSlot = $deviceSlot = o-$NN/d+$NN/d-$NN
@@ -207,7 +213,7 @@ export default function makeKernelKeeper(storage) {
   }
 
   function setInitialized() {
-    storage.set('initialized', true);
+    storage.set('initialized', 'true');
   }
 
   function getCrankNumber() {
@@ -221,6 +227,7 @@ export default function makeKernelKeeper(storage) {
 
   function createStartingKernelState() {
     storage.set('vat.names', '[]');
+    storage.set('vat.dynamicIDs', '[]');
     storage.set('vat.nextID', JSON.stringify(FIRST_VAT_ID));
     storage.set('device.names', '[]');
     storage.set('device.nextID', JSON.stringify(FIRST_DEVICE_ID));
@@ -334,6 +341,27 @@ export default function makeKernelKeeper(storage) {
     return harden(p);
   }
 
+  function getResolveablePromise(kpid, expectedDecider) {
+    insistKernelType('promise', kpid);
+    if (expectedDecider) {
+      insistVatID(expectedDecider);
+    }
+    const p = getKernelPromise(kpid);
+    assert(p.state === 'unresolved', details`${kpid} was already resolved`);
+    if (expectedDecider) {
+      assert(
+        p.decider === expectedDecider,
+        details`${kpid} is decided by ${p.decider}, not ${expectedDecider}`,
+      );
+    } else {
+      assert(
+        !p.decider,
+        details`${kpid} is decided by ${p.decider}, not the kernel`,
+      );
+    }
+    return p;
+  }
+
   function hasKernelPromise(kernelSlot) {
     insistKernelType('promise', kernelSlot);
     return storage.has(`${kernelSlot}.state`);
@@ -402,6 +430,23 @@ export default function makeKernelKeeper(storage) {
     storage.set(`${kernelSlot}.state`, 'rejected');
     storage.set(`${kernelSlot}.data.body`, capdata.body);
     storage.set(`${kernelSlot}.data.slots`, capdata.slots.join(','));
+  }
+
+  function findPromisesDecidedByVat(vatID) {
+    const prefixKey = `${vatID}.c.p`;
+    const endKey = `${vatID}.c.q`;
+    const result = [];
+    for (const k of storage.getKeys(prefixKey, endKey)) {
+      // The store semantics ensure this iteration is lexicographic.  Any
+      // changes to the creation of the list of promises need to preserve this
+      // in order to preserve determinism.
+      const kpid = storage.get(k);
+      const p = getKernelPromise(kpid);
+      if (p.state === 'unresolved' && p.decider === vatID) {
+        result.push(kpid);
+      }
+    }
+    return result;
   }
 
   function addMessageToPromiseQueue(kernelSlot, msg) {
@@ -496,6 +541,18 @@ export default function makeKernelKeeper(storage) {
       storage.set('vat.names', JSON.stringify(names));
     }
     return storage.get(k);
+  }
+
+  function addDynamicVatID(vatID) {
+    assert.typeof(vatID, 'string');
+    const KEY = 'vat.dynamicIDs';
+    const dynamicVatIDs = JSON.parse(getRequired(KEY));
+    dynamicVatIDs.push(vatID);
+    storage.set(KEY, JSON.stringify(dynamicVatIDs));
+  }
+
+  function getAllDynamicVatIDs() {
+    return JSON.parse(getRequired('vat.dynamicIDs'));
   }
 
   const deadKernelPromises = new Set();
@@ -748,10 +805,12 @@ export default function makeKernelKeeper(storage) {
     addKernelPromise,
     addKernelPromiseForVat,
     getKernelPromise,
+    getResolveablePromise,
     hasKernelPromise,
     fulfillKernelPromiseToPresence,
     fulfillKernelPromiseToData,
     rejectKernelPromise,
+    findPromisesDecidedByVat,
     addMessageToPromiseQueue,
     addSubscriberToPromise,
     setDecider,
@@ -769,6 +828,8 @@ export default function makeKernelKeeper(storage) {
     allocateUnusedVatID,
     allocateVatKeeperIfNeeded,
     getAllVatNames,
+    addDynamicVatID,
+    getAllDynamicVatIDs,
 
     getDeviceIDForName,
     allocateDeviceIDForNameIfNeeded,

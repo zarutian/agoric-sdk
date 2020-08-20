@@ -1,11 +1,19 @@
 import '@agoric/install-ses';
 import { test } from 'tape-promise/tape';
+import { buildLoopbox } from '../src/devices/loopbox';
 import { loadBasedir, buildVatController } from '../src/index';
 
 async function main(basedir, argv) {
   const config = await loadBasedir(basedir);
-  const ldSrcPath = require.resolve('../src/devices/loopbox-src');
-  config.devices = [['loopbox', ldSrcPath, {}]];
+  const enableSetup = true;
+  if (config.vats.botcomms) {
+    config.vats.botcomms.creationOptions = { enableSetup };
+  }
+  if (config.vats.usercomms) {
+    config.vats.usercomms.creationOptions = { enableSetup };
+  }
+  const { loopboxSrcPath, loopboxEndowments } = buildLoopbox('immediate');
+  config.devices = [['loopbox', loopboxSrcPath, loopboxEndowments]];
 
   const controller = await buildVatController(config, argv);
   await controller.run();

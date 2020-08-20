@@ -1,4 +1,3 @@
-import fs from 'fs';
 import path from 'path';
 import anylogger from 'anylogger';
 
@@ -9,6 +8,8 @@ import {
   buildTimer,
   buildBridge,
   buildVatController,
+  loadBasedir,
+  loadSwingsetConfigFile,
 } from '@agoric/swingset-vat';
 import { getBestSwingStore } from './check-lmdb';
 
@@ -22,8 +23,13 @@ async function buildSwingset(
   storage,
   vatsDir,
   argv,
+  debugName = undefined,
 ) {
-  const config = {};
+  const debugPrefix = debugName === undefined ? '' : `${debugName}:`;
+  let config = loadSwingsetConfigFile(`${vatsDir}/chain-config.json`);
+  if (config === null) {
+    config = loadBasedir(vatsDir);
+  }
   const mbs = buildMailboxStateMap();
   mbs.populateFromData(mailboxState);
   const timer = buildTimer();
@@ -34,19 +40,11 @@ async function buildSwingset(
     ['mailbox', mb.srcPath, mb.endowments],
     ['timer', timer.srcPath, timer.endowments],
   ];
-  config.vats = new Map();
-  for (const fname of fs.readdirSync(vatsDir)) {
-    const match = fname.match(/^vat-(.*)\.js$/);
-    if (match) {
-      config.vats.set(match[1], {
-        sourcepath: require.resolve(`${vatsDir}/${fname}`),
-      });
-    }
-  }
-  config.bootstrapIndexJS = require.resolve(`${vatsDir}/bootstrap.js`);
-  config.hostStorage = storage;
 
-  const controller = await buildVatController(config, argv);
+  const controller = await buildVatController(config, argv, {
+    hostStorage: storage,
+    debugPrefix,
+  });
   await controller.run();
 
   const bridgeInbound = bd.deliverInbound;
@@ -60,6 +58,7 @@ export async function launch(
   flushChainSends,
   vatsDir,
   argv,
+  debugName = undefined,
 ) {
   log.info('Launching SwingSet kernel');
 
@@ -83,6 +82,7 @@ export async function launch(
     storage,
     vatsDir,
     argv,
+    debugName,
   );
 
   function saveChainState() {

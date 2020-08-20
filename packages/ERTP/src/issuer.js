@@ -4,28 +4,32 @@
 
 import { assert, details } from '@agoric/assert';
 import makeStore from '@agoric/weak-store';
+import { E } from '@agoric/eventual-send';
 import { isPromise } from '@agoric/promise-kit';
 
-import makeAmountMath from './amountMath';
+import { makeAmountMath, MathKind } from './amountMath';
 
 import './types';
 
 /**
- *
  * @param {string} allegedName
- * @param {MathHelpersName} [mathHelpersName='nat']
+ * @param {AmountMathKind} [amountMathKind=MathKind.NAT]
  * @returns {IssuerKit}
  */
-function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
+function makeIssuerKit(allegedName, amountMathKind = MathKind.NAT) {
   assert.typeof(allegedName, 'string');
 
   const brand = harden({
-    // eslint-disable-next-line no-use-before-define
-    isMyIssuer: allegedIssuer => allegedIssuer === issuer,
+    isMyIssuer: allegedIssuerP => {
+      return E.when(allegedIssuerP, allegedIssuer => {
+        // eslint-disable-next-line no-use-before-define
+        return allegedIssuer === issuer;
+      });
+    },
     getAllegedName: () => allegedName,
   });
 
-  const amountMath = makeAmountMath(brand, mathHelpersName);
+  const amountMath = makeAmountMath(brand, amountMathKind);
 
   const paymentLedger = makeStore('payment');
   const purseLedger = makeStore('purse');
@@ -174,8 +178,7 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
   const issuer = harden({
     getBrand: () => brand,
     getAllegedName: () => allegedName,
-    getAmountMath: () => amountMath,
-    getMathHelpersName: () => mathHelpersName,
+    getAmountMathKind: () => amountMathKind,
     makeEmptyPurse: () => {
       const purse = makePurse();
       purseLedger.init(purse, amountMath.getEmpty());
@@ -183,19 +186,19 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
     },
 
     isLive: paymentP => {
-      return Promise.resolve(paymentP).then(payment => {
+      return E.when(paymentP, payment => {
         return paymentLedger.has(payment);
       });
     },
     getAmountOf: paymentP => {
-      return Promise.resolve(paymentP).then(payment => {
+      return E.when(paymentP, payment => {
         assertKnownPayment(payment);
         return paymentLedger.get(payment);
       });
     },
 
     burn: (paymentP, optAmount = undefined) => {
-      return Promise.resolve(paymentP).then(payment => {
+      return E.when(paymentP, payment => {
         assertKnownPayment(payment);
         const paymentBalance = paymentLedger.get(payment);
         assertAmountEqual(paymentBalance, optAmount);
@@ -205,7 +208,7 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
       });
     },
     claim: (paymentP, optAmount = undefined) => {
-      return Promise.resolve(paymentP).then(srcPayment => {
+      return E.when(paymentP, srcPayment => {
         assertKnownPayment(srcPayment);
         const srcPaymentBalance = paymentLedger.get(srcPayment);
         assertAmountEqual(srcPaymentBalance, optAmount);
@@ -240,7 +243,7 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
     },
     // payment to two payments, A and B
     split: (paymentP, paymentAmountA) => {
-      return Promise.resolve(paymentP).then(srcPayment => {
+      return E.when(paymentP, srcPayment => {
         paymentAmountA = amountMath.coerce(paymentAmountA);
         assertKnownPayment(srcPayment);
         const srcPaymentBalance = paymentLedger.get(srcPayment);
@@ -259,7 +262,7 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
       });
     },
     splitMany: (paymentP, amounts) => {
-      return Promise.resolve(paymentP).then(srcPayment => {
+      return E.when(paymentP, srcPayment => {
         assertKnownPayment(srcPayment);
         amounts = amounts.map(amountMath.coerce);
         // Commit point
@@ -295,4 +298,4 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
 
 harden(makeIssuerKit);
 
-export default makeIssuerKit;
+export { makeIssuerKit };

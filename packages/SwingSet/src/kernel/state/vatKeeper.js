@@ -58,6 +58,20 @@ export function makeVatKeeper(
 ) {
   insistVatID(vatID);
 
+  function setSourceAndOptions(source, options) {
+    assert.typeof(source, 'object');
+    assert(source.bundle || source.bundleName);
+    assert.typeof(options, 'object');
+    storage.set(`${vatID}.source`, JSON.stringify(source));
+    storage.set(`${vatID}.options`, JSON.stringify(options));
+  }
+
+  function getSourceAndOptions() {
+    const source = JSON.parse(storage.get(`${vatID}.source`));
+    const options = JSON.parse(storage.get(`${vatID}.options`));
+    return harden({ source, options });
+  }
+
   /**
    * Provide the kernel slot corresponding to a given vat slot, creating the
    * kernel slot if it doesn't already exist.
@@ -165,6 +179,14 @@ export function makeVatKeeper(
     }
   }
 
+  function markAsDead() {
+    storage.set(`${vatID}.dead`, 'true');
+  }
+
+  function isDead() {
+    return !!storage.get(`${vatID}.dead`);
+  }
+
   /**
    * Generator function to return the vat's transcript, one entry at a time.
    */
@@ -225,9 +247,13 @@ export function makeVatKeeper(
   }
 
   return harden({
+    setSourceAndOptions,
+    getSourceAndOptions,
     mapVatSlotToKernelSlot,
     mapKernelSlotToVatSlot,
     deleteCListEntry,
+    markAsDead,
+    isDead,
     getTranscript,
     addToTranscript,
     vatStats,

@@ -4,7 +4,11 @@ import repl from 'repl';
 import util from 'util';
 
 import { makeStatLogger } from '@agoric/stat-logger';
-import { buildVatController, loadBasedir } from '@agoric/swingset-vat';
+import {
+  buildVatController,
+  loadSwingsetConfigFile,
+  loadBasedir,
+} from '@agoric/swingset-vat';
 import {
   initSwingStore as initSimpleSwingStore,
   openSwingStore as openSimpleSwingStore,
@@ -34,28 +38,32 @@ Command line:
   runner [FLAGS...] CMD [{BASEDIR|--} [ARGS...]]
 
 FLAGS may be:
-  --init         - discard any existing saved state at startup.
-  --lmdb         - runs using LMDB as the data store (default)
-  --filedb       - runs using the simple file-based data store
-  --memdb        - runs using the non-persistent in-memory data store
-  --blockmode    - run in block mode (checkpoint every BLOCKSIZE blocks)
-  --blocksize N  - set BLOCKSIZE to N cranks (default 200)
-  --logtimes     - log block execution time stats while running
-  --logmem       - log memory usage stats after each block
-  --logdisk      - log disk space usage stats after each block
-  --logstats     - log kernel stats after each block
-  --logall       - log kernel stats, block times, memory use, and disk space
-  --logtag STR   - tag for stats log file (default "runner")
-  --forcegc      - run garbage collector after each block
-  --batchsize N  - set BATCHSIZE to N cranks (default 200)
-  --verbose      - output verbose debugging messages as it runs
-  --audit        - audit kernel promise reference counts after each crank
-  --dump         - dump a kernel state store snapshot after each crank
-  --dumpdir DIR  - place kernel state dumps in directory DIR (default ".")
-  --dumptag STR  - prefix kernel state dump filenames with STR (default "t")
-  --raw          - perform kernel state dumps in raw mode
-  --stats        - print performance stats at the end of a run
-  --benchmark N  - perform an N round benchmark after the initial run
+  --init           - discard any existing saved state at startup.
+  --lmdb           - runs using LMDB as the data store (default)
+  --filedb         - runs using the simple file-based data store
+  --memdb          - runs using the non-persistent in-memory data store
+  --blockmode      - run in block mode (checkpoint every BLOCKSIZE blocks)
+  --blocksize N    - set BLOCKSIZE to N cranks (default 200)
+  --logtimes       - log block execution time stats while running
+  --logmem         - log memory usage stats after each block
+  --logdisk        - log disk space usage stats after each block
+  --logstats       - log kernel stats after each block
+  --logall         - log kernel stats, block times, memory use, and disk space
+  --logtag STR     - tag for stats log file (default "runner")
+  --forcegc        - run garbage collector after each block
+  --batchsize N    - set BATCHSIZE to N cranks (default 200)
+  --verbose        - output verbose debugging messages as it runs
+  --audit          - audit kernel promise reference counts after each crank
+  --dump           - dump a kernel state store snapshot after each crank
+  --dumpdir DIR    - place kernel state dumps in directory DIR (default ".")
+  --dumptag STR    - prefix kernel state dump filenames with STR (default "t")
+  --raw            - perform kernel state dumps in raw mode
+  --stats          - print performance stats at the end of a run
+  --benchmark N    - perform an N round benchmark after the initial run
+  --indirect       - launch swingset from a vat instead of launching directly
+  --globalmetering - install metering on global objects
+  --meter          - run metered vats (implies --globalmetering and --indirect)
+  --config FILE    - read swingset config from FILE instead of inferring it
 
 CMD is one of:
   help   - print this helpful usage information
@@ -78,6 +86,53 @@ function fail(message, printUsage) {
     usage();
   }
   process.exit(1);
+}
+
+function generateIndirectConfig(baseConfig) {
+  const config = {
+    bootstrap: 'launcher',
+    bundles: {},
+    vats: {
+      launcher: {
+        sourceSpec: path.resolve(__dirname, 'vat-launcher.js'),
+        parameters: {
+          config: {
+            bootstrap: baseConfig.bootstrap,
+            vats: {},
+          },
+        },
+      },
+    },
+  };
+  if (baseConfig.vats) {
+    for (const vatName of Object.keys(baseConfig.vats)) {
+      const baseVat = { ...baseConfig.vats[vatName] };
+      let newBundleName = `bundle-${vatName}`;
+      if (baseVat.sourceSpec) {
+        config.bundles[newBundleName] = { sourceSpec: baseVat.sourceSpec };
+        delete baseVat.sourceSpec;
+      } else if (baseVat.bundleSpec) {
+        config.bundles[newBundleName] = { bundleSpec: baseVat.bundleSpec };
+        delete baseVat.bundleSpec;
+      } else if (baseVat.bundle) {
+        config.bundles[newBundleName] = { bundle: baseVat.bundle };
+        delete baseVat.bundle;
+      } else if (baseVat.bundleName) {
+        newBundleName = baseVat.bundleName;
+        config.bundles[newBundleName] = baseConfig.bundles[baseVat.bundleName];
+      } else {
+        fail(`this can't happen`);
+      }
+      baseVat.bundleName = newBundleName;
+      config.vats.launcher.parameters.config.vats[vatName] = baseVat;
+    }
+  }
+  if (baseConfig.bundles) {
+    for (const bundleName of Object.keys(baseConfig.bundles)) {
+      config.bundles[bundleName] = baseConfig.bundles[bundleName];
+    }
+  }
+  return config;
 }
 
 /* eslint-disable no-use-before-define */
@@ -106,7 +161,11 @@ export async function main() {
   let dumpTag = 't';
   let rawMode = false;
   let shouldPrintStats = false;
+  let globalMeteringActive = false;
+  let meterVats = false;
+  let launchIndirectly = false;
   let benchmarkRounds = 0;
+  let configPath = null;
 
   while (argv[0] && argv[0].startsWith('-')) {
     const flag = argv.shift();
@@ -134,6 +193,9 @@ export async function main() {
         break;
       case '--logtag':
         logTag = argv.shift();
+        break;
+      case '--config':
+        configPath = argv.shift();
         break;
       case '--forcegc':
         forceGC = true;
@@ -168,6 +230,17 @@ export async function main() {
       case '--stats':
         shouldPrintStats = true;
         break;
+      case '--globalmetering':
+        globalMeteringActive = true;
+        break;
+      case '--meter':
+        meterVats = true;
+        globalMeteringActive = true;
+        launchIndirectly = true;
+        break;
+      case '--indirect':
+        launchIndirectly = true;
+        break;
       case '--audit':
         doAudits = true;
         break;
@@ -200,6 +273,10 @@ export async function main() {
     process.exit(0);
   }
 
+  if (globalMeteringActive) {
+    log('global metering is active');
+  }
+
   if (forceGC) {
     if (!global.gc) {
       fail(
@@ -213,9 +290,22 @@ export async function main() {
 
   // Prettier demands that the conditional not be parenthesized.  Prettier is wrong.
   // eslint-disable-next-line prettier/prettier
-  const basedir = (argv[0] === '--' || argv[0] === undefined) ? '.' : argv.shift();
+  let basedir = (argv[0] === '--' || argv[0] === undefined) ? '.' : argv.shift();
   const bootstrapArgv = argv[0] === '--' ? argv.slice(1) : argv;
-  const config = await loadBasedir(basedir);
+
+  let config;
+  if (configPath) {
+    config = loadSwingsetConfigFile(configPath);
+    if (config === null) {
+      fail(`config file ${configPath} not found`);
+    }
+    basedir = path.dirname(configPath);
+  } else {
+    config = loadBasedir(basedir);
+  }
+  if (launchIndirectly) {
+    config = generateIndirectConfig(config);
+  }
 
   let store;
   const kernelStateDBDir = path.join(basedir, 'swingset-kernel-state');
@@ -240,12 +330,21 @@ export async function main() {
     default:
       fail(`invalid database mode ${dbMode}`, true);
   }
-  config.hostStorage = store.storage;
-  if (verbose) {
-    config.verbose = true;
+  if (config.bootstrap) {
+    config.vats[config.bootstrap].parameters.metered = meterVats;
   }
-
-  const controller = await buildVatController(config, bootstrapArgv);
+  const runtimeOptions = {};
+  if (store) {
+    runtimeOptions.hostStorage = store.storage;
+  }
+  if (verbose) {
+    runtimeOptions.verbose = true;
+  }
+  const controller = await buildVatController(
+    config,
+    bootstrapArgv,
+    runtimeOptions,
+  );
   let bootstrapResult = controller.bootstrapResult;
 
   let blockNumber = 0;
@@ -262,7 +361,7 @@ export async function main() {
       headers.push('disk');
     }
     if (logStats) {
-      const statNames = Object.getOwnPropertyNames(controller.getStats());
+      const statNames = Object.keys(controller.getStats());
       headers = headers.concat(statNames);
     }
     statLogger = makeStatLogger(logTag, headers);
@@ -373,14 +472,14 @@ export async function main() {
     let totalDeltaT = BigInt(0);
     for (let i = 0; i < rounds; i += 1) {
       const roundResult = controller.queueToVatExport(
-        '_bootstrap',
+        launchIndirectly ? 'launcher' : 'bootstrap',
         'o+0',
         'runBenchmarkRound',
         args,
         'ignore',
       );
       // eslint-disable-next-line no-await-in-loop
-      const [steps, deltaT] = await runBatch(0, false);
+      const [steps, deltaT] = await runBatch(0, true);
       const status = roundResult.status();
       if (status === 'pending') {
         log(`benchmark round ${i + 1} did not finish`);

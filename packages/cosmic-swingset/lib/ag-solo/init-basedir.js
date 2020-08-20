@@ -6,13 +6,19 @@ import anylogger from 'anylogger';
 
 const log = anylogger('ag-solo:init');
 
+const DEFAULT_WALLET = '@agoric/dapp-svelte-wallet';
+
 export default function initBasedir(
   basedir,
   webport,
   webhost,
   subdir,
   egresses,
+  opts = {},
 ) {
+  const { wallet = DEFAULT_WALLET, ...options } = opts;
+  options.wallet = wallet;
+
   const here = __dirname;
   try {
     fs.mkdirSync(basedir);
@@ -39,21 +45,8 @@ export default function initBasedir(
       fs.copyFileSync(path.join(srcHtmldir, name), path.join(dstHtmldir, name));
     });
 
-  // Symlink the wallet.
-  let agWallet;
-  try {
-    agWallet = path.resolve(__dirname, '../../../wallet-frontend/build');
-    if (!fs.existsSync(agWallet)) {
-      const pjs = require.resolve('@agoric/wallet-frontend/package.json');
-      agWallet = path.join(path.dirname(pjs), 'build');
-      fs.statSync(agWallet);
-    }
-    fs.symlinkSync(agWallet, `${dstHtmldir}/wallet`);
-  } catch (e) {
-    console.warn(
-      `${agWallet} does not exist; you may want to run 'yarn build' in 'wallet-frontend'`,
-    );
-  }
+  // Save the configuration options.
+  fs.writeFileSync(path.join(basedir, 'options.json'), JSON.stringify(options));
 
   // Save our version codes.
   const pj = 'package.json';
@@ -78,7 +71,7 @@ export default function initBasedir(
   const dstVatdir = path.join(basedir, 'vats');
   fs.mkdirSync(dstVatdir);
   fs.readdirSync(srcVatdir)
-    .filter(name => name.match(/\.js$/))
+    .filter(name => name.match(/\.(js|json)$/))
     .forEach(name => {
       fs.copyFileSync(path.join(srcVatdir, name), path.join(dstVatdir, name));
     });

@@ -15,7 +15,8 @@
     "tape": "^4.13.2"
   },
   "dependencies": {
-    "ses": "^0.9.1"
+    "@agoric/eventual-send": "^0.9.3",
+    "ses": "^0.10.1"
   },
   "files": [
     "src/**/*.js"
@@ -43,6 +44,8 @@
       "function-paren-newline": "off",
       "arrow-parens": "off",
       "strict": "off",
+      "prefer-destructuring": "off",
+      "no-else-return": "off",
       "no-console": "off",
       "no-unused-vars": [
         "error",
