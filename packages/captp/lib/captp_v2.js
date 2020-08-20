@@ -73,7 +73,10 @@ const Datum = AnyOf(NumberGuard, StrGuard);
 const VerbGuard = AnyOf(StrGuard, RegisteredSymbolGuard);
 
 const DescOf = (label) => {
-  return AnyOf(
+  return AnyOf(TupleOf(StrOf("yourExport"), Datum),
+               TupleOf(StrOf("yourAnswer"), Datum),
+               TupleOf(StrOf("myExport"),   Datum),
+               TupleOf(StrOf("myNewExport"), Datum, interfaceDescription),
               );
 };
 
