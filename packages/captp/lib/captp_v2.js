@@ -77,9 +77,16 @@ const DescOf = (label) => {
                TupleOf(StrOf("yourAnswer"), Datum),
                TupleOf(StrOf("myExport"),   Datum),
                TupleOf(StrOf("myNewExport"), Datum, interfaceDescription),
+               TupleOf(StrOf("myNewPromise"), Datum, Datum);
+               TupleOf(StrOf("myAnswer"), Datum);
+               TupleOf(StrOf("newPromise3VatIntro"), DataGuard, Datum, DescOf("vine"))
               );
 };
 
+// GetMsgTuple = Tuple[Str["get"], qid, rdr, target, prop]
+// SetOnlyMsgTuple = Tuple[Str["setOnly"], target, prop, value]
+// ApplyMsgTuple = Tuple[Str["apply"], qid, rdr, target, args]
+// ApplyOnlyMsgTuple = Tuple[Str["applyOnly"], target, args]
 // DeliverMsgTuple = Tuple[Str["send"], qid, rdr, target, verb, args]
 const DeliverMsgTuple = TupleOf(StrOf("send"), NatGuard, DescOf("rdr"), DescOf("target"), VerbGuard, ArrayOf(DescOf("arg")));
 // DeliverOnlyMsgTuple = Tuple[Str["sendOnly"], target, verb, args]
