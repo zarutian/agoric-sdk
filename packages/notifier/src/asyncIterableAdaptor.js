@@ -45,57 +45,45 @@ export const makeAsyncIterableFromNotifier = notifierP => {
       /** @type {UpdateCount} */
       let localUpdateCount = 1n;
       /** @type {UpdateCount} */
-      let lastUpdateCountRecieved;
-      /** @type {Boolean} */
-      let done = false;
+      let lastUpdateCountRecieved = 0n;
       /** @type {Map<UpdateCount, Promise<{value: T, done: boolean}>>} */
       const myIterationResultPromises = new Map();
       const doFetchNext = (upc) => {
         let u = upc;
-        for (let i = 0; i < nrOfPrefetches; i++) {
+        for (let i = 1; i <= nrOfPrefetches; i++) {
+          if (!myIterationResultPromises.has(upc)) {
+            const p = E(notifierP)
+              .getUpdateSince(upc)
+              .then(({ value, updateCount }) => {
+                const done = updateCount === undefined;
+                if (!done) {
+                  if (lastUpdateCountRecieved < updateCount) {
+                    lastUpdateCountRecieved = updateCount;
+                  }
+                }
+                return harden({ value, done });
+             });
+             myIterationResultPromises.set(upc, p);
+          }
+          upc = upc + 1n;
         }
         return myIterationResultPromises.get(upc);
       }
+      doFetchNext(localUpdateCount);
       return harden({
         next: () => {
-          if (!myIterationResultP) {
-            // In this adaptor, once `next()` is called and returns an
-            // unresolved promise, `myIterationResultP`, and until
-            // `myIterationResultP` is fulfilled with an
-            // iteration result, further `next()` calls will return the same
-            // `myIterationResultP` promise again without asking the notifier
-            // for more updates. If there's already an unanswered ask in the
-            // air, all further asks should just reuse the result of that one.
-            //
-            // This reuse behavior is only needed for code that uses the async
-            // iterator protocol explicitly. When this async iterator is
-            // consumed by a for/await/of loop, `next()` will only be called
-            // after the promise for the previous iteration result has
-            // fulfilled. If it fulfills with `done: true`, the for/await/of
-            // loop will never call `next()` again.
-            //
             // See
             // https://2ality.com/2016/10/asynchronous-iteration.html#queuing-next()-invocations
             // for an explicit use that sends `next()` without waiting.
-            myIterationResultP = E(notifierP)
-              .getUpdateSince(localUpdateCount)
-              .then(({ value, updateCount }) => {
-                localUpdateCount = updateCount;
-                const done = localUpdateCount === undefined;
-                if (!done) {
-                  // Once the outstanding question has been answered, stop
-                  // using that answer, so any further `next()` questions
-                  // cause a new `getUpdateSince` request.
-                  //
-                  // But only if more answers are expected. Once the notifier
-                  // is `done`, that was the last answer so reuse it forever.
-                  myIterationResultP = undefined;
-                }
-                return harden({ value, done });
-              });
-          }
-          return myIterationResultP;
-        },
+            const p = doFetchNext(localUpdateCount);
+            (() => {
+              // This construct is needed to capture the current value of localUpdateCount
+              const upc = localUpdateCount;
+              p.finally(() => myIterationResultPromises.delete(upc));
+            })();
+            localUpdateCount = localUpdateCount + 1n;
+            return p;
+        }
       });
     },
   });
