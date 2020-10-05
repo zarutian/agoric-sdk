@@ -26,11 +26,15 @@ import './types';
  * An async iterator's `next()` method returns a promise for an iteration
  * result. An iteration result is a record with `value` and `done` properties.
  *
+ * TBU: This part of the comment does not apply with this Less Lossy Lamport version. -Zarutian
  * The purpose of building on the notifier protocol is to have a lossy
  * adaptor, where intermediate results can be missed in favor of more recent
  * results which are therefore less stale. See
  * https://github.com/Agoric/documentation/blob/master/main/distributed-programming.md#notifiers
- *
+ */
+ /** @type {Number} */
+ const nrOfPrefetches = 42; 
+ /**
  * @template T
  * @param {ERef<BaseNotifier<T>>} notifierP
  * @returns {AsyncIterable<T>}
@@ -39,9 +43,19 @@ export const makeAsyncIterableFromNotifier = notifierP => {
   return harden({
     [Symbol.asyncIterator]: () => {
       /** @type {UpdateCount} */
-      let localUpdateCount;
-      /** @type {Promise<{value: T, done: boolean}> | undefined} */
-      let myIterationResultP;
+      let localUpdateCount = 1n;
+      /** @type {UpdateCount} */
+      let lastUpdateCountRecieved;
+      /** @type {Boolean} */
+      let done = false;
+      /** @type {Map<UpdateCount, Promise<{value: T, done: boolean}>>} */
+      const myIterationResultPromises = new Map();
+      const doFetchNext = (upc) => {
+        let u = upc;
+        for (let i = 0; i < nrOfPrefetches; i++) {
+        }
+        return myIterationResultPromises.get(upc);
+      }
       return harden({
         next: () => {
           if (!myIterationResultP) {
