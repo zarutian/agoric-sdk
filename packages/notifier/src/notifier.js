@@ -29,10 +29,16 @@ import './types';
  * @returns {NotifierRecord<T>} the notifier and updater
  */
 export const makeNotifierKit = (...args) => {
-  /** @type {PromiseRecord<UpdateRecord<T>>|undefined} */
-  let nextPromiseKit = makePromiseKit();
   /** @type {UpdateCount} */
-  let currentUpdateCount = 1; // avoid falsy numbers
+  let currentUpdateCount = 1n; // avoid falsy numbers
+  /** _type {PromiseRecord<UpdateRecord<T>>|undefined} */
+  const nextPromiseKits = new Map();
+  const makeNextPromiseKit = (updateNr) => {
+    if (!nextPromiseKits.has(updateNr)) {
+      nextPromiseKits.set(updateNr, makePromiseKit());
+    }
+    return nextPromiseKits.get(updateNr);
+  }
   /** @type {UpdateRecord<T>|undefined} */
   let currentResponse;
 
@@ -41,12 +47,18 @@ export const makeNotifierKit = (...args) => {
   const final = () => currentUpdateCount === undefined;
 
   const baseNotifier = harden({
-    // NaN matches nothing
-    getUpdateSince(updateCount = NaN) {
+    getUpdateSince(updateCount = 1n) {
+      if (((typeof updateCount) != "number") ||
+          ((typeof updateCount) != "bigint")) {
+        updateCount = 1n;
+      }
+      if ((typeof updateCount) == "number") {
+        updateCount = BigInt(updateCount);
+      }
       if (
         hasState() &&
         (final() ||
-          (currentResponse && currentResponse.updateCount !== updateCount))
+          (currentResponse && currentResponse.updateCount >= updateCount))
       ) {
         // If hasState() and either it is final() or it is
         // not the state of updateCount, return the current state.
@@ -54,6 +66,7 @@ export const makeNotifierKit = (...args) => {
         return Promise.resolve(currentResponse);
       }
       // otherwise return a promise for the next state.
+      const nextPromiseKit = makeNextPromiseKit(updateCount);
       assert(nextPromiseKit);
       return nextPromiseKit.promise;
     },
@@ -73,14 +86,14 @@ export const makeNotifierKit = (...args) => {
       }
 
       // become hasState() && !final()
-      assert(nextPromiseKit && currentUpdateCount);
-      currentUpdateCount += 1;
+      // assert(nextPromiseKit && currentUpdateCount);
+      currentUpdateCount += 1n;
       currentResponse = harden({
         value: state,
         updateCount: currentUpdateCount,
       });
-      nextPromiseKit.resolve(currentResponse);
-      nextPromiseKit = makePromiseKit();
+      makeNextPromiseKit(currentUpdateCount).resolve(currentResponse);
+      nextPromiseKits.delete(currentUpdateCount);
     },
 
     finish(finalState) {
@@ -89,14 +102,16 @@ export const makeNotifierKit = (...args) => {
       }
 
       // become hasState() && final()
-      assert(nextPromiseKit);
+      // assert(nextPromiseKit);
       currentUpdateCount = undefined;
       currentResponse = harden({
         value: finalState,
         updateCount: currentUpdateCount,
       });
-      nextPromiseKit.resolve(currentResponse);
-      nextPromiseKit = undefined;
+      nextPromiseKits.forEach((nextPromiseKit, unr) => {
+        nextPromiseKit.resolve(currentResponse);
+        nextPromiseKits.delete(unr);
+      });
     },
 
     fail(reason) {
@@ -105,12 +120,15 @@ export const makeNotifierKit = (...args) => {
       }
 
       // become !hasState() && final()
-      assert(nextPromiseKit);
+      // assert(nextPromiseKit);
       currentUpdateCount = undefined;
       currentResponse = undefined;
       // Don't trigger Node.js's UnhandledPromiseRejectionWarning
-      nextPromiseKit.promise.catch(_ => {});
-      nextPromiseKit.reject(reason);
+      nextPromiseKits.forEach((nextPromiseKit, unr) => {
+        nextPromiseKit.promise.catch(_ => {});
+        nextPromiseKit.reject(reason);
+        nextPromiseKits.delete(unr);
+      });
     },
   });
 
