@@ -44,28 +44,30 @@ export const makeAsyncIterableFromNotifier = notifierP => {
     [Symbol.asyncIterator]: () => {
       /** @type {UpdateCount} */
       let localUpdateCount = 1n;
-      /** @type {UpdateCount} */
-      let lastUpdateCountRecieved = 0n;
       /** @type {Map<UpdateCount, Promise<{value: T, done: boolean}>>} */
       const myIterationResultPromises = new Map();
       const doFetchNext = (upc) => {
         let u = upc;
         for (let i = 1; i <= nrOfPrefetches; i++) {
           if (!myIterationResultPromises.has(upc)) {
+            const myUpc = u;
             const p = E(notifierP)
               .getUpdateSince(upc)
               .then(({ value, updateCount }) => {
                 const done = updateCount === undefined;
-                if (!done) {
-                  if (lastUpdateCountRecieved < updateCount) {
-                    lastUpdateCountRecieved = updateCount;
-                  }
+                if (done) {
+                  myIterationResultPromises.forEach((pr, unr) = {
+                    if (unr < myUpc) { return; }
+                    pr.finally(() => myIterationResultPromises.delete(unr));
+                  });
+                } else {
+                  doFetchNext(myUpc + BigInt(nrOfPrefetches));
                 }
                 return harden({ value, done });
              });
              myIterationResultPromises.set(upc, p);
           }
-          upc = upc + 1n;
+          u = u + 1n;
         }
         return myIterationResultPromises.get(upc);
       }
@@ -79,6 +81,7 @@ export const makeAsyncIterableFromNotifier = notifierP => {
             (() => {
               // This construct is needed to capture the current value of localUpdateCount
               const upc = localUpdateCount;
+              p.then(({ done }) => { localUpdateCount = done ? upc : localUpdateCount; });
               p.finally(() => myIterationResultPromises.delete(upc));
             })();
             localUpdateCount = localUpdateCount + 1n;
