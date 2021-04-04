@@ -9,6 +9,7 @@ const makeDecodingGetter = (opt) => {
           makeSymbol,
           makeFloatSingle,
           makeFloatDouble,
+          makeInteger,
           makeDictionary,
           makeList,
           makeRecord,
@@ -70,7 +71,7 @@ const makeDecodingGetter = (opt) => {
         return makeFloatDouble(payload);
       case 'i': // integers
         var num = 0n;
-        var sign = 0n;
+        var sign = "";
         var signSet = false;
         while (true) {
           const byte = await eventualBytegetter(1n);
@@ -80,7 +81,7 @@ const makeDecodingGetter = (opt) => {
                 throw new Error("syrup decode error #2");
               }
               signSet = true;
-              sign = -1n;
+              sign = "-";
               break; // end of case
             case '0': // fallthrough -start-
             case '1':
@@ -94,12 +95,11 @@ const makeDecodingGetter = (opt) => {
             case '9':
               if (!signSet) {
                 signSet = true;
-                sign = 1n;
               }
               num = (num * 10n) + BigInt(Number.parse(byte, 10));
               break; // end of case
             case 'e':
-              return (sign * num);
+              return makeInteger(sign, num);
             default:
               throw new Error("syrup decode error #3");
           }
@@ -178,3 +178,12 @@ const makeEncodingPutter = (opt) => {
   return harden(putter);
 }
 export { makeEncodingPutter };
+
+const makeInteger = (sign, num) => (sign == "-") ? -num : num ;
+const marshallInteger = (specimen, putter) => {
+  const t = typeof specimen;
+  if ((t == "number") || (t == "bigint")) {
+    return "".concat("i", specimen.toString(10), "e");
+  }
+  return undefined;
+};
