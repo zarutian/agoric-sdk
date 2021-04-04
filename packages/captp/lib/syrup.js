@@ -49,6 +49,8 @@ const makeDecodingGetter = (opt) => {
           }
         }
         break; // end the case
+      case 't': return true;
+      case 'f': return false;
     }
   }
   return harden(getter);
