@@ -9,8 +9,10 @@ const makeDecodingGetter = (opt) => {
           makeSymbol,
           makeFloatSingle,
           makeFloatDouble,
-          makeDictionary, } = opt;
+          makeDictionary,
+          makeList, } = opt;
   const dictionaryEndSentiel = harden({});
+  const listEndSentiel = harden({});
   const getter = async (self = getter) => {
     const first = await eventualBytegetter(1n);
       var length = 0n;
@@ -106,8 +108,18 @@ const makeDecodingGetter = (opt) => {
           const val = await self(getter);
           payload.push([key, value]);
         }
-        break;
+        break; // end of case
       case '}': return dictionaryEndSentiel;
+      case '[': // lists|arrays|sequences osfv
+        while (true) {
+          const val = await self(getter);
+          if (val === listEndSentiel) {
+            return makeList(payload);
+          }
+          payload.push(val);
+        }
+        break; // end of case
+      case ']': return listEndSentiel;
     }
   }
   return harden(getter);
