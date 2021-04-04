@@ -11,10 +11,13 @@ const makeDecodingGetter = (opt) => {
           makeFloatDouble,
           makeDictionary,
           makeList,
-          makeRecord, } = opt;
+          makeRecord,
+          makeSet,
+        } = opt;
   const dictionaryEndSentiel = harden({});
   const listEndSentiel = harden({});
   const recordEndSentiel = harden({});
+  const setEndSentiel = harden({});
   const getter = async (self = getter) => {
     const first = await eventualBytegetter(1n);
       var length = 0n;
@@ -97,6 +100,8 @@ const makeDecodingGetter = (opt) => {
               break; // end of case
             case 'e':
               return (sign * num);
+            default:
+              throw new Error("syrup decode error #3");
           }
         }
         break; // end of case
@@ -135,6 +140,19 @@ const makeDecodingGetter = (opt) => {
         }
         break; // end of case
       case '>': return recordEndSentiel;
+      case '#': // sets
+        const payload = new Array();
+        while (true) {
+          const val = await self(getter);
+          if (val === setEndSentiel) {
+            return makeSet(payload);
+          }
+          payload.push(val);
+        }
+        break; // end of case
+      case '$': return setEndSentiel;
+      default:
+        throw new Error("syrup decode error #0");
     }
   }
   return harden(getter);
