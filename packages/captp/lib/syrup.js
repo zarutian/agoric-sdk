@@ -58,7 +58,42 @@ const makeDecodingGetter = (opt) => {
         return makeFloatSingle(payload);
       case 'D': // ieee double precision floating point number big endian
         const payload = await eventualBytegetter(8n);
-        return makeFloarDouble(payload);
+        return makeFloatDouble(payload);
+      case 'i': // integers
+        var num = 0n;
+        var sign = 0n;
+        var signSet = false;
+        while (true) {
+          const byte = await eventualBytegetter(1n);
+          switch (byte) {
+            case '-':
+              if (signSet) {
+                throw new Error("syrup decode error #2");
+              }
+              signSet = true;
+              sign = -1n;
+              break; // end of case
+            case '0': // fallthrough -start-
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+            case '8': // fallthrough -end-
+            case '9':
+              if (!signSet) {
+                signSet = true;
+                sign = 1n;
+              }
+              num = (num * 10n) + BigInt(Number.parse(byte, 10));
+              break; // end of case
+            case 'e':
+              return (sign * num);
+          }
+        }
+        break;
     }
   }
   return harden(getter);
