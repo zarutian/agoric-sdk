@@ -1,28 +1,43 @@
-import { finishCosmosConfig, finishCosmosGenesis } from './chain-config';
+import { basename } from 'path';
+import { assert, details as X } from '@agoric/assert';
+import {
+  finishCosmosApp,
+  finishTendermintConfig,
+  finishCosmosGenesis,
+} from './chain-config';
 
 export default async function setDefaultsMain(progname, rawArgs, powers, opts) {
-  const { anylogger, fs, path } = powers;
+  const { anylogger, fs } = powers;
   const log = anylogger('agoric:set-defaults');
 
   const [prog, configDir] = rawArgs.slice(1);
 
-  if (prog !== 'ag-chain-cosmos') {
-    throw Error(`<prog> must currently be 'ag-chain-cosmos'`);
-  }
+  assert(
+    prog === 'ag-chain-cosmos',
+    X`<prog> must currently be 'ag-chain-cosmos'`,
+  );
 
+  const { exportMetrics } = opts;
+
+  let appFile;
   let configFile;
   let genesisFile;
-  if (path.basename(configDir) === 'config.toml') {
+  const baseName = basename(configDir);
+  if (baseName === 'config.toml') {
     configFile = configDir;
   }
-  if (path.basename(configDir) === 'genesis.json') {
+  if (baseName === 'genesis.json') {
     genesisFile = configDir;
   }
+  if (baseName === 'app.toml') {
+    appFile = configDir;
+  }
 
-  if (!configFile && !genesisFile) {
+  if (!configFile && !genesisFile && !appFile) {
     // Default behaviour: rewrite both configs.
     configFile = `${configDir}/config.toml`;
     genesisFile = `${configDir}/genesis.json`;
+    appFile = `${configDir}/app.toml`;
   }
 
   const create = (fileName, contents) => {
@@ -30,14 +45,28 @@ export default async function setDefaultsMain(progname, rawArgs, powers, opts) {
     return fs.writeFile(fileName, contents);
   };
 
+  if (appFile) {
+    log(`read ${appFile}`);
+    const appToml = await fs.readFile(appFile, 'utf-8');
+
+    const newAppToml = finishCosmosApp({
+      appToml,
+      exportMetrics,
+    });
+    await create(appFile, newAppToml);
+  }
+
   if (configFile) {
     log(`read ${configFile}`);
-    const { persistentPeers } = opts;
+    const { persistentPeers, seeds, unconditionalPeerIds } = opts;
     const configToml = await fs.readFile(configFile, 'utf-8');
 
-    const newConfigToml = finishCosmosConfig({
+    const newConfigToml = finishTendermintConfig({
       configToml,
       persistentPeers,
+      seeds,
+      unconditionalPeerIds,
+      exportMetrics,
     });
     await create(configFile, newConfigToml);
   }

@@ -1,0 +1,13 @@
+{
+  "bootstrap": "bootstrap",
+  "bundles": {
+    "boomer": {
+      "sourceSpec": "vat-boomer.js"
+    }
+  },
+  "vats": {
+    "bootstrap": {
+      "sourceSpec": "bootstrap.js"
+    }
+  }
+}

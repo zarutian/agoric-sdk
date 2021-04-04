@@ -1,25 +1,36 @@
-/* global harden */
+// eslint-disable-next-line import/order
+import { test } from '../tools/prepare-test-env-ava';
 
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+import anylogger from 'anylogger';
 import { initSwingStore } from '@agoric/swing-store-simple';
+import { assert, details as X } from '@agoric/assert';
+import { WeakRef, FinalizationRegistry } from '../src/weakref';
 import { waitUntilQuiescent } from '../src/waitUntilQuiescent';
 
 import buildKernel from '../src/kernel/index';
+import { initializeKernel } from '../src/kernel/initializeKernel';
 import { makeVatSlot } from '../src/parseVatSlots';
 import { checkKT } from './util';
 
-const RETIRE_KPIDS = true;
-
 function capdata(body, slots = []) {
   return harden({ body, slots });
+}
+
+function capargs(args, slots = []) {
+  return capdata(JSON.stringify(args), slots);
+}
+
+const slot0arg = { '@qclass': 'slot', index: 0 };
+
+function oneResolution(promiseID, rejected, data) {
+  return [[promiseID, rejected, data]];
 }
 
 function checkPromises(t, kernel, expected) {
   // extract the kernel promise table and assert that the contents match the
   // expected list. This sorts on the promise ID, then does a t.deepEqual
   function comparePromiseIDs(a, b) {
-    return a.id - b.id;
+    return Number(a.id - b.id);
   }
 
   const got = Array.from(kernel.dump().promises);
@@ -34,35 +45,52 @@ function emptySetup(_syscall) {
   return { deliver };
 }
 
+function makeConsole(tag) {
+  const log = anylogger(tag);
+  const cons = {};
+  for (const level of ['debug', 'log', 'info', 'warn', 'error']) {
+    cons[level] = log[level];
+  }
+  return harden(cons);
+}
+
 function makeEndowments() {
   return {
     waitUntilQuiescent,
     hostStorage: initSwingStore().storage,
     runEndOfCrank: () => {},
+    makeConsole,
+    WeakRef,
+    FinalizationRegistry,
   };
 }
 
+function makeKernel() {
+  const endowments = makeEndowments();
+  initializeKernel({}, endowments.hostStorage);
+  return buildKernel(endowments, {}, {});
+}
+
 test('build kernel', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
   await kernel.start(); // empty queue
   const data = kernel.dump();
   t.deepEqual(data.vatTables, []);
   t.deepEqual(data.kernelTable, []);
-  t.end();
 });
 
 test('simple call', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
-  function setup1(syscall, state, helpers) {
+  function setup1(syscall, state, _helpers, vatPowers) {
     function deliver(facetID, method, args) {
       log.push([facetID, method, args]);
-      helpers.testLog(JSON.stringify({ facetID, method, args }));
+      vatPowers.testLog(JSON.stringify({ facetID, method, args }));
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vat1', setup1);
-  await kernel.start();
+  await kernel.createTestVat('vat1', setup1);
   const vat1 = kernel.vatNameToID('vat1');
   let data = kernel.dump();
   t.deepEqual(data.vatTables, [{ vatID: vat1, state: { transcript: [] } }]);
@@ -87,18 +115,68 @@ test('simple call', async t => {
   t.deepEqual(log, [['o+1', 'foo', capdata('args')]]);
 
   data = kernel.dump();
-  t.equal(data.log.length, 1);
+  t.is(data.log.length, 1);
   t.deepEqual(JSON.parse(data.log[0]), {
     facetID: 'o+1',
     method: 'foo',
     args: capdata('args'),
   });
+});
 
-  t.end();
+test('vat store', async t => {
+  const kernel = makeKernel();
+  await kernel.start();
+  const log = [];
+  function setup(syscall, _state, _helpers, _vatPowers) {
+    function deliver(facetID, method, args) {
+      switch (method) {
+        case 'get': {
+          const v = syscall.vatstoreGet('zot');
+          if (v) {
+            log.push(`"${v}"`);
+          } else {
+            log.push(`${v}`);
+          }
+          break;
+        }
+        case 'store':
+          syscall.vatstoreSet('zot', args.body);
+          break;
+        case 'delete':
+          syscall.vatstoreDelete('zot');
+          break;
+        default:
+          assert.fail(X`this can't happen`);
+      }
+    }
+    return { deliver };
+  }
+  await kernel.createTestVat('vat', setup);
+  const vat = kernel.vatNameToID('vat');
+
+  kernel.queueToExport(vat, 'o+1', 'get', capdata('[]'));
+  kernel.queueToExport(vat, 'o+1', 'store', capdata('first value'));
+  kernel.queueToExport(vat, 'o+1', 'get', capdata('[]'));
+  kernel.queueToExport(vat, 'o+1', 'store', capdata('second value'));
+  kernel.queueToExport(vat, 'o+1', 'get', capdata('[]'));
+  kernel.queueToExport(vat, 'o+1', 'delete', capdata('[]'));
+  kernel.queueToExport(vat, 'o+1', 'get', capdata('[]'));
+  t.deepEqual(log, []);
+  await kernel.run();
+  t.deepEqual(log, [
+    'undefined',
+    '"first value"',
+    '"second value"',
+    'undefined',
+  ]);
+  const data = kernel.dump();
+  // check that we're not sticking an undefined into the transcript
+  t.is(data.vatTables[0].state.transcript[1].syscalls[0].response, null);
 });
 
 test('map inbound', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
   function setup1(_syscall) {
     function deliver(facetID, method, args) {
@@ -106,9 +184,8 @@ test('map inbound', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vat1', setup1);
-  kernel.addGenesisVat('vat2', setup1);
-  await kernel.start();
+  await kernel.createTestVat('vat1', setup1);
+  await kernel.createTestVat('vat2', setup1);
   const vat1 = kernel.vatNameToID('vat1');
   const vat2 = kernel.vatNameToID('vat2');
   const data = kernel.dump();
@@ -143,19 +220,17 @@ test('map inbound', async t => {
     ['ko22', vat1, 'o+1'],
     ['kp40', vat1, 'p-60'],
   ]);
-
-  t.end();
 });
 
 test('addImport', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   function setup(_syscall) {
     function deliver(_facetID, _method, _args) {}
     return { deliver };
   }
-  kernel.addGenesisVat('vat1', setup);
-  kernel.addGenesisVat('vat2', setup);
-  await kernel.start();
+  await kernel.createTestVat('vat1', setup);
+  await kernel.createTestVat('vat2', setup);
   const vat1 = kernel.vatNameToID('vat1');
   const vat2 = kernel.vatNameToID('vat2');
 
@@ -165,11 +240,11 @@ test('addImport', async t => {
     ['ko20', vat1, 'o-50'],
     ['ko20', vat2, 'o+5'],
   ]);
-  t.end();
 });
 
 test('outbound call', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
   let v1tovat25;
   const p7 = 'p+7';
@@ -194,7 +269,7 @@ test('outbound call', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vat1', setup1);
+  await kernel.createTestVat('vat1', setup1);
 
   function setup2(_syscall) {
     function deliver(facetID, method, args) {
@@ -204,8 +279,7 @@ test('outbound call', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vat2', setup2);
-  await kernel.start();
+  await kernel.createTestVat('vat2', setup2);
   const vat1 = kernel.vatNameToID('vat1');
   const vat2 = kernel.vatNameToID('vat2');
 
@@ -264,6 +338,7 @@ test('outbound call', async t => {
     {
       id: 'kp40',
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 1,
       decider: vat1,
       subscribers: [],
@@ -272,6 +347,7 @@ test('outbound call', async t => {
     {
       id: 'kp41',
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vat1,
       subscribers: [],
@@ -280,6 +356,7 @@ test('outbound call', async t => {
     {
       id: 'kp42',
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: undefined,
       subscribers: [],
@@ -303,6 +380,7 @@ test('outbound call', async t => {
         {
           id: 'kp40',
           state: 'unresolved',
+          policy: 'ignore',
           refCount: 1,
           decider: vat1,
           subscribers: [],
@@ -311,6 +389,7 @@ test('outbound call', async t => {
         {
           id: 'kp41',
           state: 'unresolved',
+          policy: 'ignore',
           refCount: 2,
           decider: vat1,
           subscribers: [],
@@ -319,6 +398,7 @@ test('outbound call', async t => {
         {
           id: 'kp42',
           state: 'unresolved',
+          policy: 'ignore',
           refCount: 2,
           decider: vat2,
           subscribers: [],
@@ -337,6 +417,7 @@ test('outbound call', async t => {
     {
       id: 'kp40',
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 1,
       decider: vat1,
       subscribers: [],
@@ -345,6 +426,7 @@ test('outbound call', async t => {
     {
       id: 'kp41',
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vat1,
       // Sending a promise from vat1 to vat2 doesn't cause vat2 to be
@@ -357,18 +439,18 @@ test('outbound call', async t => {
     {
       id: 'kp42',
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vat2,
       subscribers: [],
       queue: [],
     },
   ]);
-
-  t.end();
 });
 
 test('three-party', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
   let bobForA;
   let carolForA;
@@ -389,7 +471,7 @@ test('three-party', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vatA', setupA);
+  await kernel.createTestVat('vatA', setupA);
 
   function setupB(_syscall) {
     function deliver(facetID, method, args) {
@@ -398,7 +480,7 @@ test('three-party', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vatB', setupB);
+  await kernel.createTestVat('vatB', setupB);
 
   function setupC(_syscall) {
     function deliver(facetID, method, args) {
@@ -406,9 +488,8 @@ test('three-party', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vatC', setupC);
+  await kernel.createTestVat('vatC', setupC);
 
-  await kernel.start();
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
   const vatC = kernel.vatNameToID('vatC');
@@ -463,6 +544,7 @@ test('three-party', async t => {
     {
       id: ap,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 1,
       decider: vatA,
       subscribers: [],
@@ -471,6 +553,7 @@ test('three-party', async t => {
     {
       id: 'kp41',
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 1,
       decider: vatA,
       subscribers: [],
@@ -479,6 +562,7 @@ test('three-party', async t => {
     {
       id: 'kp42',
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: undefined,
       subscribers: [],
@@ -494,12 +578,11 @@ test('three-party', async t => {
   kt.push([carol, vatB, 'o-50']);
   kt.push(['kp42', vatB, 'p-60']);
   checkKT(t, kernel, kt);
-
-  t.end();
 });
 
 test('transfer promise', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   let syscallA;
   const logA = [];
   function setupA(syscall) {
@@ -509,7 +592,7 @@ test('transfer promise', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vatA', setupA);
+  await kernel.createTestVat('vatA', setupA);
 
   let syscallB;
   const logB = [];
@@ -520,9 +603,8 @@ test('transfer promise', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vatB', setupB);
+  await kernel.createTestVat('vatB', setupB);
 
-  await kernel.start();
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
 
@@ -563,6 +645,7 @@ test('transfer promise', async t => {
   kp.push({
     id: 'kp40',
     state: 'unresolved',
+    policy: 'ignore',
     refCount: 2,
     decider: vatA,
     subscribers: [],
@@ -598,12 +681,11 @@ test('transfer promise', async t => {
   t.deepEqual(logA, []);
   checkPromises(t, kernel, kp);
   checkKT(t, kernel, kt);
-
-  t.end();
 });
 
 test('subscribe to promise', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   let syscall;
   const log = [];
   function setup(s) {
@@ -613,10 +695,9 @@ test('subscribe to promise', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vat1', setup);
-  kernel.addGenesisVat('vat2', emptySetup);
+  await kernel.createTestVat('vat1', setup);
+  await kernel.createTestVat('vat2', emptySetup);
 
-  await kernel.start();
   const vat1 = kernel.vatNameToID('vat1');
   const vat2 = kernel.vatNameToID('vat2');
 
@@ -633,6 +714,7 @@ test('subscribe to promise', async t => {
     {
       id: kp,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vat2,
       subscribers: [vat1],
@@ -641,24 +723,23 @@ test('subscribe to promise', async t => {
   ]);
   t.deepEqual(kernel.dump().runQueue, []);
   t.deepEqual(log, []);
-
-  t.end();
 });
 
 test('promise resolveToData', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
 
   let syscallA;
   function setupA(s) {
     syscallA = s;
     function deliver() {}
-    function notifyFulfillToData(promiseID, data) {
-      log.push(['notify', promiseID, data]);
+    function notify(resolutions) {
+      log.push(['notify', resolutions]);
     }
-    return { deliver, notifyFulfillToData };
+    return { deliver, notify };
   }
-  kernel.addGenesisVat('vatA', setupA);
+  await kernel.createTestVat('vatA', setupA);
 
   let syscallB;
   function setupB(s) {
@@ -666,8 +747,8 @@ test('promise resolveToData', async t => {
     function deliver() {}
     return { deliver };
   }
-  kernel.addGenesisVat('vatB', setupB);
-  await kernel.start();
+  await kernel.createTestVat('vatB', setupB);
+
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
 
@@ -685,6 +766,7 @@ test('promise resolveToData', async t => {
     {
       id: pForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vatB,
       subscribers: [vatA],
@@ -692,8 +774,8 @@ test('promise resolveToData', async t => {
     },
   ]);
 
-  syscallB.fulfillToData(pForB, capdata('args', [aliceForA]));
-  // this causes a notifyFulfillToData message to be queued
+  syscallB.resolve([[pForB, false, capdata('"args"', [aliceForA])]]);
+  // this causes a notify message to be queued
   t.deepEqual(log, []); // no other dispatch calls
   t.deepEqual(kernel.dump().runQueue, [
     {
@@ -705,37 +787,29 @@ test('promise resolveToData', async t => {
 
   await kernel.step();
   // the kernelPromiseID gets mapped back to the vat PromiseID
-  t.deepEqual(log.shift(), ['notify', pForA, capdata('args', ['o-50'])]);
+  t.deepEqual(log.shift(), [
+    'notify',
+    oneResolution(pForA, false, capdata('"args"', ['o-50'])),
+  ]);
   t.deepEqual(log, []); // no other dispatch calls
-  if (!RETIRE_KPIDS) {
-    t.deepEqual(kernel.dump().promises, [
-      {
-        id: pForKernel,
-        state: 'fulfilledToData',
-        refCount: 0,
-        data: capdata('args', ['ko20']),
-      },
-    ]);
-  }
   t.deepEqual(kernel.dump().runQueue, []);
-
-  t.end();
 });
 
 test('promise resolveToPresence', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
 
   let syscallA;
   function setupA(s) {
     syscallA = s;
     function deliver() {}
-    function notifyFulfillToPresence(promiseID, slot) {
-      log.push(['notify', promiseID, slot]);
+    function notify(resolutions) {
+      log.push(['notify', resolutions]);
     }
-    return { deliver, notifyFulfillToPresence };
+    return { deliver, notify };
   }
-  kernel.addGenesisVat('vatA', setupA);
+  await kernel.createTestVat('vatA', setupA);
 
   let syscallB;
   function setupB(s) {
@@ -743,8 +817,8 @@ test('promise resolveToPresence', async t => {
     function deliver() {}
     return { deliver };
   }
-  kernel.addGenesisVat('vatB', setupB);
-  await kernel.start();
+  await kernel.createTestVat('vatB', setupB);
+
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
 
@@ -768,6 +842,7 @@ test('promise resolveToPresence', async t => {
     {
       id: pForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vatB,
       subscribers: [vatA],
@@ -775,7 +850,7 @@ test('promise resolveToPresence', async t => {
     },
   ]);
 
-  syscallB.fulfillToPresence(pForB, bobForB);
+  syscallB.resolve([[pForB, false, capargs(slot0arg, [bobForB])]]);
   t.deepEqual(log, []); // no other dispatch calls
   t.deepEqual(kernel.dump().runQueue, [
     {
@@ -786,36 +861,32 @@ test('promise resolveToPresence', async t => {
   ]);
 
   await kernel.step();
-  t.deepEqual(log.shift(), ['notify', pForA, bobForA]);
+  t.deepEqual(log.shift(), [
+    'notify',
+    oneResolution(pForA, false, {
+      body: '{"@qclass":"slot","index":0}',
+      slots: [bobForA],
+    }),
+  ]);
   t.deepEqual(log, []); // no other dispatch calls
-  if (!RETIRE_KPIDS) {
-    t.deepEqual(kernel.dump().promises, [
-      {
-        id: pForKernel,
-        state: 'fulfilledToPresence',
-        refCount: 0,
-        slot: bobForKernel,
-      },
-    ]);
-  }
   t.deepEqual(kernel.dump().runQueue, []);
-  t.end();
 });
 
 test('promise reject', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
 
   let syscallA;
   function setupA(s) {
     syscallA = s;
     function deliver() {}
-    function notifyReject(promiseID, rejectData) {
-      log.push(['notify', promiseID, rejectData]);
+    function notify(resolutions) {
+      log.push(['notify', resolutions]);
     }
-    return { deliver, notifyReject };
+    return { deliver, notify };
   }
-  kernel.addGenesisVat('vatA', setupA);
+  await kernel.createTestVat('vatA', setupA);
 
   let syscallB;
   function setupB(s) {
@@ -823,8 +894,8 @@ test('promise reject', async t => {
     function deliver() {}
     return { deliver };
   }
-  kernel.addGenesisVat('vatB', setupB);
-  await kernel.start();
+  await kernel.createTestVat('vatB', setupB);
+
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
 
@@ -842,6 +913,7 @@ test('promise reject', async t => {
     {
       id: pForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vatB,
       subscribers: [vatA],
@@ -849,8 +921,8 @@ test('promise reject', async t => {
     },
   ]);
 
-  syscallB.reject(pForB, capdata('args', [aliceForA]));
-  // this causes a notifyFulfillToData message to be queued
+  syscallB.resolve([[pForB, true, capdata('"args"', [aliceForA])]]);
+  // this causes a notify message to be queued
   t.deepEqual(log, []); // no other dispatch calls
   t.deepEqual(kernel.dump().runQueue, [
     {
@@ -862,26 +934,19 @@ test('promise reject', async t => {
 
   await kernel.step();
   // the kernelPromiseID gets mapped back to the vat PromiseID
-  t.deepEqual(log.shift(), ['notify', pForA, capdata('args', ['o-50'])]);
+  t.deepEqual(log.shift(), [
+    'notify',
+    oneResolution(pForA, true, capdata('"args"', ['o-50'])),
+  ]);
   t.deepEqual(log, []); // no other dispatch calls
-  if (!RETIRE_KPIDS) {
-    t.deepEqual(kernel.dump().promises, [
-      {
-        id: pForKernel,
-        state: 'rejected',
-        refCount: 0,
-        data: capdata('args', ['ko20']),
-      },
-    ]);
-  }
   t.deepEqual(kernel.dump().runQueue, []);
-
-  t.end();
 });
 
 test('transcript', async t => {
   const aliceForAlice = 'o+1';
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
+
   function setup(syscall, _state) {
     function deliver(facetID, _method, args) {
       if (facetID === aliceForAlice) {
@@ -890,9 +955,8 @@ test('transcript', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vatA', setup);
-  kernel.addGenesisVat('vatB', emptySetup);
-  await kernel.start();
+  await kernel.createTestVat('vatA', setup);
+  await kernel.createTestVat('vatB', emptySetup);
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
 
@@ -911,7 +975,7 @@ test('transcript', async t => {
   // the transcript records vat-specific import/export slots
 
   const tr = kernel.dump().vatTables[0].state.transcript;
-  t.equal(tr.length, 1);
+  t.is(tr.length, 1);
   t.deepEqual(tr[0], {
     d: [
       'deliver',
@@ -926,10 +990,7 @@ test('transcript', async t => {
         response: null,
       },
     ],
-    crankNumber: 1,
   });
-
-  t.end();
 });
 
 // p1=x!foo(); p2=p1!bar(); p3=p2!urgh(); no pipelining. p1 will have a
@@ -937,7 +998,8 @@ test('transcript', async t => {
 // have a decider. Make sure p3 gets queued in p2 rather than exploding.
 
 test('non-pipelined promise queueing', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
 
   let syscall;
@@ -946,7 +1008,7 @@ test('non-pipelined promise queueing', async t => {
     function deliver() {}
     return { deliver };
   }
-  kernel.addGenesisVat('vatA', setupA);
+  await kernel.createTestVat('vatA', setupA);
 
   function setupB(_s) {
     function deliver(target, method, args, result) {
@@ -954,8 +1016,8 @@ test('non-pipelined promise queueing', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vatB', setupB);
-  await kernel.start();
+  await kernel.createTestVat('vatB', setupB);
+
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
 
@@ -979,6 +1041,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p1ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 3,
       decider: undefined,
       subscribers: [],
@@ -987,6 +1050,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p2ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 3,
       decider: undefined,
       subscribers: [],
@@ -995,6 +1059,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p3ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: undefined,
       subscribers: [],
@@ -1012,6 +1077,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p1ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vatB,
       subscribers: [],
@@ -1026,6 +1092,7 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p2ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 1,
       decider: undefined,
       subscribers: [],
@@ -1040,21 +1107,21 @@ test('non-pipelined promise queueing', async t => {
     {
       id: p3ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 1,
       decider: undefined,
       subscribers: [],
       queue: [],
     },
   ]);
-
-  t.end();
 });
 
 // p1=x!foo(); p2=p1!bar(); p3=p2!urgh(); with pipelining. All three should
 // get delivered to vat-with-x.
 
 test('pipelined promise queueing', async t => {
-  const kernel = buildKernel(makeEndowments());
+  const kernel = makeKernel();
+  await kernel.start();
   const log = [];
 
   let syscall;
@@ -1063,7 +1130,7 @@ test('pipelined promise queueing', async t => {
     function deliver() {}
     return { deliver };
   }
-  kernel.addGenesisVat('vatA', setupA);
+  await kernel.createTestVat('vatA', setupA);
 
   function setupB(_s) {
     function deliver(target, method, args, result) {
@@ -1071,8 +1138,8 @@ test('pipelined promise queueing', async t => {
     }
     return { deliver };
   }
-  kernel.addGenesisVat('vatB', setupB, { enablePipelining: true });
-  await kernel.start();
+  await kernel.createTestVat('vatB', setupB, {}, { enablePipelining: true });
+
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
 
@@ -1096,6 +1163,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p1ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 3,
       decider: undefined,
       subscribers: [],
@@ -1104,6 +1172,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p2ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 3,
       decider: undefined,
       subscribers: [],
@@ -1112,6 +1181,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p3ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: undefined,
       subscribers: [],
@@ -1133,6 +1203,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p1ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vatB,
       subscribers: [],
@@ -1141,6 +1212,7 @@ test('pipelined promise queueing', async t => {
     {
       id: p2ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vatB,
       subscribers: [],
@@ -1149,12 +1221,21 @@ test('pipelined promise queueing', async t => {
     {
       id: p3ForKernel,
       state: 'unresolved',
+      policy: 'ignore',
       refCount: 2,
       decider: vatB,
       subscribers: [],
       queue: [],
     },
   ]);
+});
 
-  t.end();
+test('xs-worker default manager type', async t => {
+  const endowments = makeEndowments();
+  initializeKernel({ defaultManagerType: 'xs-worker' }, endowments.hostStorage);
+  buildKernel(endowments, {}, {});
+  t.deepEqual(
+    endowments.hostStorage.get('kernel.defaultManagerType'),
+    'xs-worker',
+  );
 });

@@ -1,14 +1,87 @@
+/* global __dirname setInterval */
 import stringify from '@agoric/swingset-vat/src/kernel/json-stable-stringify';
+import {
+  importMailbox,
+  exportMailbox,
+} from '@agoric/swingset-vat/src/devices/mailbox';
+
+import { assert, details as X } from '@agoric/assert';
 
 import { launch } from './launch-chain';
 import makeBlockManager from './block-manager';
+import { getMeterProvider } from './kernel-stats';
 
 const AG_COSMOS_INIT = 'AG_COSMOS_INIT';
 
-export default async function main(progname, args, { path, env, agcc }) {
-  const bootAddress = env.BOOT_ADDRESS;
-  const role = env.ROLE || 'chain';
+const toNumber = specimen => {
+  const number = parseInt(specimen, 10);
+  assert(
+    String(number) === String(specimen),
+    X`Could not parse ${JSON.stringify(specimen)} as a number`,
+  );
+  return number;
+};
 
+const makeChainStorage = (call, prefix = '', imp = x => x, exp = x => x) => {
+  let cache = new Map();
+  let changedKeys = new Set();
+  const storage = {
+    has(key) {
+      // It's more efficient just to get the value.
+      const val = storage.get(key);
+      return !!val;
+    },
+    set(key, obj) {
+      if (cache.get(key) !== obj) {
+        cache.set(key, obj);
+        changedKeys.add(key);
+      }
+    },
+    get(key) {
+      if (cache.has(key)) {
+        // Our cache has the value.
+        return cache.get(key);
+      }
+      const retStr = call(stringify({ method: 'get', key: `${prefix}${key}` }));
+      const ret = JSON.parse(retStr);
+      const value = ret && JSON.parse(ret);
+      // console.log(` value=${value}`);
+      const obj = value && imp(value);
+      cache.set(key, obj);
+      // We need to add this in case the caller mutates the state, as in
+      // mailbox.js, which mutates on basically every get.
+      changedKeys.add(key);
+      return obj;
+    },
+    commit() {
+      for (const key of changedKeys.keys()) {
+        const obj = cache.get(key);
+        const value = stringify(exp(obj));
+        call(
+          stringify({
+            method: 'set',
+            key: `${prefix}${key}`,
+            value,
+          }),
+        );
+      }
+      // Reset our state.
+      storage.abort();
+    },
+    abort() {
+      // Just reset our state.
+      cache = new Map();
+      changedKeys = new Set();
+    },
+  };
+  return storage;
+};
+
+export default async function main(
+  progname,
+  args,
+  { path, env, homedir, agcc },
+) {
   const portNums = {};
 
   // TODO: use the 'basedir' pattern
@@ -36,7 +109,7 @@ export default async function main(progname, args, { path, env, agcc }) {
 
   // We try to find the actual cosmos state directory (default=~/.ag-chain-cosmos), which
   // is better than scribbling into the current directory.
-  const cosmosHome = getFlagValue('home', `${env.HOME}/.ag-chain-cosmos`);
+  const cosmosHome = getFlagValue('home', `${homedir}/.ag-chain-cosmos`);
   const stateDBDir = `${cosmosHome}/data/ag-cosmos-chain-state`;
 
   // console.log('Have AG_COSMOS', agcc);
@@ -121,49 +194,17 @@ export default async function main(progname, args, { path, env, agcc }) {
   // so the 'externalStorage' object can close over the single mutable
   // instance, and we update the 'portNums.storage' value each time toSwingSet is called
   async function launchAndInitializeSwingSet() {
-    // this object is used to store the mailbox state. we only ever use
-    // key='mailbox'
-    const mailboxStorage = {
-      has(key) {
-        // x/swingset/storage.go returns "true" or "false"
-        const retStr = chainSend(
-          portNums.storage,
-          stringify({ method: 'has', key }),
-        );
-        const ret = JSON.parse(retStr);
-        if (Boolean(ret) !== ret) {
-          throw new Error(`chainSend(has) returned ${ret} not Boolean`);
-        }
-        return ret;
+    // this object is used to store the mailbox state.
+    const mailboxStorage = makeChainStorage(
+      msg => chainSend(portNums.storage, msg),
+      'mailbox.',
+      data => {
+        const ack = toNumber(data.ack);
+        const outbox = data.outbox.map(([seq, msg]) => [toNumber(seq), msg]);
+        return importMailbox({ outbox, ack });
       },
-      set(key, value) {
-        if (value !== `${value}`) {
-          throw new Error(
-            `golang storage API only takes string values, not '${JSON.stringify(
-              value,
-            )}'`,
-          );
-        }
-        const encodedValue = stringify(value);
-        chainSend(
-          portNums.storage,
-          stringify({ method: 'set', key, value: encodedValue }),
-        );
-      },
-      get(key) {
-        const retStr = chainSend(
-          portNums.storage,
-          stringify({ method: 'get', key }),
-        );
-        // console.log(`s.get(${key}) retstr=${retstr}`);
-        const encodedValue = JSON.parse(retStr);
-        // console.log(` encodedValue=${encodedValue}`);
-        const value = JSON.parse(encodedValue);
-        // console.log(` value=${value}`);
-        return value;
-      },
-    };
-
+      exportMailbox,
+    );
     function doOutboundBridge(dstID, obj) {
       const portNum = portNums[dstID];
       if (portNum === undefined) {
@@ -179,22 +220,24 @@ export default async function main(progname, args, { path, env, agcc }) {
       try {
         return JSON.parse(retStr);
       } catch (e) {
-        throw Error(`cannot JSON.parse(${JSON.stringify(retStr)}): ${e}`);
+        assert.fail(X`cannot JSON.parse(${JSON.stringify(retStr)}): ${e}`);
       }
     }
 
     const vatsdir = path.resolve(__dirname, '../lib/ag-solo/vats');
-    const argv = [`--role=${role}`];
-    if (bootAddress) {
-      argv.push(...bootAddress.trim().split(/\s+/));
-    }
+    const argv = {
+      ROLE: 'chain',
+      noFakeCurrencies: env.NO_FAKE_CURRENCIES,
+    };
+    const meterProvider = getMeterProvider(console, env);
     const s = await launch(
       stateDBDir,
       mailboxStorage,
       doOutboundBridge,
-      flushChainSends,
       vatsdir,
       argv,
+      undefined,
+      meterProvider,
     );
     return s;
   }
@@ -213,8 +256,16 @@ export default async function main(progname, args, { path, env, agcc }) {
     }
 
     if (!blockManager) {
-      const fns = await launchAndInitializeSwingSet();
-      blockManager = makeBlockManager(fns);
+      const {
+        savedChainSends: scs,
+        ...fns
+      } = await launchAndInitializeSwingSet();
+      savedChainSends = scs;
+      blockManager = makeBlockManager({
+        ...fns,
+        flushChainSends,
+        verboseBlocks: true,
+      });
     }
 
     if (action.type === AG_COSMOS_INIT) {
@@ -222,6 +273,6 @@ export default async function main(progname, args, { path, env, agcc }) {
       return true;
     }
 
-    return blockManager(action);
+    return blockManager(action, savedChainSends);
   }
 }

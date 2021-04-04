@@ -1,12 +1,12 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { test } from '@agoric/swingset-vat/tools/prepare-test-env-ava';
+
 import { makeSharingService } from '../../src/sharing';
 
 test('Sharing creation', t => {
   const sharingService = makeSharingService();
   const first = sharingService.createSharedMap('first');
   t.assert(sharingService.validate(first));
-  t.end();
 });
 
 test('Sharing repeated creation', t => {
@@ -15,10 +15,9 @@ test('Sharing repeated creation', t => {
   t.assert(sharingService.validate(first));
   t.throws(
     _ => sharingService.createSharedMap('first'),
-    /already exists/,
+    { message: /already exists/ },
     'should throw on repeated call.',
   );
-  t.end();
 });
 
 test('Sharing grab value', t => {
@@ -28,21 +27,19 @@ test('Sharing grab value', t => {
   t.assert(sharingService.validate(first));
   const second = sharingService.grabSharedMap(firstName);
   t.assert(sharingService.validate(second));
-  t.equals(second, first);
+  t.is(second, first);
   t.throws(
     _ => sharingService.grabSharedMap(firstName),
-    /has already been collected/,
+    { message: /has already been collected/ },
     'should throw on repeated call.',
   );
-  t.end();
 });
 
 test('Sharing validate non service', t => {
   const sharingService = makeSharingService();
   t.throws(
     _ => sharingService.validate([]),
-    /Unrecognized sharedMap:/,
+    { message: /Unrecognized sharedMap:/ },
     'throws on non sharing service.',
   );
-  t.end();
 });

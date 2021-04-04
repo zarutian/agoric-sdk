@@ -1,10 +1,11 @@
-/* global harden */
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
 
-export function buildRootObject(vatPowers) {
-  return harden({
-    bootstrap(argv, vats) {
-      const mode = argv[0];
+export function buildRootObject(vatPowers, vatParameters) {
+  return Far('root', {
+    bootstrap(vats) {
+      const mode = vatParameters.argv[0];
       if (mode === 'one') {
         E(vats.left)
           .callRight(1, vats.right)
@@ -13,7 +14,7 @@ export function buildRootObject(vatPowers) {
             err => vatPowers.testLog(`b.rejected ${err}`),
           );
       } else {
-        throw Error(`unknown mode ${mode}`);
+        assert.fail(X`unknown mode ${mode}`);
       }
     },
   });

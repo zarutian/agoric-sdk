@@ -1,19 +1,18 @@
-/* global harden */
-
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
 
 export function buildRootObject(vatPowers) {
   const log = vatPowers.testLog;
   let service;
   let control;
 
-  return harden({
-    async bootstrap(argv, vats, devices) {
+  return Far('root', {
+    async bootstrap(vats, devices) {
       service = await E(vats.vatAdmin).createVatAdminService(devices.vatAdmin);
     },
 
-    async createVat(bundle, options) {
-      control = await E(service).createVat(bundle, options);
+    async createVat(bundle, dynamicOptions) {
+      control = await E(service).createVat(bundle, dynamicOptions);
       E(control.adminNode)
         .done()
         .then(
@@ -21,6 +20,13 @@ export function buildRootObject(vatPowers) {
           err => log(`terminated: ${err}`),
         );
       log(`created`);
+    },
+
+    getNever() {
+      // grab a Promise which won't resolve until the vat dies
+      const neverP = E(control.root).never();
+      neverP.catch(() => 'hush');
+      return [neverP];
     },
 
     async run() {

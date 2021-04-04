@@ -1,116 +1,128 @@
-/* global harden */
-
-import { assert, details } from '@agoric/assert';
-import { makeVatSlot } from '../../parseVatSlots';
+import { assert, details as X } from '@agoric/assert';
+import { makeVatSlot, insistVatType, parseVatSlot } from '../../parseVatSlots';
 import { getRemote } from './remote';
-import { makeState } from './state';
-import { deliverToRemote, resolvePromiseToRemote } from './outbound';
-import { deliverFromRemote } from './inbound';
+import { makeState, makeStateKit } from './state';
 import { deliverToController } from './controller';
 import { insistCapData } from '../../capdata';
 
-function transmit(syscall, state, remoteID, msg) {
-  const remote = getRemote(state, remoteID);
-  // the vat-tp "integrity layer" is a regular vat, so it expects an argument
-  // encoded as JSON
-  const args = harden({ body: JSON.stringify([msg]), slots: [] });
-  syscall.send(remote.transmitterID, 'transmit', args); // sendOnly
-}
+import { makeCListKit } from './clist';
+import { makeDeliveryKit } from './delivery';
+import { cdebug } from './cdebug';
 
 export const debugState = new WeakMap();
 
-export function buildCommsDispatch(syscall) {
-  // TODO: state.activate(), put this data on state.stuff instead of closing
-  // over a local object
-  const state = makeState();
+export function buildCommsDispatch(
+  syscall,
+  _state,
+  _helpers,
+  _vatPowers,
+  vatParameters = {},
+) {
+  const { identifierBase = 0, sendExplicitSeqNums = true } = vatParameters;
+  const state = makeState(identifierBase);
+  const stateKit = makeStateKit(state);
+  const clistKit = makeCListKit(state, syscall, stateKit);
+
+  function transmit(remoteID, msg) {
+    const remote = getRemote(state, remoteID);
+    // the vat-tp "integrity layer" is a regular vat, so it expects an argument
+    // encoded as JSON
+    const seqNum = sendExplicitSeqNums ? remote.nextSendSeqNum : '';
+    const args = harden({
+      body: JSON.stringify([`${seqNum}:${msg}`]),
+      slots: [],
+    });
+    remote.nextSendSeqNum += 1;
+    syscall.send(remote.transmitterID, 'transmit', args); // sendOnly
+  }
+
+  const deliveryKit = makeDeliveryKit(
+    state,
+    syscall,
+    transmit,
+    clistKit,
+    stateKit,
+  );
+
+  const { sendFromKernel, resolveFromKernel, messageFromRemote } = deliveryKit;
 
   // our root object (o+0) is the Comms Controller
   const controller = makeVatSlot('object', true, 0);
+  state.metaObjects.add(controller);
+  cdebug(`comms controller is ${controller}`);
 
   function deliver(target, method, args, result) {
-    insistCapData(args);
-    if (target === controller) {
-      return deliverToController(state, method, args, result, syscall);
-    }
     // console.debug(`comms.deliver ${target} r=${result}`);
     // dumpState(state);
-    if (state.objectTable.has(target) || state.promiseTable.has(target)) {
-      assert(
-        method.indexOf(':') === -1 && method.indexOf(';') === -1,
-        details`illegal method name ${method}`,
-      );
-      return deliverToRemote(
-        syscall,
+    insistCapData(args);
+
+    if (target === controller) {
+      return deliverToController(
         state,
-        target,
+        clistKit,
         method,
         args,
         result,
-        transmit,
+        syscall,
       );
     }
+
     if (state.remoteReceivers.has(target)) {
-      assert(method === 'receive', details`unexpected method ${method}`);
+      assert(method === 'receive', X`unexpected method ${method}`);
       // the vat-tp integrity layer is a regular vat, so when they send the
       // received message to us, it will be embedded in a JSON array
+      const remoteID = state.remoteReceivers.get(target);
       const message = JSON.parse(args.body)[0];
-      return deliverFromRemote(
-        syscall,
-        state,
-        state.remoteReceivers.get(target),
-        message,
-      );
+      return messageFromRemote(remoteID, message, result);
     }
 
-    // TODO: if promise target not in PromiseTable: resolve result to error
-    //   this will happen if someone pipelines to our controller/receiver
-    throw new Error(`unknown target ${target}`);
+    // If we get to this point, the message is not being delivered to a
+    // meta-object and so `sendFromKernel()` can proceed with translating the
+    // message into local space and processing it.  However, since a message to
+    // a meta-object never reaches this translation step, it means that neither
+    // a PromiseTable entry nor a local promise ID are ever allocated for such a
+    // message's `result` parameter.  If the kernel were to pipeline a
+    // subsequent message to that result, that message could, in principle,
+    // arrive at this point in the code without there being any local entity to
+    // deliver it *to*.  If this were to happen, `sendFromKernel()` would throw
+    // an exception when it fails to translate the message target, and
+    // consequently kill the vat.  Fortunately, we don't believe any special
+    // handling is required for this eventuality because it should never happen:
+    // (1) `messageFromRemote()` does not make use of the result parameter at
+    // all, and (2) `deliverToController()` always resolves the result with a
+    // direct `syscall.resolve()` call in the same crank, short-circuiting the
+    // kernel's pipeline delivery mechanism.  If such a case *does* happen, it
+    // can only be the result of a kernel bug (i.e., the pipeline short-circuit
+    // logic malfunctioned) or a bug in one of the comms controller object's
+    // method handlers (i.e., it failed to resolve the result in the same
+    // crank).  The resulting abrupt comms vat termination should serve as a
+    // diagnostic signal that we have a bug that must be corrected.
+
+    args.slots.map(s =>
+      assert(
+        !state.metaObjects.has(s),
+        X`comms meta-object ${s} not allowed in message args`,
+      ),
+    );
+    return sendFromKernel(target, method, args, result);
   }
 
-  function notifyFulfillToData(promiseID, data) {
-    insistCapData(data);
-    // console.debug(`comms.notifyFulfillToData(${promiseID})`);
-    // dumpState(state);
+  function notify(resolutions) {
+    resolveFromKernel(resolutions);
 
-    // I *think* we should never get here for local promises, since the
-    // controller only does sendOnly. But if we change that, we need to catch
-    // locally-generated promises and deal with them.
-    // if (promiseID in localPromises) {
-    //  resolveLocal(promiseID, { type: 'data', body, slots });
-    // }
-
-    // todo: if we previously held resolution authority for this promise, then
-    // transferred it to some local vat, we'll have subscribed to the kernel to
-    // hear about it. If we then get the authority back again, we no longer
-    // want to hear about its resolution (since we're the ones doing the
-    // resolving), but the kernel still thinks of us as subscribing, so we'll
-    // get a bogus dispatch.notifyFulfill*. Currently we throw an error, which
-    // is currently ignored but might prompt a vat shutdown in the future.
-
-    const resolution = harden({ type: 'data', data });
-    resolvePromiseToRemote(syscall, state, promiseID, resolution, transmit);
+    // XXX question: do we need to call retirePromiseIDIfEasy (or some special
+    // comms vat version of it) here?
   }
 
-  function notifyFulfillToPresence(promiseID, slot) {
-    // console.debug(`comms.notifyFulfillToPresence(${promiseID}) = ${slot}`);
-    const resolution = harden({ type: 'object', slot });
-    resolvePromiseToRemote(syscall, state, promiseID, resolution, transmit);
+  function dropExports(vrefs) {
+    assert(Array.isArray(vrefs));
+    vrefs.map(vref => insistVatType('object', vref));
+    vrefs.map(vref => assert(parseVatSlot(vref).allocatedByVat));
+    console.log(`-- comms ignoring dropExports`);
   }
 
-  function notifyReject(promiseID, data) {
-    insistCapData(data);
-    // console.debug(`comms.notifyReject(${promiseID})`);
-    const resolution = harden({ type: 'reject', data });
-    resolvePromiseToRemote(syscall, state, promiseID, resolution, transmit);
-  }
-
-  const dispatch = harden({
-    deliver,
-    notifyFulfillToData,
-    notifyFulfillToPresence,
-    notifyReject,
-  });
-  debugState.set(dispatch, state);
+  const dispatch = harden({ deliver, notify, dropExports });
+  debugState.set(dispatch, { state, clistKit });
 
   return dispatch;
 }

@@ -4,10 +4,58 @@
     <title>Agoric Wallet Bridge</title>
   </head>
   <body>
-    <p>This bridge is only for dApps to reach your wallet.  It contains no user-servicable parts.</p>
+    <style>
+      html, body {
+        height: 100%;
+        padding: 0;
+        margin: 0;
+      }
 
+      * {
+        box-sizing: border-box;
+        padding: 0;
+        margin: 0;
+      }
+
+      #launchWallet {
+        height: 100%;
+        width: 100%;
+        background-color: white;
+      }
+
+      .pulse {
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0% {
+          background-color: white;
+        }
+        50% {
+          background-color: #ab2328;
+        }
+        100% {
+          background-color: white;
+        }
+      }
+    </style>
+
+    <button id="launchWallet">Agoric Wallet</button>
     <script type="text/javascript">
-      const walletPublicURL = new URL('/private/wallet-bridge', window.origin.replace(/^http/, 'ws')).href;
+      let pendingWalletRequests = 0;
+
+      launchWallet.addEventListener('click', ev => {
+        alert(`\
+Use the:
+
+   agoric open
+
+command-line request to open the Agoric wallet.`);
+      });
+
+      const walletPublicURL = new URL(
+        `/private/wallet-bridge${location.search}`,
+        window.origin.replace(/^http/, 'ws'),
+      ).href;
       const ws = new WebSocket(walletPublicURL);
       const wsQueue = [];
       const dappQueue = [];
@@ -21,6 +69,29 @@
         }
         if (!obj || typeof obj.type !== 'string') {
           return;
+        }
+        // Check if the wallet launcher needs activation.
+        switch (obj.type) {
+          case 'walletNeedDappApproval':
+          case 'walletOfferAdded': {
+            // Encourage them to approve the request.
+            launchWallet.classList.add('pulse');
+            if (pendingWalletRequests <= 0) {
+              pendingWalletRequests = 0;
+            }
+            pendingWalletRequests += 1;
+            break;
+          }
+          case 'walletHaveDappApproval':
+          case 'walletOfferHandled': {
+            // They've approved a request.
+            pendingWalletRequests -= 1;
+            if (pendingWalletRequests <= 0) {
+              pendingWalletRequests = 0;
+              launchWallet.classList.remove('pulse');
+            }
+            break;
+          }
         }
         if (origin === undefined) {
           dappQueue.push(obj);
@@ -37,10 +108,10 @@
         }
         while (wsQueue.length) {
           // The queued messages are raw objects, so JSONify.
-          ws.send(JSON.stringify(wsQueue.shift()));
+          const obj = wsQueue.shift();
+          ws.send(JSON.stringify(obj));
         }
       });
-
 
       window.addEventListener('message', ev => {
         // console.log('inbound', ev.data);
@@ -58,7 +129,10 @@
           }
         }
         // console.debug('from dapp', origin, ev.data);
-        const obj = { ...ev.data, dappOrigin: origin };
+        const obj = {
+          ...ev.data,
+          dappOrigin: origin,
+        };
         if (ws.readyState !== ws.OPEN) {
           // console.log('queuing', obj);
           wsQueue.push(obj);

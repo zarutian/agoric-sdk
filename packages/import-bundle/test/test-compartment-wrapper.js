@@ -1,9 +1,8 @@
-/* global Compartment */
-import '@agoric/install-ses';
-import tap from 'tap';
-import { wrapInescapableCompartment } from '../src/compartment-wrapper.js';
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { test } from '@agoric/swingset-vat/tools/prepare-test-env-ava';
 
-const { test } = tap;
+import { assert, details as X } from '@agoric/assert';
+import { wrapInescapableCompartment } from '../src/compartment-wrapper.js';
 
 // We build a transform that allows oldSrc to increment the odometer, but not
 // read it. Note, of course, that SES provides a far easier way to accomplish
@@ -11,9 +10,10 @@ const { test } = tap;
 // use cases that don't involve voluntary participation by oldSrc.
 
 function milageTransform(oldSrc) {
-  if (oldSrc.indexOf('getOdometer') !== -1) {
-    throw Error(`forbidden access to 'getOdometer' in oldSrc`);
-  }
+  assert(
+    oldSrc.indexOf('getOdometer') === -1,
+    X`forbidden access to 'getOdometer' in oldSrc`,
+  );
   return oldSrc.replace(/addMilage\(\)/g, 'getOdometer().add(1)');
 }
 
@@ -72,55 +72,55 @@ const attemptResetByTransform = `() => {
 }`;
 
 function check(t, c, odometer, n) {
-  t.equal(odometer.read(), 0, `${n}.start`);
+  t.is(odometer.read(), 0, `${n}.start`);
   c.evaluate(doAdd);
-  t.equal(odometer.read(), 1, `${n}.doAdd`);
+  t.is(odometer.read(), 1, `${n}.doAdd`);
   odometer.reset();
 
   c.evaluate(doAddInChild)(doAdd);
-  t.equal(odometer.read(), 1, `${n}.doAddInChild`);
+  t.is(odometer.read(), 1, `${n}.doAddInChild`);
   odometer.reset();
 
   odometer.add(5);
   t.throws(
     () => c.evaluate(attemptReset)(),
-    /forbidden access/,
+    { message: /forbidden access/ },
     `${n}.attemptReset`,
   );
-  t.equal(odometer.read(), 5, `${n}  not reset`);
+  t.is(odometer.read(), 5, `${n}  not reset`);
 
   t.throws(
     () => c.evaluate(attemptResetInChild)(attemptReset),
-    /forbidden access/,
+    { message: /forbidden access/ },
     `${n}.attemptResetInChild`,
   );
-  t.equal(odometer.read(), 5, `${n}  not reset`);
+  t.is(odometer.read(), 5, `${n}  not reset`);
   odometer.reset();
 
   const fakeCalled = c.evaluate(attemptResetByShadow)(doAdd);
-  t.notOk(fakeCalled, `${n}.attemptResetByShadow`);
-  t.equal(odometer.read(), 1, `${n}  called anyway`);
+  t.falsy(fakeCalled, `${n}.attemptResetByShadow`);
+  t.is(odometer.read(), 1, `${n}  called anyway`);
   odometer.reset();
 
   odometer.add(5);
   t.throws(
     () => c.evaluate(attemptResetByTransform)(),
-    /forbidden access/,
+    { message: /forbidden access/ },
     `${n}.attemptResetByTransform`,
   );
-  t.equal(odometer.read(), 5, `${n}  not reset`);
+  t.is(odometer.read(), 5, `${n}  not reset`);
   odometer.reset();
 
-  t.equal(
-    c.evaluate('Compartment.name'),
-    'Compartment',
-    `${n}.Compartment.name`,
-  );
+  t.is(c.evaluate('Compartment.name'), 'Compartment', `${n}.Compartment.name`);
 
-  t.ok(c instanceof Compartment, `${n} instanceof`);
+  t.truthy(c instanceof Compartment, `${n} instanceof`);
 
   const Con = Object.getPrototypeOf(c.globalThis.Compartment).constructor;
-  t.throws(() => new Con(), /Not available/, `${n} .constructor is tamed`);
+  t.throws(
+    () => new Con(),
+    { message: /Not available/ },
+    `${n} .constructor is tamed`,
+  );
 }
 
 test('wrap', t => {
@@ -145,6 +145,4 @@ test('wrap', t => {
 
   const c3 = c2.evaluate(createChild)();
   check(t, c3, odometer, 'c3');
-
-  t.end();
 });

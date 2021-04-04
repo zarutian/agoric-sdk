@@ -1,9 +1,9 @@
 // Copyright (C) 2013 Google Inc, under Apache License 2.0
 // Copyright (C) 2018 Agoric, under Apache License 2.0
 
-/* global harden */
 import { E } from '@agoric/eventual-send';
-import makeAmountMath from '@agoric/ertp/src/amountMath';
+import { Far } from '@agoric/marshal';
+import { makeLocalAmountMath } from '@agoric/ertp';
 import { allComparable } from '@agoric/same-structure';
 
 import { makeCollect } from '../../../src/makeCollect';
@@ -11,15 +11,7 @@ import { makeCollect } from '../../../src/makeCollect';
 function makeFredMaker(host, log) {
   const collect = makeCollect(E, log);
 
-  const getLocalAmountMath = issuer =>
-    Promise.all([
-      E(issuer).getBrand(),
-      E(issuer).getMathHelpersName(),
-    ]).then(([brand, mathHelpersName]) =>
-      makeAmountMath(brand, mathHelpersName),
-    );
-
-  return harden({
+  return Far('fredMaker', {
     async make(
       escrowExchangeInstallationP,
       coveredCallInstallationP,
@@ -31,7 +23,7 @@ function makeFredMaker(host, log) {
       myStockPaymentP,
       myFinPaymentP,
     ) {
-      const inviteIssuerP = E(host).getInviteIssuer();
+      const inviteIssuerP = E(host).getInvitationIssuer();
       const myMoneyPurseP = E(moneyIssuerP).makeEmptyPurse();
       const myStockPurseP = E(stockIssuerP).makeEmptyPurse();
       const myFinPurseP = E(finIssuerP).makeEmptyPurse();
@@ -39,14 +31,14 @@ function makeFredMaker(host, log) {
       await E(myStockPurseP).deposit(myStockPaymentP);
       await E(myFinPaymentP).deposit(myFinPaymentP);
 
-      const moneyMath = await getLocalAmountMath(moneyIssuerP);
-      const stockMath = await getLocalAmountMath(stockIssuerP);
-      const finMath = await getLocalAmountMath(finIssuerP);
+      const moneyMath = await makeLocalAmountMath(moneyIssuerP);
+      const stockMath = await makeLocalAmountMath(stockIssuerP);
+      const finMath = await makeLocalAmountMath(finIssuerP);
       const dough10 = moneyMath.make(10);
       const wonka7 = stockMath.make(7);
       const fin55 = finMath.make(55);
 
-      const fred = harden({
+      const fred = Far('fred', {
         acceptOptionOffer(allegedSaleInvitePaymentP) {
           log('++ fred.acceptOptionOffer starting');
 
@@ -106,9 +98,9 @@ function makeFredMaker(host, log) {
 }
 
 export function buildRootObject(vatPowers) {
-  return harden({
+  return Far('root', {
     makeFredMaker(host) {
-      return harden(makeFredMaker(host, vatPowers.log));
+      return makeFredMaker(host, vatPowers.log);
     },
   });
 }

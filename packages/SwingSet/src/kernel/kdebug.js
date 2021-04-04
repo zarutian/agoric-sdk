@@ -1,3 +1,5 @@
+import { assert, details as X } from '@agoric/assert';
+
 let enableKDebug = false;
 
 export function kdebugEnable(flag) {
@@ -10,7 +12,7 @@ export function kdebug(...args) {
   }
 }
 
-function legibilizeValue(val, slots) {
+export function legibilizeValue(val, slots) {
   if (Array.isArray(val)) {
     let result = '[';
     for (const elem of val) {
@@ -39,7 +41,7 @@ function legibilizeValue(val, slots) {
         case 'ibid':
           return `ibid(${val.index})`;
         default:
-          throw new Error(`unknown qClass ${qClass} in legibilizeValue`);
+          assert.fail(X`unknown qClass ${qClass} in legibilizeValue`);
       }
     } else {
       let result = '{';
@@ -47,7 +49,7 @@ function legibilizeValue(val, slots) {
         if (result.length !== 1) {
           result += ', ';
         }
-        result += `${prop}: ${legibilizeValue(val[prop], slots)}`;
+        result += `${String(prop)}: ${legibilizeValue(val[prop], slots)}`;
       }
       result += '}';
       return result;

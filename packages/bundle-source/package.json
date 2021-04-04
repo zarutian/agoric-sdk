@@ -1,38 +1,46 @@
 {
   "name": "@agoric/bundle-source",
-  "version": "1.1.6",
+  "version": "1.2.4",
   "description": "Create source bundles from ES Modules",
+  "parsers": {
+    "js": "mjs"
+  },
   "main": "src/index.js",
   "scripts": {
     "build": "exit 0",
-    "test": "tap --no-coverage --jobs=1 'test/**/*.js'",
+    "test": "ava",
+    "test:nyc": "nyc ava",
+    "test:xs": "exit 0",
     "lint-fix": "eslint --fix '**/*.js'",
     "lint-check": "eslint '**/*.js'",
     "lint-fix-jessie": "eslint -c '.eslintrc-jessie.js' --fix '**/*.js'",
     "lint-check-jessie": "eslint -c '.eslintrc-jessie.js' '**/*.js'"
   },
   "devDependencies": {
-    "@agoric/install-ses": "^0.2.0",
-    "tap": "^14.10.5",
-    "tape": "^4.11.0",
-    "tape-promise": "^4.0.0"
+    "@agoric/install-ses": "^0.5.4",
+    "ava": "^3.12.1",
+    "nyc": "^15.1.0"
   },
   "dependencies": {
-    "@agoric/acorn-eventual-send": "^2.0.6",
+    "@agoric/acorn-eventual-send": "^2.1.4",
     "@agoric/babel-parser": "^7.6.4",
-    "@agoric/transform-eventual-send": "^1.3.1",
+    "@agoric/compartment-mapper": "^0.2.3",
+    "@agoric/transform-eventual-send": "^1.4.4",
     "@babel/generator": "^7.6.4",
     "@babel/traverse": "^7.8.3",
-    "@rollup/plugin-commonjs": "^11.0.2",
+    "@endo/base64": "^0.1.0",
+    "@rollup/plugin-commonjs": "~11.0.2",
     "@rollup/plugin-node-resolve": "^7.1.1",
     "acorn": "^7.1.0",
     "esm": "^3.2.5",
     "rollup": "^1.32.0",
+    "ses": "^0.12.6",
     "source-map": "^0.7.3"
   },
   "keywords": [],
   "files": [
-    "src"
+    "src",
+    "exported"
   ],
   "repository": {
     "type": "git",
@@ -46,5 +54,22 @@
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
   "publishConfig": {
     "access": "public"
+  },
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ]
+  },
+  "eslintConfig": {
+    "extends": [
+      "@agoric"
+    ]
+  },
+  "prettier": {
+    "trailingComma": "all",
+    "singleQuote": true
   }
 }

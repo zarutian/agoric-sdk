@@ -3,6 +3,130 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.4](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.2.3...@agoric/bundle-source@1.2.4) (2021-03-24)
+
+**Note:** Version bump only for package @agoric/bundle-source
+
+
+
+
+
+## [1.2.3](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.2.2...@agoric/bundle-source@1.2.3) (2021-03-16)
+
+
+### Bug Fixes
+
+* make separate 'test:xs' target, remove XS from 'test' target ([b9c1a69](https://github.com/Agoric/agoric-sdk/commit/b9c1a6987093fc8e09e8aba7acd2a1618413bac8)), closes [#2647](https://github.com/Agoric/agoric-sdk/issues/2647)
+* upgrade ses to 0.12.3 to avoid console noise ([#2552](https://github.com/Agoric/agoric-sdk/issues/2552)) ([f59f5f5](https://github.com/Agoric/agoric-sdk/commit/f59f5f58d1567bb11710166b1dbc80f25c39a04f))
+
+
+
+
+
+## [1.2.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.2.1...@agoric/bundle-source@1.2.2) (2021-02-22)
+
+
+### Bug Fixes
+
+* **bundle-source:** Downgrade @rollup/plugin-commonjs for Windows ([2721da7](https://github.com/Agoric/agoric-sdk/commit/2721da770aad3077f1024b71c217883f31461641))
+
+
+
+
+
+## [1.2.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.2.0...@agoric/bundle-source@1.2.1) (2021-02-16)
+
+
+### Bug Fixes
+
+* explicit setting in test-sanity ([#2388](https://github.com/Agoric/agoric-sdk/issues/2388)) ([6be4e02](https://github.com/Agoric/agoric-sdk/commit/6be4e0212d19a542ead6cd4bcef4cb6688a9d7d3))
+* take advantage of `/.../` being stripped from stack traces ([7acacc0](https://github.com/Agoric/agoric-sdk/commit/7acacc0d6ac06c37065ce984cc9147c945c572e5))
+
+
+
+
+
+# [1.2.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.10...@agoric/bundle-source@1.2.0) (2020-12-10)
+
+
+### Features
+
+* **import-bundle:** Preliminary support Endo zip hex bundle format ([#1983](https://github.com/Agoric/agoric-sdk/issues/1983)) ([983681b](https://github.com/Agoric/agoric-sdk/commit/983681bfc4bf512b6bd90806ed9220cd4fefc13c))
+
+
+
+
+
+## [1.1.10](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.10-dev.0...@agoric/bundle-source@1.1.10) (2020-11-07)
+
+**Note:** Version bump only for package @agoric/bundle-source
+
+
+
+
+
+## [1.1.10-dev.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.9...@agoric/bundle-source@1.1.10-dev.0) (2020-10-19)
+
+**Note:** Version bump only for package @agoric/bundle-source
+
+
+
+
+
+## [1.1.9](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.9-dev.2...@agoric/bundle-source@1.1.9) (2020-10-11)
+
+**Note:** Version bump only for package @agoric/bundle-source
+
+
+
+
+
+## [1.1.9-dev.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.9-dev.1...@agoric/bundle-source@1.1.9-dev.2) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/bundle-source
+
+
+
+
+
+## [1.1.9-dev.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.9-dev.0...@agoric/bundle-source@1.1.9-dev.1) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/bundle-source
+
+
+
+
+
+## [1.1.9-dev.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.8...@agoric/bundle-source@1.1.9-dev.0) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/bundle-source
+
+
+
+
+
+## [1.1.8](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.7...@agoric/bundle-source@1.1.8) (2020-09-16)
+
+**Note:** Version bump only for package @agoric/bundle-source
+
+
+
+
+
+## [1.1.7](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.6...@agoric/bundle-source@1.1.7) (2020-08-31)
+
+
+### Bug Fixes
+
+* **bundle-source:** fix comment misparse, make require optional ([e8f4127](https://github.com/Agoric/agoric-sdk/commit/e8f412767c5ad8a0e75aa29357a052fd2164e811)), closes [#1281](https://github.com/Agoric/agoric-sdk/issues/1281) [#362](https://github.com/Agoric/agoric-sdk/issues/362)
+* get line numbers to be proper again ([8c31701](https://github.com/Agoric/agoric-sdk/commit/8c31701a6b4353e549b7e8891114a41ee48457c8))
+* use Babel to strip comments and unmap line numbers ([24edbbc](https://github.com/Agoric/agoric-sdk/commit/24edbbc985500233ea876817228bbccc71b2bac3))
+* use only loc.start to ensure nodes begin on the correct line ([dc3bc65](https://github.com/Agoric/agoric-sdk/commit/dc3bc658cc2900a1f074c8d23fd3e5bae9773e18))
+
+
+
+
+
 ## [1.1.6](https://github.com/Agoric/agoric-sdk/compare/@agoric/bundle-source@1.1.5...@agoric/bundle-source@1.1.6) (2020-06-30)
 
 

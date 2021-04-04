@@ -1,23 +1,38 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
-import { buildVatController, getVatTPSourcePath } from '../src/index';
+/* global require */
+import { test } from '../tools/prepare-test-env-ava';
+
+// eslint-disable-next-line import/order
+import { initSwingStore } from '@agoric/swing-store-simple';
+import { initializeSwingset, makeSwingsetController } from '../src/index';
 import { buildMailboxStateMap, buildMailbox } from '../src/devices/mailbox';
 
 test('vattp', async t => {
   const s = buildMailboxStateMap();
   const mb = buildMailbox(s);
   const config = {
-    vats: new Map(),
-    devices: [['mailbox', mb.srcPath, mb.endowments]],
-    bootstrapIndexJS: require.resolve('./files-vattp/bootstrap-test-vattp'),
+    bootstrap: 'bootstrap',
+    vats: {
+      bootstrap: {
+        sourceSpec: require.resolve('./files-vattp/bootstrap-test-vattp'),
+      },
+    },
+    devices: {
+      mailbox: {
+        sourceSpec: mb.srcPath,
+      },
+    },
   };
-  config.vats.set('vattp', { sourcepath: getVatTPSourcePath() });
+  const deviceEndowments = {
+    mailbox: { ...mb.endowments },
+  };
+  const hostStorage = initSwingStore().storage;
 
-  const c = await buildVatController(config, ['1']);
+  await initializeSwingset(config, ['1'], hostStorage);
+  const c = await makeSwingsetController(hostStorage, deviceEndowments);
   await c.run();
   t.deepEqual(s.exportToData(), {});
 
-  t.equal(
+  t.is(
     mb.deliverInbound(
       'remote1',
       [
@@ -36,7 +51,7 @@ test('vattp', async t => {
   ]);
   t.deepEqual(s.exportToData(), { remote1: { outbox: [], inboundAck: 2 } });
 
-  t.equal(
+  t.is(
     mb.deliverInbound(
       'remote1',
       [
@@ -49,39 +64,49 @@ test('vattp', async t => {
   );
   await c.run();
   t.deepEqual(s.exportToData(), { remote1: { outbox: [], inboundAck: 2 } });
-
-  t.end();
 });
 
 test('vattp 2', async t => {
   const s = buildMailboxStateMap();
   const mb = buildMailbox(s);
   const config = {
-    vats: new Map(),
-    devices: [['mailbox', mb.srcPath, mb.endowments]],
-    bootstrapIndexJS: require.resolve('./files-vattp/bootstrap-test-vattp'),
+    bootstrap: 'bootstrap',
+    vats: {
+      bootstrap: {
+        sourceSpec: require.resolve('./files-vattp/bootstrap-test-vattp'),
+      },
+    },
+    devices: {
+      mailbox: {
+        sourceSpec: mb.srcPath,
+      },
+    },
   };
-  config.vats.set('vattp', { sourcepath: getVatTPSourcePath() });
+  const deviceEndowments = {
+    mailbox: { ...mb.endowments },
+  };
+  const hostStorage = initSwingStore().storage;
 
-  const c = await buildVatController(config, ['2']);
+  await initializeSwingset(config, ['2'], hostStorage);
+  const c = await makeSwingsetController(hostStorage, deviceEndowments);
   await c.run();
   t.deepEqual(s.exportToData(), {
     remote1: { outbox: [[1, 'out1']], inboundAck: 0 },
   });
 
-  t.equal(mb.deliverInbound('remote1', [], 1), true);
+  t.is(mb.deliverInbound('remote1', [], 1), true);
   await c.run();
   t.deepEqual(c.dump().log, []);
   t.deepEqual(s.exportToData(), { remote1: { outbox: [], inboundAck: 0 } });
 
-  t.equal(mb.deliverInbound('remote1', [[1, 'msg1']], 1), true);
+  t.is(mb.deliverInbound('remote1', [[1, 'msg1']], 1), true);
   await c.run();
   t.deepEqual(c.dump().log, ['ch.receive msg1']);
   t.deepEqual(s.exportToData(), { remote1: { outbox: [], inboundAck: 1 } });
 
-  t.equal(mb.deliverInbound('remote1', [[1, 'msg1']], 1), false);
+  t.is(mb.deliverInbound('remote1', [[1, 'msg1']], 1), false);
 
-  t.equal(
+  t.is(
     mb.deliverInbound(
       'remote1',
       [
@@ -95,6 +120,4 @@ test('vattp 2', async t => {
   await c.run();
   t.deepEqual(c.dump().log, ['ch.receive msg1', 'ch.receive msg2']);
   t.deepEqual(s.exportToData(), { remote1: { outbox: [], inboundAck: 2 } });
-
-  t.end();
 });

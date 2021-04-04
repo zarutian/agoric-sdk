@@ -1,39 +1,36 @@
 // @ts-check
 
-import makeIssuerKit from '@agoric/ertp';
+import { makeIssuerKit, MathKind, amountMath } from '@agoric/ertp';
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
 
 import '../../exported';
+import { assert } from '@agoric/assert';
 
 /**
  * This contract mints non-fungible tokens and creates a selling contract
  * instance to sell the tokens in exchange for some sort of money.
  *
- * makeInstance() returns an invitation that, when exercised, returns a
+ * startInstance() returns a creatorFacet which is a
  * ticketMaker with a `.sellTokens()` method. `.sellTokens()` takes a
  * specification of what is being sold, such as:
  * {
  *   customValueProperties: { ...arbitrary },
- *   count: 3,
+ *   count: 3n,
  *   moneyIssuer: moolaIssuer,
  *   sellItemsInstallationHandle,
- *   pricePerItem: moolaAmountMath.make(20),
+ *   pricePerItem: amountMath.make(20n, moolaBrand),
  * }
  * The payouts are returned as an offerResult in the `outcome`, and an API that
  * allows selling the tickets that were produced. You can reuse the ticket maker
  * to mint more tickets (e.g. for a separate show.)
  *
- * @param {ContractFacet} zcf
+ * @type {ContractStartFn}
  */
-const makeContract = zcf => {
-  const { terms } = zcf.getInstanceRecord();
-  const { tokenName = 'token' } = terms;
-
+const start = zcf => {
+  const { tokenName = 'token' } = zcf.getTerms();
   // Create the internal token mint
-  const { issuer, mint, amountMath: tokenAmountMath } = makeIssuerKit(
-    tokenName,
-    'set',
-  );
+  const { issuer, mint, brand } = makeIssuerKit(tokenName, MathKind.SET);
 
   const zoeService = zcf.getZoeService();
 
@@ -41,21 +38,20 @@ const makeContract = zcf => {
     customValueProperties,
     count,
     moneyIssuer,
-    sellItemsInstallationHandle,
+    sellItemsInstallation,
     pricePerItem,
   }) => {
-    const tokenAmount = tokenAmountMath.make(
-      harden(
-        Array(count)
-          .fill(undefined)
-          .map((_, i) => {
-            const tokenNumber = i + 1;
-            return {
-              ...customValueProperties,
-              number: tokenNumber,
-            };
-          }),
-      ),
+    const tokenAmount = amountMath.make(
+      Array(count)
+        .fill(undefined)
+        .map((_, i) => {
+          const tokenNumber = i + 1;
+          return {
+            ...customValueProperties,
+            number: tokenNumber,
+          };
+        }),
+      brand,
     );
     const tokenPayment = mint.mintPayment(harden(tokenAmount));
     // Note that the proposal `want` is empty
@@ -79,37 +75,44 @@ const makeContract = zcf => {
     const sellItemsTerms = harden({
       pricePerItem,
     });
-    return E(zoeService)
-      .makeInstance(
-        sellItemsInstallationHandle,
-        issuerKeywordRecord,
-        sellItemsTerms,
-      )
-      .then(({ invite, instanceRecord: { handle: instanceHandle } }) => {
+    /**
+     * @type {Promise<{
+     *   creatorInvitation: Invitation | undefined,
+     *   creatorFacet: SellItemsCreatorFacet,
+     *   instance: Instance,
+     *   publicFacet: SellItemsPublicFacet,
+     * }>}
+     */
+    const instanceRecordP = E(zoeService).startInstance(
+      sellItemsInstallation,
+      issuerKeywordRecord,
+      sellItemsTerms,
+    );
+    return instanceRecordP.then(
+      ({ creatorInvitation, creatorFacet, instance, publicFacet }) => {
+        assert(creatorInvitation);
         return E(zoeService)
-          .offer(invite, proposal, paymentKeywordRecord)
-          .then(offerResult => {
+          .offer(creatorInvitation, proposal, paymentKeywordRecord)
+          .then(sellItemsCreatorSeat => {
             return harden({
-              ...offerResult,
-              sellItemsInstanceHandle: instanceHandle,
+              sellItemsCreatorSeat,
+              sellItemsCreatorFacet: creatorFacet,
+              sellItemsInstance: instance,
+              sellItemsPublicFacet: publicFacet,
             });
           });
-      });
+      },
+    );
   };
 
-  const mintTokensHook = _offerHandle => {
-    // outcome is an object with a sellTokens method
-    return harden({ sellTokens });
-  };
+  /** @type {MintAndSellNFTCreatorFacet} */
+  const creatorFacet = Far('creatorFacet', {
+    sellTokens,
+    getIssuer: () => issuer,
+  });
 
-  zcf.initPublicAPI(
-    harden({
-      getTokenIssuer: () => issuer,
-    }),
-  );
-
-  return zcf.makeInvitation(mintTokensHook, 'mint tokens');
+  return harden({ creatorFacet });
 };
 
-harden(makeContract);
-export { makeContract };
+harden(start);
+export { start };

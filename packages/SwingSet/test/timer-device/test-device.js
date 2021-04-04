@@ -1,75 +1,96 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
-import { buildVatController } from '../../src/index';
+/* global require */
+import { test } from '../../tools/prepare-test-env-ava';
+
+// eslint-disable-next-line import/order
+import { initSwingStore } from '@agoric/swing-store-simple';
+
+import { initializeSwingset, makeSwingsetController } from '../../src/index';
 import { buildTimer } from '../../src/devices/timer';
 
-const TimerSrc = '../../src/devices/timer-src';
+const TimerSrc = require.resolve('../../src/devices/timer-src');
+
+const timerConfig = {
+  bootstrap: 'bootstrap',
+  vats: {
+    bootstrap: {
+      sourceSpec: require.resolve('./bootstrap'),
+    },
+  },
+  devices: {
+    timer: {
+      sourceSpec: TimerSrc,
+    },
+  },
+};
 
 test('wake', async t => {
   const timer = buildTimer();
-  const config = {
-    vats: new Map(),
-    devices: [['timer', require.resolve(TimerSrc), timer.endowments]],
-    bootstrapIndexJS: require.resolve('./bootstrap'),
+  const deviceEndowments = {
+    timer: { ...timer.endowments },
   };
-  const c = await buildVatController(config, ['timer']);
+  const hostStorage = initSwingStore().storage;
+
+  await initializeSwingset(timerConfig, ['timer'], hostStorage);
+  const c = await makeSwingsetController(hostStorage, deviceEndowments);
   timer.poll(1);
   await c.step();
   timer.poll(5);
   await c.step();
   t.deepEqual(c.dump().log, ['starting wake test', 'handler.wake()']);
-  t.end();
 });
 
 test('repeater', async t => {
   const timer = buildTimer();
-  const config = {
-    vats: new Map(),
-    devices: [['timer', require.resolve(TimerSrc), timer.endowments]],
-    bootstrapIndexJS: require.resolve('./bootstrap'),
+  const deviceEndowments = {
+    timer: { ...timer.endowments },
   };
-  const c = await buildVatController(config, ['repeater', 3, 2]);
+  const hostStorage = initSwingStore().storage;
+
+  await initializeSwingset(timerConfig, ['repeater', 3, 2], hostStorage);
+  const c = await makeSwingsetController(hostStorage, deviceEndowments);
   timer.poll(1);
   await c.step();
   timer.poll(5);
   await c.step();
   t.deepEqual(c.dump().log, [
     'starting repeater test',
+    'next scheduled time: 3',
     'handler.wake(3) called 1 times.',
   ]);
-  t.end();
 });
 
 test('repeater2', async t => {
   const timer = buildTimer();
-  const config = {
-    vats: new Map(),
-    devices: [['timer', require.resolve(TimerSrc), timer.endowments]],
-    bootstrapIndexJS: require.resolve('./bootstrap'),
+  const deviceEndowments = {
+    timer: { ...timer.endowments },
   };
-  const c = await buildVatController(config, ['repeater', 3, 2]);
-  timer.poll(1);
+  const hostStorage = initSwingStore().storage;
+
+  await initializeSwingset(timerConfig, ['repeater', 3, 2], hostStorage);
+  const c = await makeSwingsetController(hostStorage, deviceEndowments);
+  timer.poll(1n);
   await c.step();
-  timer.poll(5);
+  timer.poll(5n);
   await c.step();
-  timer.poll(8);
+  timer.poll(8n);
   await c.step();
   t.deepEqual(c.dump().log, [
     'starting repeater test',
+    'next scheduled time: 3',
     'handler.wake(3) called 1 times.',
     'handler.wake(7) called 2 times.',
   ]);
-  t.end();
 });
 
 test('repeaterZero', async t => {
   const timer = buildTimer();
-  const config = {
-    vats: new Map(),
-    devices: [['timer', require.resolve(TimerSrc), timer.endowments]],
-    bootstrapIndexJS: require.resolve('./bootstrap'),
+  const deviceEndowments = {
+    timer: { ...timer.endowments },
   };
-  const c = await buildVatController(config, ['repeater', 0, 3]);
+  const hostStorage = initSwingStore().storage;
+
+  await initializeSwingset(timerConfig, ['repeater', 0, 3], hostStorage);
+  const c = await makeSwingsetController(hostStorage, deviceEndowments);
   timer.poll(1);
   await c.step();
   timer.poll(2);
@@ -92,9 +113,9 @@ test('repeaterZero', async t => {
   await c.step();
   t.deepEqual(c.dump().log, [
     'starting repeater test',
+    'next scheduled time: 3',
     'handler.wake(3) called 1 times.',
     'handler.wake(6) called 2 times.',
     'handler.wake(9) called 3 times.',
   ]);
-  t.end();
 });

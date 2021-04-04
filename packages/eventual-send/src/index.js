@@ -1,6 +1,4 @@
-/* global harden HandledPromise */
-
-import makeE from './E';
+import { trackTurns } from './track-turns';
 
 const {
   defineProperties,
@@ -10,24 +8,7 @@ const {
   isFrozen,
 } = Object;
 
-const { prototype: promiseProto } = Promise;
-const { then: originalThen } = promiseProto;
-
-// 'E' and 'HandledPromise' are exports of the module
-
-// For now:
-// import { HandledPromise, E } from '@agoric/eventual-send';
-// ...
-
-const hp =
-  typeof HandledPromise === 'undefined'
-    ? // eslint-disable-next-line no-use-before-define
-      makeHandledPromise(Promise)
-    : harden(HandledPromise);
-
-// Provide our exports.
-export { hp as HandledPromise };
-export const E = makeE(hp);
+const q = JSON.stringify;
 
 // the following method (makeHandledPromise) is part
 // of the shim, and will not be exported by the module once the feature
@@ -43,15 +24,15 @@ export const E = makeE(hp);
  * Original spec for the infix-bang (predecessor to wavy-dot) desugaring:
  * https://web.archive.org/web/20161026162206/http://wiki.ecmascript.org/doku.php?id=strawman:concurrency
  *
- * @return {typeof HandledPromise} Handled promise
+ * @returns {import('.').HandledPromiseConstructor} Handled promise
  */
-export function makeHandledPromise(Promise) {
+export function makeHandledPromise() {
   // xs doesn't support WeakMap in pre-loaded closures
   // aka "vetted customization code"
   let presenceToHandler;
   let presenceToPromise;
   let promiseToUnsettledHandler;
-  let promiseToPresence; // only for HandledPromise.unwrap
+  let promiseToPresence;
   let forwardedPromiseToPromise; // forwarding, union-find-ish
   function ensureMaps() {
     if (!presenceToHandler) {
@@ -74,7 +55,8 @@ export function makeHandledPromise(Promise) {
    * https://en.wikipedia.org/wiki/Disjoint-set_data_structure
    *
    * @param {*} target Any value.
-   * @returns {*} If the target was a HandledPromise, the most-resolved parent of it, otherwise the target.
+   * @returns {*} If the target was a HandledPromise, the most-resolved parent
+   * of it, otherwise the target.
    */
   function shorten(target) {
     let p = target;
@@ -111,7 +93,6 @@ export function makeHandledPromise(Promise) {
   // handled Promises to their corresponding fulfilledHandler.
   let forwardingHandler;
   let handle;
-  let promiseResolve;
 
   function HandledPromise(executor, unsettledHandler = undefined) {
     if (new.target === undefined) {
@@ -129,7 +110,7 @@ export function makeHandledPromise(Promise) {
           return resolvedTarget;
         }
         if (forwardedPromiseToPromise.has(handledP)) {
-          throw new TypeError('internal: already forwarded');
+          throw TypeError('internal: already forwarded');
         }
         value = shorten(value);
         let targetP;
@@ -172,7 +153,7 @@ export function makeHandledPromise(Promise) {
           return;
         }
         if (forwardedPromiseToPromise.has(handledP)) {
-          throw new TypeError('internal: already forwarded');
+          throw TypeError('internal: already forwarded');
         }
         promiseToUnsettledHandler.delete(handledP);
         resolved = true;
@@ -236,7 +217,7 @@ export function makeHandledPromise(Promise) {
         return;
       }
       if (forwardedPromiseToPromise.has(handledP)) {
-        throw new TypeError('internal: already forwarded');
+        throw TypeError('internal: already forwarded');
       }
       handledReject(reason);
     };
@@ -246,7 +227,7 @@ export function makeHandledPromise(Promise) {
         return resolvedTarget;
       }
       if (forwardedPromiseToPromise.has(handledP)) {
-        throw new TypeError('internal: already forwarded');
+        throw TypeError('internal: already forwarded');
       }
       try {
         // Sanity checks.
@@ -275,7 +256,7 @@ export function makeHandledPromise(Promise) {
         return;
       }
       if (forwardedPromiseToPromise.has(handledP)) {
-        throw new TypeError('internal: already forwarded');
+        throw TypeError('internal: already forwarded');
       }
       try {
         if (deprecatedPresenceHandler) {
@@ -302,20 +283,19 @@ export function makeHandledPromise(Promise) {
     return handledP;
   }
 
-  HandledPromise.prototype = promiseProto;
+  HandledPromise.prototype = Promise.prototype;
   Object.setPrototypeOf(HandledPromise, Promise);
 
   function isFrozenPromiseThen(p) {
     return (
       isFrozen(p) &&
-      getPrototypeOf(p) === promiseProto &&
-      promiseResolve(p) === p &&
-      gopd(p, 'then') === undefined &&
-      gopd(promiseProto, 'then').value === originalThen // unnecessary under SES
+      getPrototypeOf(p) === Promise.prototype &&
+      Promise.resolve(p) === p &&
+      gopd(p, 'then') === undefined
     );
   }
 
-  const staticMethods = harden({
+  const staticMethods = {
     get(target, key) {
       return handle(target, 'get', key);
     },
@@ -339,7 +319,7 @@ export function makeHandledPromise(Promise) {
       // Resolving a Presence returns the pre-registered handled promise.
       let resolvedPromise = presenceToPromise.get(value);
       if (!resolvedPromise) {
-        resolvedPromise = promiseResolve(value);
+        resolvedPromise = Promise.resolve(value);
       }
       // Prevent any proxy trickery.
       harden(resolvedPromise);
@@ -350,47 +330,10 @@ export function makeHandledPromise(Promise) {
       const executeThen = (resolve, reject) =>
         resolvedPromise.then(resolve, reject);
       return harden(
-        promiseResolve().then(_ => new HandledPromise(executeThen)),
+        Promise.resolve().then(_ => new HandledPromise(executeThen)),
       );
     },
-    // TODO verify that this is safe to provide universally, i.e.,
-    // that by itself it doesn't provide access to mutable state in
-    // ways that violate normal ocap module purity rules. The claim
-    // that it does not rests on the handled promise itself being
-    // necessary to perceive this mutable state. In that sense, we
-    // can think of the right to perceive it, and of access to the
-    // target, as being in the handled promise. Note that a .then on
-    // the handled promise will already provide async access to the
-    // target, so the only additional authorities are: 1)
-    // synchronous access for handled promises only, and thus 2) the
-    // ability to tell, from the client side, whether a promise is
-    // handled. Or, at least, the ability to tell given that the
-    // promise is already fulfilled.
-    unwrap(value) {
-      // This check for Thenable is safe, since in a remote-object
-      // environment, our comms system will defend against remote
-      // objects being represented as a tricky local Proxy, otherwise
-      // it is guaranteed to be local and therefore synchronous enough.
-      if (Object(value) !== value || !('then' in value)) {
-        // Not a Thenable, so return it.
-        // This means that local objects will pass through without error.
-        return value;
-      }
-
-      // Try to look up the HandledPromise.
-      ensureMaps();
-      const pr = presenceToPromise.get(value) || value;
-
-      // Find the fulfilled presence for that HandledPromise.
-      const presence = promiseToPresence.get(pr);
-      if (!presence) {
-        throw TypeError(
-          `Value is a Thenble but not a HandledPromise fulfilled to a presence`,
-        );
-      }
-      return presence;
-    },
-  });
+  };
 
   defineProperties(HandledPromise, getOwnPropertyDescriptors(staticMethods));
 
@@ -411,23 +354,46 @@ export function makeHandledPromise(Promise) {
     };
   }
 
+  const ntypeof = specimen => (specimen === null ? 'null' : typeof specimen);
+
   // eslint-disable-next-line prefer-const
   forwardingHandler = {
     get: makeForwarder('get', (o, key) => o[key]),
-    applyMethod: makeForwarder('applyMethod', (o, optKey, args) => {
-      if (optKey === undefined || optKey === null) {
-        return o(...args);
+    applyMethod: makeForwarder('applyMethod', (t, method, args) => {
+      if (method === undefined || method === null) {
+        if (!(t instanceof Function)) {
+          const ftype = ntypeof(t);
+          throw TypeError(
+            `Cannot invoke target as a function; typeof target is ${q(ftype)}`,
+          );
+        }
+        return t(...args);
       }
-      // console.log(`sending`, optKey, o[optKey], o);
-      if (typeof o[optKey] !== 'function') {
-        throw TypeError(`o[${JSON.stringify(optKey)}] is not a function`);
+      if (t === undefined || t === null) {
+        const ftype = ntypeof(t);
+        throw TypeError(
+          `Cannot deliver ${q(method)} to target; typeof target is ${q(ftype)}`,
+        );
       }
-      return o[optKey](...args);
+      if (!(t[method] instanceof Function)) {
+        const ftype = ntypeof(t[method]);
+        if (ftype === 'undefined') {
+          const names = Object.getOwnPropertyNames(t).sort();
+          throw TypeError(`target has no method ${q(method)}, has ${q(names)}`);
+        }
+        throw TypeError(
+          `invoked method ${q(method)} is not a function; it is a ${q(ftype)}`,
+        );
+      }
+      return t[method](...args);
     }),
   };
 
   handle = (p, operation, ...opArgs) => {
     ensureMaps();
+    // eslint-disable-next-line no-use-before-define
+    const doIt = (handler, o) => handler[operation](o, ...opArgs, returnedP);
+    const [trackedDoIt] = trackTurns([doIt]);
     const returnedP = new HandledPromise((resolve, reject) => {
       // We run in a future turn to prevent synchronous attacks,
       let raceIsOver = false;
@@ -439,7 +405,7 @@ export function makeHandledPromise(Promise) {
           throw TypeError(`${handlerName}.${operation} is not a function`);
         }
         try {
-          resolve(handler[operation](o, ...opArgs, returnedP));
+          resolve(trackedDoIt(handler, o));
         } catch (reason) {
           reject(reason);
         }
@@ -487,12 +453,18 @@ export function makeHandledPromise(Promise) {
         .catch(lose);
     });
 
+    // Workaround for Node.js: silence "Unhandled Rejection" by default when
+    // using the static methods.
+    returnedP.catch(_ => {});
+
     // We return a handled promise with the default unsettled handler.
     // This prevents a race between the above Promise.resolves and
     // pipelining.
     return returnedP;
   };
 
-  promiseResolve = Promise.resolve.bind(Promise);
-  return harden(HandledPromise);
+  // We cannot harden(HandledPromise) because we're a vetted shim which
+  // runs before lockdown() allows harden to function.  In that case,
+  // though, globalThis.HandledPromise will be hardened after lockdown.
+  return HandledPromise;
 }

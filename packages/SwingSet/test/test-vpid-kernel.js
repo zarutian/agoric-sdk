@@ -1,14 +1,16 @@
-// eslint-disable-next-line no-redeclare
-/* global harden */
+// eslint-disable-next-line import/order
+import { test } from '../tools/prepare-test-env-ava';
 
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+import anylogger from 'anylogger';
 import { initSwingStore } from '@agoric/swing-store-simple';
+import { assert, details as X } from '@agoric/assert';
+import { WeakRef, FinalizationRegistry } from '../src/weakref';
 import { waitUntilQuiescent } from '../src/waitUntilQuiescent';
 
 import buildKernel from '../src/kernel/index';
+import { initializeKernel } from '../src/kernel/initializeKernel';
 
-const RETIRE_VPIDS = true;
+import { buildDispatch } from './util';
 
 function capdata(body, slots = []) {
   return harden({ body, slots });
@@ -18,52 +20,31 @@ function capargs(args, slots = []) {
   return capdata(JSON.stringify(args), slots);
 }
 
+function oneResolution(promiseID, rejected, data) {
+  return [[promiseID, rejected, data]];
+}
+
+function makeConsole(tag) {
+  const log = anylogger(tag);
+  const cons = {};
+  for (const level of ['debug', 'log', 'info', 'warn', 'error']) {
+    cons[level] = log[level];
+  }
+  return harden(cons);
+}
+
 function makeEndowments() {
   return {
     waitUntilQuiescent,
     hostStorage: initSwingStore().storage,
     runEndOfCrank: () => {},
+    makeConsole,
+    WeakRef,
+    FinalizationRegistry,
   };
 }
 
-function buildDispatch(onDispatchCallback = undefined) {
-  const log = [];
-
-  const dispatch = {
-    deliver(targetSlot, method, args, resultSlot) {
-      const d = { type: 'deliver', targetSlot, method, args, resultSlot };
-      log.push(d);
-      if (onDispatchCallback) {
-        onDispatchCallback(d);
-      }
-    },
-    notifyFulfillToPresence(promiseID, slot) {
-      const d = { type: 'notifyFulfillToPresence', promiseID, slot };
-      log.push(d);
-      if (onDispatchCallback) {
-        onDispatchCallback(d);
-      }
-    },
-    notifyFulfillToData(promiseID, data) {
-      const d = { type: 'notifyFulfillToData', promiseID, data };
-      log.push(d);
-      if (onDispatchCallback) {
-        onDispatchCallback(d);
-      }
-    },
-    notifyReject(promiseID, data) {
-      const d = { type: 'notifyReject', promiseID, data };
-      log.push(d);
-      if (onDispatchCallback) {
-        onDispatchCallback(d);
-      }
-    },
-  };
-
-  return { log, dispatch };
-}
-
-function buildRawVat(name, kernel, onDispatchCallback = undefined) {
+async function buildRawVat(name, kernel, onDispatchCallback = undefined) {
   const { log, dispatch } = buildDispatch(onDispatchCallback);
   let syscall;
   function setup(s) {
@@ -74,14 +55,13 @@ function buildRawVat(name, kernel, onDispatchCallback = undefined) {
   function getSyscall() {
     return syscall;
   }
-  kernel.addGenesisVat(name, setup);
+  await kernel.createTestVat(name, setup);
   return { log, getSyscall };
 }
 
 // The next batch of tests exercises how the kernel handles promise
 // identifiers ("vpid" strings) across various forms of resolution. Our
-// current code never retires vpids, but an upcoming storage-performance
-// improvement will retire them after resolution. We have the simulated vat
+// current code retires vpids after resolution. We have the simulated vat
 // do various syscalls, and examine the kernel's c-lists afterwards.
 
 // legend:
@@ -114,7 +94,7 @@ function buildRawVat(name, kernel, onDispatchCallback = undefined) {
 // ways:
 // prettier-ignore
 const modes = [
-  'presence',       // resolveToPresence: messages can be sent to resolution
+  'presence',     // resolveToPresence: messages can be sent to resolution
   'local-object',   // resolve to a local object: messages to resolution don't create syscalls
   'data',           // resolveToData: messages are rejected as DataIsNotCallable
   'promise-data',   // resolveToData that contains a promise ID
@@ -124,28 +104,32 @@ const modes = [
 
 const slot0arg = { '@qclass': 'slot', index: 0 };
 
+const undefinedArg = { '@qclass': 'undefined' };
+
 function doResolveSyscall(syscallA, vpid, mode, targets) {
   switch (mode) {
     case 'presence':
-      syscallA.fulfillToPresence(vpid, targets.target2);
+      syscallA.resolve([[vpid, false, capargs(slot0arg, [targets.target2])]]);
       break;
     case 'local-object':
-      syscallA.fulfillToPresence(vpid, targets.localTarget);
+      syscallA.resolve([
+        [vpid, false, capargs(slot0arg, [targets.localTarget])],
+      ]);
       break;
     case 'data':
-      syscallA.fulfillToData(vpid, capargs(4, []));
+      syscallA.resolve([[vpid, false, capargs(4, [])]]);
       break;
     case 'promise-data':
-      syscallA.fulfillToData(vpid, capargs([slot0arg], [targets.p1]));
+      syscallA.resolve([[vpid, false, capargs([slot0arg], [targets.p1])]]);
       break;
     case 'reject':
-      syscallA.reject(vpid, capargs('error', []));
+      syscallA.resolve([[vpid, true, capargs('error', [])]]);
       break;
     case 'promise-reject':
-      syscallA.reject(vpid, capargs([slot0arg], [targets.p1]));
+      syscallA.resolve([[vpid, true, capargs([slot0arg], [targets.p1])]]);
       break;
     default:
-      throw Error(`unknown mode ${mode}`);
+      assert.fail(X`unknown mode ${mode}`);
   }
 }
 
@@ -153,42 +137,52 @@ function resolutionOf(vpid, mode, targets) {
   switch (mode) {
     case 'presence':
       return {
-        type: 'notifyFulfillToPresence',
-        promiseID: vpid,
-        slot: targets.target2,
+        type: 'notify',
+        resolutions: oneResolution(
+          vpid,
+          false,
+          capargs(slot0arg, [targets.target2]),
+        ),
       };
     case 'local-object':
       return {
-        type: 'notifyFulfillToPresence',
-        promiseID: vpid,
-        slot: targets.localTarget,
+        type: 'notify',
+        resolutions: oneResolution(
+          vpid,
+          false,
+          capargs(slot0arg, [targets.localTarget]),
+        ),
       };
     case 'data':
       return {
-        type: 'notifyFulfillToData',
-        promiseID: vpid,
-        data: capargs(4, []),
+        type: 'notify',
+        resolutions: oneResolution(vpid, false, capargs(4, [])),
       };
     case 'promise-data':
       return {
-        type: 'notifyFulfillToData',
-        promiseID: vpid,
-        data: capargs([slot0arg], [targets.p1]),
+        type: 'notify',
+        resolutions: oneResolution(
+          vpid,
+          false,
+          capargs([slot0arg], [targets.p1]),
+        ),
       };
     case 'reject':
       return {
-        type: 'notifyReject',
-        promiseID: vpid,
-        data: capargs('error', []),
+        type: 'notify',
+        resolutions: oneResolution(vpid, true, capargs('error', [])),
       };
     case 'promise-reject':
       return {
-        type: 'notifyReject',
-        promiseID: vpid,
-        data: capargs([slot0arg], [targets.p1]),
+        type: 'notify',
+        resolutions: oneResolution(
+          vpid,
+          true,
+          capargs([slot0arg], [targets.p1]),
+        ),
       };
     default:
-      throw Error(`unknown mode ${mode}`);
+      assert.fail(X`unknown mode ${mode}`);
   }
 }
 
@@ -224,20 +218,26 @@ function inCList(kernel, vatID, kpid, vpid) {
 }
 
 async function doTest123(t, which, mode) {
-  const kernel = buildKernel(makeEndowments());
-  // vatA is our primary actor
-  const { log: logA, getSyscall: getSyscallA } = buildRawVat('vatA', kernel);
-  // we use vatB when necessary to send messages to vatA
-  const { log: logB, getSyscall: getSyscallB } = buildRawVat('vatB', kernel);
+  const endowments = makeEndowments();
+  initializeKernel({}, endowments.hostStorage);
+  const kernel = buildKernel(endowments, {}, {});
   await kernel.start(undefined); // no bootstrapVatName, so no bootstrap call
+  // vatA is our primary actor
+  const { log: logA, getSyscall: getSyscallA } = await buildRawVat(
+    'vatA',
+    kernel,
+  );
+  // we use vatB when necessary to send messages to vatA
+  const { log: logB, getSyscall: getSyscallB } = await buildRawVat(
+    'vatB',
+    kernel,
+  );
   const syscallA = getSyscallA();
   const syscallB = getSyscallB();
 
   // send(targetSlot, method, args, resultSlot) {
   // subscribe(target) {
-  // fulfillToPresence(promiseID, slot) {
-  // fulfillToData(promiseID, data) {
-  // reject(promiseID, data) {
+  // resolve(promiseID, rejected, data) {
 
   const vatA = kernel.vatNameToID('vatA');
   const vatB = kernel.vatNameToID('vatB');
@@ -262,9 +262,6 @@ async function doTest123(t, which, mode) {
   let p1VatA;
   let p1VatB;
 
-  const expectRetirement =
-    RETIRE_VPIDS && mode !== 'promise-data' && mode !== 'promise-reject';
-
   if (which === 1) {
     // 1: Alice creates a new promise, sends it to Bob, and resolves it
     // A: bob~.one(p1); resolve_p1(mode) // to bob, 4, or reject
@@ -273,7 +270,7 @@ async function doTest123(t, which, mode) {
     dataPromiseB = 'p-61';
     syscallA.send(rootBvatA, 'one', capargs([slot0arg], [exportedP1VatA]));
     p1kernel = clistVatToKernel(kernel, vatA, exportedP1VatA);
-    t.equal(p1kernel, expectedP1kernel);
+    t.is(p1kernel, expectedP1kernel);
     await kernel.run();
 
     t.deepEqual(logB.shift(), {
@@ -288,7 +285,7 @@ async function doTest123(t, which, mode) {
     syscallB.subscribe(importedP1VatB);
     await kernel.run();
     t.deepEqual(logB, []);
-    t.equal(inCList(kernel, vatB, p1kernel, importedP1VatB), true);
+    t.is(inCList(kernel, vatB, p1kernel, importedP1VatB), true);
   } else if (which === 2) {
     // 2: Bob sends a message to Alice, Alice resolves the result promise
     // B: alice~.one()
@@ -349,7 +346,7 @@ async function doTest123(t, which, mode) {
   }
 
   // before resolution, A's c-list should have the promise
-  t.equal(inCList(kernel, vatA, p1kernel, p1VatA), true);
+  t.is(inCList(kernel, vatA, p1kernel, p1VatA), true);
 
   const targetsA = {
     target2: rootBvatA,
@@ -364,20 +361,15 @@ async function doTest123(t, which, mode) {
     localTarget: localTargetB,
     p1: dataPromiseB,
   };
-  t.deepEqual(logB.shift(), resolutionOf(p1VatB, mode, targetsB));
+  const got = logB.shift();
+  const wanted = resolutionOf(p1VatB, mode, targetsB);
+  t.deepEqual(got, wanted);
   t.deepEqual(logB, []);
 
-  if (expectRetirement) {
-    // after resolution, A's c-list should *not* have the promise
-    t.equal(inCList(kernel, vatA, p1kernel, p1VatA), false);
-    t.equal(clistKernelToVat(kernel, vatA, p1kernel), undefined);
-    t.equal(clistVatToKernel(kernel, vatA, p1VatA), undefined);
-  } else {
-    t.equal(inCList(kernel, vatA, p1kernel, p1VatA), true);
-    t.equal(clistKernelToVat(kernel, vatA, p1kernel), p1VatA);
-    t.equal(clistVatToKernel(kernel, vatA, p1VatA), p1kernel);
-  }
-  t.end();
+  // after resolution, A's c-list should *not* have the promise
+  t.is(inCList(kernel, vatA, p1kernel, p1VatA), false);
+  t.is(clistKernelToVat(kernel, vatA, p1kernel), undefined);
+  t.is(clistVatToKernel(kernel, vatA, p1VatA), undefined);
 }
 // uncomment this when debugging specific problems
 // test.only(`XX`, async t => {
@@ -393,7 +385,10 @@ for (const caseNum of [1, 2, 3]) {
 }
 
 async function doTest4567(t, which, mode) {
-  const kernel = buildKernel(makeEndowments());
+  const endowments = makeEndowments();
+  initializeKernel({}, endowments.hostStorage);
+  const kernel = buildKernel(endowments, {}, {});
+  await kernel.start(undefined); // no bootstrapVatName, so no bootstrap call
   // vatA is our primary actor
   let onDispatchCallback;
   function odc(d) {
@@ -401,14 +396,16 @@ async function doTest4567(t, which, mode) {
       onDispatchCallback(d);
     }
   }
-  const { log: logA, getSyscall: getSyscallA } = buildRawVat(
+  const { log: logA, getSyscall: getSyscallA } = await buildRawVat(
     'vatA',
     kernel,
     odc,
   );
   // we use vatB when necessary to send messages to vatA
-  const { log: logB, getSyscall: getSyscallB } = buildRawVat('vatB', kernel);
-  await kernel.start(undefined); // no bootstrapVatName, so no bootstrap call
+  const { log: logB, getSyscall: getSyscallB } = await buildRawVat(
+    'vatB',
+    kernel,
+  );
   const syscallA = getSyscallA();
   const syscallB = getSyscallB();
 
@@ -435,9 +432,6 @@ async function doTest4567(t, which, mode) {
   let p1VatA;
   let p1VatB;
 
-  const expectRetirement =
-    RETIRE_VPIDS && mode !== 'promise-data' && mode !== 'promise-reject';
-
   if (which === 4) {
     // 4: Alice receives a promise from Bob, which is then resolved
     // B: alice~.one(p1); resolve_p1(mode) // to alice, 4, or reject
@@ -446,7 +440,7 @@ async function doTest4567(t, which, mode) {
     dataPromiseA = 'p-61';
     syscallB.send(rootAvatB, 'one', capargs([slot0arg], [exportedP1VatB]));
     p1kernel = clistVatToKernel(kernel, vatB, exportedP1VatB);
-    t.equal(p1kernel, expectedP1kernel);
+    t.is(p1kernel, expectedP1kernel);
     await kernel.run();
 
     t.deepEqual(logA.shift(), {
@@ -542,11 +536,11 @@ async function doTest4567(t, which, mode) {
   }
 
   // before resolution, A's c-list should have the promise
-  t.equal(inCList(kernel, vatA, p1kernel, p1VatA), true);
+  t.is(inCList(kernel, vatA, p1kernel, p1VatA), true);
 
   // Now bob resolves it. We want to examine the kernel's c-lists at the
   // moment the notification is delivered to Alice. We only expect one
-  // dispatch: Alice.notifyFulfillToPresence()
+  // dispatch: Alice.notify()
   const targetsA = {
     target2: rootAvatA,
     localTarget: localTargetA,
@@ -554,7 +548,7 @@ async function doTest4567(t, which, mode) {
   };
   onDispatchCallback = function odc1(d) {
     t.deepEqual(d, resolutionOf(p1VatA, mode, targetsA));
-    t.equal(inCList(kernel, vatA, p1kernel, p1VatA), !expectRetirement);
+    t.is(inCList(kernel, vatA, p1kernel, p1VatA), false);
   };
   const targetsB = {
     target2: rootAvatB,
@@ -568,17 +562,10 @@ async function doTest4567(t, which, mode) {
   t.deepEqual(logA.shift(), resolutionOf(p1VatA, mode, targetsA));
   t.deepEqual(logA, []);
 
-  if (expectRetirement) {
-    // after resolution, A's c-list should *not* have the promise
-    t.equal(inCList(kernel, vatA, p1kernel, p1VatA), false);
-    t.equal(clistKernelToVat(kernel, vatA, p1kernel), undefined);
-    t.equal(clistVatToKernel(kernel, vatA, p1VatA), undefined);
-  } else {
-    t.equal(inCList(kernel, vatA, p1kernel, p1VatA), true);
-    t.equal(clistKernelToVat(kernel, vatA, p1kernel), p1VatA);
-    t.equal(clistVatToKernel(kernel, vatA, p1VatA), p1kernel);
-  }
-  t.end();
+  // after resolution, A's c-list should *not* have the promise
+  t.is(inCList(kernel, vatA, p1kernel, p1VatA), false);
+  t.is(clistKernelToVat(kernel, vatA, p1kernel), undefined);
+  t.is(clistVatToKernel(kernel, vatA, p1VatA), undefined);
 }
 
 for (const caseNum of [4, 5, 6, 7]) {
@@ -588,3 +575,273 @@ for (const caseNum of [4, 5, 6, 7]) {
     });
   }
 }
+
+test(`kernel vpid handling crossing resolutions`, async t => {
+  const endowments = makeEndowments();
+  initializeKernel({}, endowments.hostStorage);
+  const kernel = buildKernel(endowments, {}, {});
+  await kernel.start(undefined); // no bootstrapVatName, so no bootstrap call
+  // vatX controls the scenario, vatA and vatB are the players
+  let onDispatchCallback;
+  function odc(d) {
+    if (onDispatchCallback) {
+      onDispatchCallback(d);
+    }
+  }
+  const { log: logA, getSyscall: getSyscallA } = await buildRawVat(
+    'vatA',
+    kernel,
+    odc,
+  );
+  const { log: logB, getSyscall: getSyscallB } = await buildRawVat(
+    'vatB',
+    kernel,
+  );
+  const { log: logX, getSyscall: getSyscallX } = await buildRawVat(
+    'vatX',
+    kernel,
+  );
+  const syscallA = getSyscallA();
+  const syscallB = getSyscallB();
+  const syscallX = getSyscallX();
+
+  const vatA = kernel.vatNameToID('vatA');
+  const vatB = kernel.vatNameToID('vatB');
+  const vatX = kernel.vatNameToID('vatX');
+
+  // X will need references to A and B, to send them anything
+  const rootBvatB = 'o+0';
+  const rootBkernel = kernel.addExport(vatB, rootBvatB);
+  const rootBvatX = kernel.addImport(vatX, rootBkernel);
+
+  const rootAvatA = 'o+0';
+  const rootAkernel = kernel.addExport(vatA, rootAvatA);
+  const rootAvatX = kernel.addImport(vatX, rootAkernel);
+
+  const exportedGenResultAvatX = 'p+1';
+  const importedGenResultAvatX = 'p-60'; // re-export
+  const importedGenResultAvatA = 'p-60';
+  const importedGenResultAvatB = 'p-61';
+  const importedGenResultA2vatA = 'p-63';
+  const genResultAkernel = 'kp40';
+
+  const exportedGenResultBvatX = 'p+2';
+  const importedGenResultBvatA = 'p-61';
+  const importedGenResultBvatB = 'p-60';
+  const importedGenResultB2vatB = 'p-63';
+  const genResultBkernel = 'kp41';
+
+  const exportedUseResultAvatX = 'p+3';
+  const importedUseResultAvatA = 'p-62';
+
+  const exportedUseResultBvatX = 'p+4';
+
+  const importedUseResultBvatB = 'p-62';
+
+  // X is the controlling vat, which orchestrates alice and bob
+  // X: pa=alice~.genPromise()  // alice generates promise pa and returns it
+  // X: pb=bob~.genPromise()    // bob generates promise pb and returns it
+  // X: alice~.usePromise(pb)   // alice resolves promise pa to an array containing pb
+  // X: bob~.usePromise(pa)     // bob resolves promise pb to an array containing pa
+
+  // **** begin Crank 1 (X) ****
+  syscallX.send(
+    rootAvatX,
+    'genPromise',
+    capargs([], []),
+    exportedGenResultAvatX,
+  );
+  syscallX.subscribe(exportedGenResultAvatX);
+  syscallX.send(
+    rootBvatX,
+    'genPromise',
+    capargs([], []),
+    exportedGenResultBvatX,
+  );
+  syscallX.subscribe(exportedGenResultBvatX);
+  syscallX.send(
+    rootAvatX,
+    'usePromise',
+    capargs([slot0arg], [exportedGenResultBvatX]),
+    exportedUseResultAvatX,
+  );
+  syscallX.subscribe(exportedUseResultAvatX);
+  syscallX.send(
+    rootBvatX,
+    'usePromise',
+    capargs([slot0arg], [exportedGenResultAvatX]),
+    exportedUseResultBvatX,
+  );
+  syscallX.subscribe(exportedUseResultBvatX);
+
+  await kernel.run();
+  t.deepEqual(logA.shift(), {
+    // reacted to on Crank 2 (A)
+    type: 'deliver',
+    targetSlot: rootAvatA,
+    method: 'genPromise',
+    args: capargs([], []),
+    resultSlot: importedGenResultAvatA,
+  });
+  t.deepEqual(logB.shift(), {
+    // reacted to on Crank 3 (B)
+    type: 'deliver',
+    targetSlot: rootBvatB,
+    method: 'genPromise',
+    args: capargs([], []),
+    resultSlot: importedGenResultBvatB,
+  });
+  t.deepEqual(logA.shift(), {
+    // reacted to on Crank 4 (A)
+    type: 'deliver',
+    targetSlot: rootAvatA,
+    method: 'usePromise',
+    args: capargs([slot0arg], [importedGenResultBvatA]),
+    resultSlot: importedUseResultAvatA,
+  });
+  t.deepEqual(logB.shift(), {
+    // reacted to on Crank 5 (B)
+    type: 'deliver',
+    targetSlot: rootBvatB,
+    method: 'usePromise',
+    args: capargs([slot0arg], [importedGenResultAvatB]),
+    resultSlot: importedUseResultBvatB,
+  });
+  t.deepEqual(logA, []);
+  t.deepEqual(logB, []);
+  t.deepEqual(logX, []);
+
+  t.is(inCList(kernel, vatA, genResultAkernel, importedGenResultAvatA), true);
+  t.is(inCList(kernel, vatB, genResultAkernel, importedGenResultAvatB), true);
+  t.is(inCList(kernel, vatX, genResultAkernel, exportedGenResultAvatX), true);
+
+  t.is(inCList(kernel, vatA, genResultBkernel, importedGenResultBvatA), true);
+  t.is(inCList(kernel, vatB, genResultBkernel, importedGenResultBvatB), true);
+  t.is(inCList(kernel, vatX, genResultBkernel, exportedGenResultBvatX), true);
+  // **** end Crank 1 (X) ****
+
+  // **** begin Crank 2 (A) ****
+  // genPromise delivered to A
+  // **** end Crank 2 (A) ****
+
+  // **** begin Crank 3 (B) ****
+  // genPromise delivered to B
+  // **** end Crank 3 (B) ****
+
+  // **** begin Crank 4 (A) ****
+  // usePromise(b) delivered to A
+  syscallA.subscribe(importedGenResultBvatA);
+  syscallA.resolve([
+    [importedUseResultAvatA, false, capargs(undefinedArg, [])],
+  ]);
+  syscallA.resolve([
+    [
+      importedGenResultAvatA,
+      false,
+      capargs([slot0arg], [importedGenResultBvatA]),
+    ],
+  ]);
+  await kernel.run();
+  t.deepEqual(logX.shift(), {
+    type: 'notify',
+    resolutions: [[exportedUseResultAvatX, false, capargs(undefinedArg, [])]],
+  });
+  t.deepEqual(logX.shift(), {
+    type: 'notify',
+    resolutions: [
+      [
+        exportedGenResultAvatX,
+        false,
+        capargs([slot0arg], [exportedGenResultBvatX]),
+      ],
+    ],
+  });
+  t.deepEqual(logX, []);
+  t.deepEqual(logA, []);
+  t.deepEqual(logB, []);
+
+  t.is(inCList(kernel, vatX, genResultAkernel, exportedGenResultAvatX), false);
+  t.is(inCList(kernel, vatA, genResultAkernel, importedGenResultAvatA), false);
+  t.is(inCList(kernel, vatB, genResultAkernel, importedGenResultAvatB), true);
+
+  t.is(inCList(kernel, vatA, genResultBkernel, importedGenResultBvatA), true);
+  t.is(inCList(kernel, vatB, genResultBkernel, importedGenResultBvatB), true);
+  t.is(inCList(kernel, vatX, genResultBkernel, exportedGenResultBvatX), true);
+  // **** end Crank 4 (A) ****
+
+  // **** begin Crank 5 (B) ****
+  // usePromise(a) delivered to B
+  syscallB.subscribe(importedGenResultAvatB);
+  syscallB.resolve([
+    [importedUseResultBvatB, false, capargs(undefinedArg, [])],
+  ]);
+  syscallB.resolve([
+    [
+      importedGenResultBvatB,
+      false,
+      capargs([slot0arg], [importedGenResultAvatB]),
+    ],
+  ]);
+
+  await kernel.run();
+  t.deepEqual(logX.shift(), {
+    type: 'notify',
+    resolutions: [[exportedUseResultBvatX, false, capargs(undefinedArg, [])]],
+  });
+  t.deepEqual(logX.shift(), {
+    type: 'notify',
+    resolutions: [
+      [
+        exportedGenResultBvatX,
+        false,
+        capargs([slot0arg], [importedGenResultAvatX]),
+      ],
+      [
+        importedGenResultAvatX,
+        false,
+        capargs([slot0arg], [exportedGenResultBvatX]),
+      ],
+    ],
+  });
+  t.deepEqual(logX, []);
+  t.deepEqual(logB.shift(), {
+    type: 'notify',
+    resolutions: [
+      [
+        importedGenResultAvatB,
+        false,
+        capargs([slot0arg], [importedGenResultB2vatB]),
+      ],
+      [
+        importedGenResultB2vatB,
+        false,
+        capargs([slot0arg], [importedGenResultAvatB]),
+      ],
+    ],
+  });
+  t.deepEqual(logB, []);
+  t.deepEqual(logA.shift(), {
+    type: 'notify',
+    resolutions: [
+      [
+        importedGenResultBvatA,
+        false,
+        capargs([slot0arg], [importedGenResultA2vatA]),
+      ],
+      [
+        importedGenResultA2vatA,
+        false,
+        capargs([slot0arg], [importedGenResultBvatA]),
+      ],
+    ],
+  });
+  t.deepEqual(logA, []);
+  t.is(inCList(kernel, vatA, genResultAkernel, importedGenResultAvatA), false);
+  t.is(inCList(kernel, vatB, genResultAkernel, importedGenResultAvatB), false);
+  t.is(inCList(kernel, vatX, genResultAkernel, importedGenResultAvatX), false);
+
+  t.is(inCList(kernel, vatA, genResultBkernel, importedGenResultBvatA), false);
+  t.is(inCList(kernel, vatB, genResultBkernel, importedGenResultBvatB), false);
+  t.is(inCList(kernel, vatX, genResultBkernel, exportedGenResultBvatX), false);
+  // **** end Crank 5 (B) ****
+});

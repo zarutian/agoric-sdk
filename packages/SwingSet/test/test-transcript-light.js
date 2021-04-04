@@ -1,5 +1,7 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+/* global __dirname */
+// eslint-disable-next-line import/order
+import { test } from '../tools/prepare-test-env-ava';
+
 import path from 'path';
 import {
   initSwingStore,
@@ -13,11 +15,10 @@ test('transcript-light load', async t => {
     path.resolve(__dirname, 'basedir-transcript'),
   );
   const { storage } = initSwingStore();
-  config.hostStorage = storage;
-  const c = await buildVatController(config, ['one']);
+  const c = await buildVatController(config, ['one'], { hostStorage: storage });
   const state0 = getAllState(storage);
-  t.equal(state0.initialized, 'true');
-  t.notEqual(state0.runQueue, '[]');
+  t.is(state0.initialized, 'true');
+  t.not(state0.runQueue, '[]');
 
   await c.step();
   const state1 = getAllState(storage);
@@ -40,8 +41,7 @@ test('transcript-light load', async t => {
   const cfg0 = await loadBasedir(path.resolve(__dirname, 'basedir-transcript'));
   const storage0 = initSwingStore().storage;
   setAllState(storage0, state0);
-  cfg0.hostStorage = storage0;
-  const c0 = await buildVatController(cfg0, ['one']);
+  const c0 = await buildVatController(cfg0, ['one'], { hostStorage: storage0 });
 
   await c0.step();
   t.deepEqual(state1, getAllState(storage0), `p1`);
@@ -63,8 +63,7 @@ test('transcript-light load', async t => {
   const cfg1 = await loadBasedir(path.resolve(__dirname, 'basedir-transcript'));
   const storage1 = initSwingStore().storage;
   setAllState(storage1, state1);
-  cfg1.hostStorage = storage1;
-  const c1 = await buildVatController(cfg1, ['one']);
+  const c1 = await buildVatController(cfg1, ['one'], { hostStorage: storage1 });
 
   t.deepEqual(state1, getAllState(storage1), `p6`); // actual, expected
 
@@ -85,8 +84,7 @@ test('transcript-light load', async t => {
   const cfg2 = await loadBasedir(path.resolve(__dirname, 'basedir-transcript'));
   const storage2 = initSwingStore().storage;
   setAllState(storage2, state2);
-  cfg2.hostStorage = storage2;
-  const c2 = await buildVatController(cfg2, ['one']);
+  const c2 = await buildVatController(cfg2, ['one'], { hostStorage: storage2 });
 
   t.deepEqual(state2, getAllState(storage2), `p11`);
 
@@ -98,6 +96,4 @@ test('transcript-light load', async t => {
 
   await c2.step();
   t.deepEqual(state5, getAllState(storage2), `p14`);
-
-  t.end();
 });

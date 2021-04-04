@@ -1,15 +1,16 @@
-/* global harden */
-
 import { E } from '@agoric/eventual-send';
-import { producePromise } from '@agoric/produce-promise';
+import { makePromiseKit } from '@agoric/promise-kit';
+import { Far } from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject(vatPowers, vatParameters) {
   const log = vatPowers.testLog;
-  return harden({
-    bootstrap(argv, vats) {
+  return Far('root', {
+    bootstrap(vats) {
+      const { argv } = vatParameters;
       const mode = argv[0];
       if (mode === 'harden-promise-1') {
-        const { promise: p1 } = producePromise();
+        const { promise: p1 } = makePromiseKit();
         harden(p1);
         const allP = [];
         // in bug #95, this first call returns a (correctly) frozen Promise,
@@ -29,7 +30,7 @@ export function buildRootObject(vatPowers) {
           log(`b.harden-promise-1.finish`);
         });
       } else {
-        throw Error(`unknown mode ${mode}`);
+        assert.fail(X`unknown mode ${mode}`);
       }
     },
   });

@@ -1,5 +1,8 @@
+// @ts-check
+
 import { E } from '@agoric/eventual-send';
-import { assert, details } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
 import { sameStructure } from '@agoric/same-structure';
 import { showPurseBalance, setupIssuers } from '../helpers';
 
@@ -8,30 +11,33 @@ const build = async (log, zoe, issuers, payments, installations) => {
   const [moolaPurseP, simoleanPurseP] = purses;
   const [_moolaPayment, simoleanPayment] = payments;
   const [moolaIssuer, simoleanIssuer] = issuers;
-  const inviteIssuer = await E(zoe).getInviteIssuer();
+  const invitationIssuer = await E(zoe).getInvitationIssuer();
 
-  return harden({
-    doPublicAuction: async inviteP => {
-      const invite = await E(inviteIssuer).claim(inviteP);
-      const { value: inviteValue } = await E(inviteIssuer).getAmountOf(invite);
+  let secondPriceAuctionSeatP;
 
-      const { installationHandle, terms, issuerKeywordRecord } = await E(
-        zoe,
-      ).getInstanceRecord(inviteValue[0].instanceHandle);
+  return Far('build', {
+    doSecondPriceAuctionBid: async invitationP => {
+      const invitation = await E(invitationIssuer).claim(invitationP);
+      const instance = await E(zoe).getInstance(invitation);
+      const installation = await E(zoe).getInstallation(invitation);
+      const issuerKeywordRecord = await E(zoe).getIssuers(instance);
+      const { value: invitationValue } = await E(invitationIssuer).getAmountOf(
+        invitation,
+      );
+
       assert(
-        installationHandle === installations.publicAuction,
-        details`wrong installation`,
+        installation === installations.secondPriceAuction,
+        X`wrong installation`,
       );
       assert(
         sameStructure(
           harden({ Asset: moolaIssuer, Ask: simoleanIssuer }),
           issuerKeywordRecord,
         ),
-        details`issuerKeywordRecord were not as expected`,
+        X`issuerKeywordRecord were not as expected`,
       );
-      assert(terms.numBidsAllowed === 3, details`terms not as expected`);
-      assert(sameStructure(inviteValue[0].minimumBid, simoleans(3)));
-      assert(sameStructure(inviteValue[0].auctionedAssets, moola(1)));
+      assert(sameStructure(invitationValue[0].minimumBid, simoleans(3)));
+      assert(sameStructure(invitationValue[0].auctionedAssets, moola(1)));
 
       const proposal = harden({
         want: { Asset: moola(1) },
@@ -40,17 +46,16 @@ const build = async (log, zoe, issuers, payments, installations) => {
       });
       const paymentKeywordRecord = { Bid: simoleanPayment };
 
-      const { payout: payoutP, outcome: outcomeP } = await E(zoe).offer(
-        invite,
+      secondPriceAuctionSeatP = await E(zoe).offer(
+        invitation,
         proposal,
         paymentKeywordRecord,
       );
-
-      log(await outcomeP);
-
-      const carolResult = await payoutP;
-      const moolaPayout = await carolResult.Asset;
-      const simoleanPayout = await carolResult.Bid;
+      log(`Carol: ${await E(secondPriceAuctionSeatP).getOfferResult()}`);
+    },
+    doSecondPriceAuctionGetPayout: async () => {
+      const moolaPayout = await E(secondPriceAuctionSeatP).getPayout('Asset');
+      const simoleanPayout = await E(secondPriceAuctionSeatP).getPayout('Bid');
 
       await E(moolaPurseP).deposit(moolaPayout);
       await E(simoleanPurseP).deposit(simoleanPayout);
@@ -62,7 +67,7 @@ const build = async (log, zoe, issuers, payments, installations) => {
 };
 
 export function buildRootObject(vatPowers) {
-  return harden({
+  return Far('root', {
     build: (...args) => build(vatPowers.testLog, ...args),
   });
 }

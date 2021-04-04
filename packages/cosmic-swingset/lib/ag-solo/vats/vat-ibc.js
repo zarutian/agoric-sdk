@@ -1,4 +1,4 @@
-/* global harden */
+import { Far } from '@agoric/marshal';
 import { E } from '@agoric/eventual-send';
 import { makeIBCProtocolHandler } from './ibc';
 
@@ -11,7 +11,7 @@ export function buildRootObject(_vatPowers) {
     );
     return harden(ibcHandler);
   }
-  return harden({
+  return Far('root', {
     createInstance,
   });
 }

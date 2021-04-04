@@ -1,16 +1,17 @@
+/* global __dirname */
+// @ts-check
 // eslint-disable-next-line import/no-extraneous-dependencies
-import '@agoric/install-ses';
-// eslint-disable-next-line import/no-extraneous-dependencies
-import { test } from 'tape-promise/tape';
-// eslint-disable-next-line import/no-extraneous-dependencies
+import { test } from '@agoric/zoe/tools/prepare-test-env-ava';
 
+import { assert } from '@agoric/assert';
 import bundleSource from '@agoric/bundle-source';
-import makeIssuerKit from '@agoric/ertp';
+import { makeIssuerKit, amountMath } from '@agoric/ertp';
+import { looksLikeSetValue } from '@agoric/ertp/src/typeGuards';
 import { E } from '@agoric/eventual-send';
-import fakeVatAdmin from './fakeVatAdmin';
+import fakeVatAdmin from '../../../src/contractFacet/fakeVatAdmin';
 
 // noinspection ES6PreferShortImport
-import { makeZoe } from '../../../src/zoe';
+import { makeZoe } from '../../../src/zoeService/zoe';
 import { defaultAcceptanceMsg } from '../../../src/contractSupport';
 
 const mintAndSellNFTRoot = `${__dirname}/../../../src/contracts/mintAndSellNFT`;
@@ -21,24 +22,17 @@ test(`mint and sell tickets for multiple shows`, async t => {
   const zoe = makeZoe(fakeVatAdmin);
 
   const mintAndSellNFTBundle = await bundleSource(mintAndSellNFTRoot);
-  const mintAndSellNFTInstallationHandle = await E(zoe).install(
-    mintAndSellNFTBundle,
-  );
+  const mintAndSellNFTInstallation = await E(zoe).install(mintAndSellNFTBundle);
 
   const sellItemsBundle = await bundleSource(sellItemsRoot);
-  const sellItemsInstallationHandle = await E(zoe).install(sellItemsBundle);
+  const sellItemsInstallation = await E(zoe).install(sellItemsBundle);
 
-  const { issuer: moolaIssuer, amountMath: moolaAmountMath } = makeIssuerKit(
-    'moola',
+  const { issuer: moolaIssuer, brand: moolaBrand } = makeIssuerKit('moola');
+
+  const { creatorFacet: ticketMaker } = await E(zoe).startInstance(
+    mintAndSellNFTInstallation,
   );
-
-  const {
-    instanceRecord: { publicAPI },
-    invite,
-  } = await E(zoe).makeInstance(mintAndSellNFTInstallationHandle);
-  const { outcome } = await E(zoe).offer(invite);
-  const ticketMaker = await outcome;
-  const { outcome: escrowTicketsOutcome, sellItemsInstanceHandle } = await E(
+  const { sellItemsCreatorSeat, sellItemsInstance } = await E(
     ticketMaker,
   ).sellTokens({
     customValueProperties: {
@@ -47,22 +41,20 @@ test(`mint and sell tickets for multiple shows`, async t => {
     },
     count: 3,
     moneyIssuer: moolaIssuer,
-    sellItemsInstallationHandle,
-    pricePerItem: moolaAmountMath.make(20),
+    sellItemsInstallation,
+    pricePerItem: amountMath.make(20n, moolaBrand),
   });
-  t.equals(
-    await escrowTicketsOutcome,
+  t.is(
+    await sellItemsCreatorSeat.getOfferResult(),
     defaultAcceptanceMsg,
     `escrowTicketsOutcome is default acceptance message`,
   );
 
-  const ticketIssuerP = E(publicAPI).getTokenIssuer();
+  const ticketIssuerP = E(ticketMaker).getIssuer();
   const ticketBrand = await E(ticketIssuerP).getBrand();
-  const { publicAPI: ticketSalesPublicAPI } = await E(zoe).getInstanceRecord(
-    sellItemsInstanceHandle,
-  );
-  const ticketsForSale = await E(ticketSalesPublicAPI).getAvailableItems();
-  t.deepEquals(
+  const ticketSalesPublicFacet = await E(zoe).getPublicFacet(sellItemsInstance);
+  const ticketsForSale = await E(ticketSalesPublicFacet).getAvailableItems();
+  t.deepEqual(
     ticketsForSale,
     {
       brand: ticketBrand,
@@ -87,7 +79,7 @@ test(`mint and sell tickets for multiple shows`, async t => {
     `the tickets are up for sale`,
   );
 
-  const { sellItemsInstanceHandle: sellItemsInstanceHandle2 } = await E(
+  const { sellItemsInstance: sellItemsInstance2 } = await E(
     ticketMaker,
   ).sellTokens({
     customValueProperties: {
@@ -96,14 +88,12 @@ test(`mint and sell tickets for multiple shows`, async t => {
     },
     count: 2,
     moneyIssuer: moolaIssuer,
-    sellItemsInstallationHandle,
-    pricePerItem: moolaAmountMath.make(20),
+    sellItemsInstallation,
+    pricePerItem: amountMath.make(20n, moolaBrand),
   });
-  const { publicAPI: salesPublicAPI2 } = await E(zoe).getInstanceRecord(
-    sellItemsInstanceHandle2,
-  );
-  const ticketsForSale2 = await E(salesPublicAPI2).getAvailableItems();
-  t.deepEquals(
+  const sellItemsPublicFacet2 = await E(zoe).getPublicFacet(sellItemsInstance2);
+  const ticketsForSale2 = await E(sellItemsPublicFacet2).getAvailableItems();
+  t.deepEqual(
     ticketsForSale2,
     {
       brand: ticketBrand,
@@ -122,7 +112,6 @@ test(`mint and sell tickets for multiple shows`, async t => {
     },
     `we can reuse the mint to make more tickets and sell them in a different instance`,
   );
-  t.end();
 });
 
 // __Test Scenario__
@@ -149,37 +138,31 @@ test(`mint and sell opera tickets`, async t => {
   const {
     mint: moolaMint,
     issuer: moolaIssuer,
-    amountMath: { make: moola },
+    brand: moolaBrand,
   } = makeIssuerKit('moola');
+
+  const moola = value => amountMath.make(value, moolaBrand);
 
   const zoe = makeZoe(fakeVatAdmin);
 
   const mintAndSellNFTBundle = await bundleSource(mintAndSellNFTRoot);
-  const mintAndSellNFTInstallationHandle = await E(zoe).install(
-    mintAndSellNFTBundle,
-  );
+  const mintAndSellNFTInstallation = await E(zoe).install(mintAndSellNFTBundle);
 
   const sellItemsBundle = await bundleSource(sellItemsRoot);
-  const sellItemsInstallationHandle = await E(zoe).install(sellItemsBundle);
+  const sellItemsInstallation = await E(zoe).install(sellItemsBundle);
 
   // === Initial Opera de Bordeaux part ===
 
   // create an instance of the venue contract
   const mintTickets = async () => {
-    const {
-      instanceRecord: { publicAPI },
-      invite,
-    } = await E(zoe).makeInstance(mintAndSellNFTInstallationHandle);
+    const { creatorFacet: ticketSeller } = await E(zoe).startInstance(
+      mintAndSellNFTInstallation,
+    );
 
-    const ticketIssuer = await E(publicAPI).getTokenIssuer();
-    const { outcome } = await E(zoe).offer(invite);
-    const ticketSeller = await outcome;
-
-    // completeObj exists because of a current limitation in @agoric/marshal : https://github.com/Agoric/agoric-sdk/issues/818
     const {
-      sellItemsInstanceHandle: ticketSalesInstanceHandle,
-      payout,
-      completeObj,
+      sellItemsCreatorSeat,
+      sellItemsCreatorFacet,
+      sellItemsPublicFacet,
     } = await E(ticketSeller).sellTokens({
       customValueProperties: {
         show: 'Steven Universe, the Opera',
@@ -187,64 +170,57 @@ test(`mint and sell opera tickets`, async t => {
       },
       count: 3,
       moneyIssuer: moolaIssuer,
-      sellItemsInstallationHandle,
+      sellItemsInstallation,
       pricePerItem: moola(22),
     });
 
-    const { publicAPI: ticketSalesPublicAPI } = await E(zoe).getInstanceRecord(
-      ticketSalesInstanceHandle,
-    );
+    const ticketsForSale = await E(sellItemsPublicFacet).getAvailableItems();
 
-    const ticketsForSale = await E(ticketSalesPublicAPI).getAvailableItems();
-
-    t.equal(ticketsForSale.value.length, 3, `3 tickets for sale`);
+    t.is(ticketsForSale.value.length, 3, `3 tickets for sale`);
 
     return harden({
-      ticketIssuer,
-      ticketSalesInstanceHandle,
-      ticketSalesPublicAPI,
-      payoutP: payout,
-      completeObj,
+      sellItemsCreatorSeat,
+      sellItemsCreatorFacet,
     });
   };
 
   // === Alice part ===
-  // Alice is given the instanceHandle of the ticket sales instance
+  // Alice is given an invitation for the ticket sales instance
   // and she has 100 moola
-  const aliceBuysTicket1 = async (
-    ticketSalesInstanceHandle,
-    moola100Payment,
-  ) => {
-    const { publicAPI: ticketSalesPublicAPI, terms } = await E(
-      zoe,
-    ).getInstanceRecord(ticketSalesInstanceHandle);
-    const ticketIssuer = await E(ticketSalesPublicAPI).getItemsIssuer();
-    const ticketAmountMath = await E(ticketIssuer).getAmountMath();
+  const aliceBuysTicket1 = async (invitation, moola100Payment) => {
+    const invitationIssuer = E(zoe).getInvitationIssuer();
+    const {
+      value: [{ instance }],
+    } = await E(invitationIssuer).getAmountOf(invitation);
+    const ticketSalesPublicFacet = await E(zoe).getPublicFacet(instance);
+    const terms = await E(zoe).getTerms(instance);
+    const ticketIssuer = await E(ticketSalesPublicFacet).getItemsIssuer();
+    const ticketBrand = await E(ticketIssuer).getBrand();
 
     const alicePurse = await E(moolaIssuer).makeEmptyPurse();
     await E(alicePurse).deposit(moola100Payment);
 
-    // Alice makes an invite for herself
-    const aliceInvite = await E(ticketSalesPublicAPI).makeBuyerInvite();
+    t.deepEqual(terms.pricePerItem, moola(22), `pricePerItem is 22 moola`);
 
-    t.deepEquals(terms.pricePerItem, moola(22), `pricePerItem is 22 moola`);
+    const availableTickets = await E(
+      ticketSalesPublicFacet,
+    ).getAvailableItems();
 
-    const availableTickets = await E(ticketSalesPublicAPI).getAvailableItems();
-
-    t.equal(
+    t.is(
       availableTickets.value.length,
       3,
       'Alice should see 3 available tickets',
     );
-    t.ok(
+    assert(looksLikeSetValue(availableTickets.value));
+    t.truthy(
       availableTickets.value.find(ticket => ticket.number === 1),
       `availableTickets contains ticket number 1`,
     );
-    t.ok(
+    t.truthy(
       availableTickets.value.find(ticket => ticket.number === 2),
       `availableTickets contains ticket number 2`,
     );
-    t.ok(
+    t.truthy(
       availableTickets.value.find(ticket => ticket.number === 3),
       `availableTickets contains ticket number 3`,
     );
@@ -254,7 +230,7 @@ test(`mint and sell opera tickets`, async t => {
       ticket => ticket.number === 1,
     );
     // make the corresponding amount
-    const ticket1Amount = ticketAmountMath.make(harden([ticket1Value]));
+    const ticket1Amount = amountMath.make([ticket1Value], ticketBrand);
 
     const aliceProposal = harden({
       give: { Money: terms.pricePerItem },
@@ -265,22 +241,29 @@ test(`mint and sell opera tickets`, async t => {
 
     const alicePaymentKeywordRecord = harden({ Money: alicePaymentForTicket });
 
-    const { payout: payoutP } = await E(zoe).offer(
-      aliceInvite,
+    const seat = await E(zoe).offer(
+      invitation,
       aliceProposal,
       alicePaymentKeywordRecord,
     );
-    const alicePayout = await payoutP;
-    const aliceBoughtTicketAmount = await E(ticketIssuer).getAmountOf(
-      alicePayout.Items,
+
+    const offerResult = await E(seat).getOfferResult();
+    t.is(
+      offerResult,
+      'The offer has been accepted. Once the contract has been completed, please check your payout',
     );
 
-    t.equal(
+    const aliceTickets = seat.getPayout('Items');
+    const aliceBoughtTicketAmount = await E(ticketIssuer).getAmountOf(
+      aliceTickets,
+    );
+
+    t.is(
       aliceBoughtTicketAmount.value[0].show,
       'Steven Universe, the Opera',
-      'Alice should have receieved the ticket for the correct show',
+      'Alice should have received the ticket for the correct show',
     );
-    t.equal(
+    t.is(
       aliceBoughtTicketAmount.value[0].number,
       1,
       'Alice should have received the ticket for the correct number',
@@ -290,35 +273,34 @@ test(`mint and sell opera tickets`, async t => {
   // === Joker part ===
   // Joker starts with 100 moolas
   // Joker attempts to buy ticket 1 (and should fail)
-  const jokerBuysTicket1 = async (
-    ticketSalesInstanceHandle,
-    moola100Payment,
-  ) => {
-    const { publicAPI: ticketSalesPublicAPI } = await E(zoe).getInstanceRecord(
-      ticketSalesInstanceHandle,
+  const jokerBuysTicket1 = async (untrustedInvitation, moola100Payment) => {
+    const invitationIssuer = E(zoe).getInvitationIssuer();
+    const invitation = await E(invitationIssuer).claim(untrustedInvitation);
+    const {
+      value: [{ instance: ticketSalesInstance }],
+    } = await E(invitationIssuer).getAmountOf(invitation);
+    const ticketSalesPublicFacet = await E(zoe).getPublicFacet(
+      ticketSalesInstance,
     );
-    const ticketIssuer = await E(ticketSalesPublicAPI).getItemsIssuer();
-    const ticketAmountMath = await E(ticketIssuer).getAmountMath();
+    const ticketIssuer = await E(ticketSalesPublicFacet).getItemsIssuer();
+    const ticketBrand = await E(ticketIssuer).getBrand();
 
     const jokerPurse = await E(moolaIssuer).makeEmptyPurse();
     await E(jokerPurse).deposit(moola100Payment);
 
-    const jokerInvite = await E(ticketSalesPublicAPI).makeBuyerInvite();
-
-    const {
-      terms: { pricePerItem },
-    } = await E(zoe).getInstanceRecord(ticketSalesInstanceHandle);
+    const { pricePerItem } = await E(zoe).getTerms(ticketSalesInstance);
 
     // Joker does NOT check available tickets and tries to buy the ticket
     // number 1(already bought by Alice, but he doesn't know)
-    const ticket1Amount = ticketAmountMath.make(
-      harden([
+    const ticket1Amount = amountMath.make(
+      [
         {
           show: 'Steven Universe, the Opera',
           start: 'Wed, March 25th 2020 at 8pm',
           number: 1,
         },
-      ]),
+      ],
+      ticketBrand,
     );
 
     const jokerProposal = harden({
@@ -328,31 +310,32 @@ test(`mint and sell opera tickets`, async t => {
 
     const jokerPaymentForTicket = jokerPurse.withdraw(pricePerItem);
 
-    const { outcome, payout: payoutP } = await zoe.offer(
-      jokerInvite,
+    const seat = await zoe.offer(
+      invitation,
       jokerProposal,
       harden({
         Money: jokerPaymentForTicket,
       }),
     );
 
-    t.rejects(
-      outcome,
-      /Some of the wanted items were not available for sale/,
+    await t.throwsAsync(
+      seat.getOfferResult(),
+      { message: /Some of the wanted items were not available for sale/ },
       'ticket 1 is no longer available',
     );
 
-    const payout = await payoutP;
     const jokerTicketPayoutAmount = await ticketIssuer.getAmountOf(
-      payout.Items,
+      seat.getPayout('Items'),
     );
-    const jokerMoneyPayoutAmount = await moolaIssuer.getAmountOf(payout.Money);
+    const jokerMoneyPayoutAmount = await moolaIssuer.getAmountOf(
+      seat.getPayout('Money'),
+    );
 
-    t.ok(
-      ticketAmountMath.isEmpty(jokerTicketPayoutAmount),
+    t.truthy(
+      amountMath.isEmpty(jokerTicketPayoutAmount),
       'Joker should not receive ticket #1',
     );
-    t.deepEquals(
+    t.deepEqual(
       jokerMoneyPayoutAmount,
       moola(22),
       'Joker should get a refund after trying to get ticket #1',
@@ -361,28 +344,32 @@ test(`mint and sell opera tickets`, async t => {
 
   // Joker attempts to buy ticket 2 for 1 moola (and should fail)
   const jokerTriesToBuyTicket2 = async (
-    ticketSalesInstanceHandle,
+    untrustedInvitation,
     moola100Payment,
   ) => {
-    const { publicAPI: ticketSalesPublicAPI } = await E(zoe).getInstanceRecord(
-      ticketSalesInstanceHandle,
+    const invitationIssuer = E(zoe).getInvitationIssuer();
+    const invitation = await E(invitationIssuer).claim(untrustedInvitation);
+    const {
+      value: [{ instance: ticketSalesInstance }],
+    } = await E(invitationIssuer).getAmountOf(invitation);
+    const ticketSalesPublicFacet = await E(zoe).getPublicFacet(
+      ticketSalesInstance,
     );
-    const ticketIssuer = await E(ticketSalesPublicAPI).getItemsIssuer();
-    const ticketAmountMath = await E(ticketIssuer).getAmountMath();
+    const ticketIssuer = await E(ticketSalesPublicFacet).getItemsIssuer();
+    const ticketBrand = await E(ticketIssuer).getBrand();
 
     const jokerPurse = await E(moolaIssuer).makeEmptyPurse();
     await E(jokerPurse).deposit(moola100Payment);
 
-    const jokerInvite = await E(ticketSalesPublicAPI).makeBuyerInvite();
-
-    const ticket2Amount = ticketAmountMath.make(
-      harden([
+    const ticket2Amount = amountMath.make(
+      [
         {
           show: 'Steven Universe, the Opera',
           start: 'Wed, March 25th 2020 at 8pm',
           number: 2,
         },
-      ]),
+      ],
+      ticketBrand,
     );
 
     const insufficientAmount = moola(1);
@@ -395,81 +382,89 @@ test(`mint and sell opera tickets`, async t => {
       insufficientAmount,
     );
 
-    const { outcome, payout: payoutP } = await zoe.offer(
-      jokerInvite,
+    const seat = await zoe.offer(
+      invitation,
       jokerProposal,
       harden({
         Money: jokerInsufficientPaymentForTicket,
       }),
     );
 
-    t.rejects(
-      outcome,
-      /More money.*is required to buy these items/,
+    await t.throwsAsync(
+      seat.getOfferResult(),
+      { message: /More money.*is required to buy these items/ },
       'outcome from Joker should throw when trying to buy a ticket for 1 moola',
     );
-    const payout = await payoutP;
-    const jokerTicketPayoutAmount = await ticketIssuer.getAmountOf(
-      payout.Items,
-    );
-    const jokerMoneyPayoutAmount = await moolaIssuer.getAmountOf(payout.Money);
 
-    t.ok(
-      ticketAmountMath.isEmpty(jokerTicketPayoutAmount),
+    const jokerTicketPayoutAmount = await ticketIssuer.getAmountOf(
+      seat.getPayout('Items'),
+    );
+    const jokerMoneyPayoutAmount = await moolaIssuer.getAmountOf(
+      seat.getPayout('Money'),
+    );
+
+    t.truthy(
+      amountMath.isEmpty(jokerTicketPayoutAmount),
       'Joker should not receive ticket #2',
     );
-    t.deepEquals(
+    t.deepEqual(
       jokerMoneyPayoutAmount,
       insufficientAmount,
       'Joker should get a refund after trying to get ticket #2 for 1 moola',
     );
   };
 
-  const bobBuysTicket2And3 = async (
-    ticketSalesInstanceHandle,
-    moola100Payment,
-  ) => {
-    const { publicAPI: ticketSalesPublicAPI, terms } = await E(
-      zoe,
-    ).getInstanceRecord(ticketSalesInstanceHandle);
-    const ticketIssuer = await E(ticketSalesPublicAPI).getItemsIssuer();
-    const ticketAmountMath = await E(ticketIssuer).getAmountMath();
+  const bobBuysTicket2And3 = async (untrustedInvitation, moola100Payment) => {
+    const invitationIssuer = E(zoe).getInvitationIssuer();
+    const invitation = await E(invitationIssuer).claim(untrustedInvitation);
+    const {
+      value: [{ instance: ticketSalesInstance }],
+    } = await E(invitationIssuer).getAmountOf(invitation);
+    const ticketSalesPublicFacet = await E(zoe).getPublicFacet(
+      ticketSalesInstance,
+    );
+    const terms = await E(zoe).getTerms(ticketSalesInstance);
+    const ticketIssuer = await E(ticketSalesPublicFacet).getItemsIssuer();
+    const ticketBrand = await E(ticketIssuer).getBrand();
 
     const bobPurse = await E(moolaIssuer).makeEmptyPurse();
     await E(bobPurse).deposit(moola100Payment);
 
-    const bobInvite = await E(ticketSalesPublicAPI).makeBuyerInvite();
+    /** @type {Amount} */
+    const availableTickets = await E(
+      ticketSalesPublicFacet,
+    ).getAvailableItems();
 
-    const availableTickets = await E(ticketSalesPublicAPI).getAvailableItems();
-
+    assert(looksLikeSetValue(availableTickets.value));
     // Bob sees the currently available tickets
-    t.equal(
+    t.is(
       availableTickets.value.length,
       2,
       'Bob should see 2 available tickets',
     );
-    t.ok(
+    t.truthy(
       !availableTickets.value.find(ticket => ticket.number === 1),
       `availableTickets should NOT contain ticket number 1`,
     );
-    t.ok(
+    t.truthy(
       availableTickets.value.find(ticket => ticket.number === 2),
       `availableTickets should still contain ticket number 2`,
     );
-    t.ok(
+    t.truthy(
       availableTickets.value.find(ticket => ticket.number === 3),
       `availableTickets should still contain ticket number 3`,
     );
 
     // Bob buys tickets 2 and 3
-    const ticket2and3Amount = ticketAmountMath.make(
-      harden([
+    const ticket2and3Amount = amountMath.make(
+      [
         availableTickets.value.find(ticket => ticket.number === 2),
         availableTickets.value.find(ticket => ticket.number === 3),
-      ]),
+      ],
+      ticketBrand,
     );
 
-    const totalCost = moola(2 * terms.pricePerItem.value);
+    const totalCost = moola(2n * terms.pricePerItem.value);
 
     const bobProposal = harden({
       give: { Money: totalCost },
@@ -480,86 +475,61 @@ test(`mint and sell opera tickets`, async t => {
       Money: bobPaymentForTicket,
     });
 
-    const { payout: payoutP } = await E(zoe).offer(
-      bobInvite,
+    const seat = await E(zoe).offer(
+      invitation,
       bobProposal,
       paymentKeywordRecord,
     );
-    const payout = await payoutP;
-    const bobTicketAmount = await E(ticketIssuer).getAmountOf(payout.Items);
-    t.equal(
-      bobTicketAmount.value.length,
-      2,
-      'Bob should have received 2 tickets',
+
+    const bobTicketAmount = await E(ticketIssuer).getAmountOf(
+      seat.getPayout('Items'),
     );
-    t.ok(
+    t.is(bobTicketAmount.value.length, 2, 'Bob should have received 2 tickets');
+    t.truthy(
       bobTicketAmount.value.find(ticket => ticket.number === 2),
       'Bob should have received tickets #2',
     );
-    t.ok(
+    t.truthy(
       bobTicketAmount.value.find(ticket => ticket.number === 3),
       'Bob should have received tickets #3',
     );
   };
 
   // === Final Opera part ===
-  const ticketSellerClosesContract = async ({
-    ticketIssuer,
-    ticketSalesPublicAPI,
-    payoutP,
-    completeObj,
-  }) => {
-    const availableTickets = await E(ticketSalesPublicAPI).getAvailableItems();
-    const ticketAmountMath = await E(ticketIssuer).getAmountMath();
-    t.ok(
-      ticketAmountMath.isEmpty(availableTickets),
-      'All the tickets have been sold',
-    );
-
+  const ticketSellerClosesContract = async sellItemsCreatorSeat => {
     const operaPurse = moolaIssuer.makeEmptyPurse();
 
-    await E(completeObj).complete();
-
-    const payout = await payoutP;
-    const moneyPayment = await payout.Money;
+    const moneyPayment = await E(sellItemsCreatorSeat).getPayout('Money');
     await E(operaPurse).deposit(moneyPayment);
     const currentPurseBalance = await E(operaPurse).getCurrentAmount();
 
-    t.equal(
+    t.is(
       currentPurseBalance.value,
-      3 * 22,
+      3n * 22n,
       `The Opera should get ${3 * 22} moolas from ticket sales`,
     );
   };
 
-  const {
-    ticketIssuer,
-    ticketSalesInstanceHandle,
-    ticketSalesPublicAPI,
-    payoutP,
-    completeObj,
-  } = await mintTickets();
+  const { sellItemsCreatorSeat, sellItemsCreatorFacet } = await mintTickets();
+  const ticketSalesInvitation1 = E(sellItemsCreatorFacet).makeBuyerInvitation();
   await aliceBuysTicket1(
-    ticketSalesInstanceHandle,
+    ticketSalesInvitation1,
     moolaMint.mintPayment(moola(100)),
   );
+  const ticketSalesInvitation2 = E(sellItemsCreatorFacet).makeBuyerInvitation();
   await jokerBuysTicket1(
-    ticketSalesInstanceHandle,
+    ticketSalesInvitation2,
     moolaMint.mintPayment(moola(100)),
   );
+  const ticketSalesInvitation3 = E(sellItemsCreatorFacet).makeBuyerInvitation();
   await jokerTriesToBuyTicket2(
-    ticketSalesInstanceHandle,
+    ticketSalesInvitation3,
     moolaMint.mintPayment(moola(100)),
   );
+  const ticketSalesInvitation4 = E(sellItemsCreatorFacet).makeBuyerInvitation();
   await bobBuysTicket2And3(
-    ticketSalesInstanceHandle,
+    ticketSalesInvitation4,
     moolaMint.mintPayment(moola(100)),
   );
-  await ticketSellerClosesContract({
-    ticketIssuer,
-    ticketSalesPublicAPI,
-    payoutP,
-    completeObj,
-  });
-  t.end();
+  await ticketSellerClosesContract(sellItemsCreatorSeat);
 });

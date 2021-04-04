@@ -3,6 +3,128 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.4.4](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.4.3...@agoric/transform-metering@1.4.4) (2021-03-24)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+## [1.4.3](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.4.2...@agoric/transform-metering@1.4.3) (2021-03-16)
+
+
+### Bug Fixes
+
+* make separate 'test:xs' target, remove XS from 'test' target ([b9c1a69](https://github.com/Agoric/agoric-sdk/commit/b9c1a6987093fc8e09e8aba7acd2a1618413bac8)), closes [#2647](https://github.com/Agoric/agoric-sdk/issues/2647)
+
+
+
+
+
+## [1.4.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.4.1...@agoric/transform-metering@1.4.2) (2021-02-22)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+## [1.4.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.4.0...@agoric/transform-metering@1.4.1) (2021-02-16)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+# [1.4.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.4...@agoric/transform-metering@1.4.0) (2020-12-10)
+
+
+### Bug Fixes
+
+* **transform-metering:** suppress a size warning by not compacting ([af1648b](https://github.com/Agoric/agoric-sdk/commit/af1648b259feb50f2de9d111a1f83de0d559f47b))
+
+
+### Features
+
+* **import-bundle:** Preliminary support Endo zip hex bundle format ([#1983](https://github.com/Agoric/agoric-sdk/issues/1983)) ([983681b](https://github.com/Agoric/agoric-sdk/commit/983681bfc4bf512b6bd90806ed9220cd4fefc13c))
+
+
+
+
+
+## [1.3.4](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.4-dev.0...@agoric/transform-metering@1.3.4) (2020-11-07)
+
+
+### Bug Fixes
+
+* prevent infinite loop when metering BigInt values ([3b76f82](https://github.com/Agoric/agoric-sdk/commit/3b76f829d970b1998e35149ad0e21f0a8f54e2f0))
+
+
+
+
+
+## [1.3.4-dev.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.3...@agoric/transform-metering@1.3.4-dev.0) (2020-10-19)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+## [1.3.3](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.3-dev.2...@agoric/transform-metering@1.3.3) (2020-10-11)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+## [1.3.3-dev.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.3-dev.1...@agoric/transform-metering@1.3.3-dev.2) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+## [1.3.3-dev.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.3-dev.0...@agoric/transform-metering@1.3.3-dev.1) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+## [1.3.3-dev.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.2...@agoric/transform-metering@1.3.3-dev.0) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+## [1.3.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.1...@agoric/transform-metering@1.3.2) (2020-09-16)
+
+**Note:** Version bump only for package @agoric/transform-metering
+
+
+
+
+
+## [1.3.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.3.0...@agoric/transform-metering@1.3.1) (2020-08-31)
+
+
+### Bug Fixes
+
+* excise @agoric/harden from the codebase ([eee6fe1](https://github.com/Agoric/agoric-sdk/commit/eee6fe1153730dec52841c9eb4c056a8c5438b0f))
+* reduce inconsistency among our linting rules ([#1492](https://github.com/Agoric/agoric-sdk/issues/1492)) ([b6b675e](https://github.com/Agoric/agoric-sdk/commit/b6b675e2de110e2af19cad784a66220cab21dacf))
+
+
+
+
+
 # [1.3.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/transform-metering@1.2.5...@agoric/transform-metering@1.3.0) (2020-06-30)
 
 

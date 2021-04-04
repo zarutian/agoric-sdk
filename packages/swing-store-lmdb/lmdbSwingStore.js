@@ -4,13 +4,15 @@ import path from 'path';
 
 import lmdb from 'node-lmdb';
 
+const { details: X } = assert;
+
 /**
  * Do the work of `initSwingStore` and `openSwingStore`.
  *
- * @param dirPath  Path to a directory in which database files may be kept.
- * @param forceReset  If true, initialize the database to an empty state
+ * @param {string} dirPath  Path to a directory in which database files may be kept.
+ * @param {boolean} forceReset  If true, initialize the database to an empty state
  *
- * @return an object: {
+ * returns an object: {
  *   storage, // a storage API object to load and store data
  *   commit,  // a function to commit changes made since the last commit
  *   close    // a function to shutdown the store, abandoning any uncommitted changes
@@ -56,17 +58,15 @@ function makeSwingStore(dirPath, forceReset = false) {
   /**
    * Obtain the value stored for a given key.
    *
-   * @param key  The key whose value is sought.
+   * @param {string} key  The key whose value is sought.
    *
-   * @return the (string) value for the given key, or undefined if there is no
+   * @returns {string | undefined} the (string) value for the given key, or undefined if there is no
    *    such value.
    *
    * @throws if key is not a string.
    */
   function get(key) {
-    if (`${key}` !== key) {
-      throw new Error(`non-string key ${key}`);
-    }
+    assert.typeof(key, 'string', X`non-string key ${key}`);
     ensureTxn();
     let result = txn.getString(dbi, key);
     if (result === null) {
@@ -80,22 +80,18 @@ function makeSwingStore(dirPath, forceReset = false) {
    * given range.  Note that this can be slow as it's only intended for use in
    * debugging.
    *
-   * @param start  Start of the key range of interest (inclusive).  An empty
+   * @param {string} start  Start of the key range of interest (inclusive).  An empty
    *    string indicates a range from the beginning of the key set.
-   * @param end  End of the key range of interest (exclusive).  An empty string
+   * @param {string} end  End of the key range of interest (exclusive).  An empty string
    *    indicates a range through the end of the key set.
    *
-   * @return an iterator for the keys from start <= key < end
+   * @yields an iterator for the keys from start <= key < end
    *
    * @throws if either parameter is not a string.
    */
   function* getKeys(start, end) {
-    if (`${start}` !== start) {
-      throw new Error(`non-string start ${start}`);
-    }
-    if (`${end}` !== end) {
-      throw new Error(`non-string end ${end}`);
-    }
+    assert.typeof(start, 'string', X`non-string start ${start}`);
+    assert.typeof(end, 'string', X`non-string end ${end}`);
 
     ensureTxn();
     const cursor = new lmdb.Cursor(txn, dbi);
@@ -110,16 +106,14 @@ function makeSwingStore(dirPath, forceReset = false) {
   /**
    * Test if the state contains a value for a given key.
    *
-   * @param key  The key that is of interest.
+   * @param {string} key  The key that is of interest.
    *
-   * @return true if a value is stored for the key, false if not.
+   * @returns {boolean} true if a value is stored for the key, false if not.
    *
    * @throws if key is not a string.
    */
   function has(key) {
-    if (`${key}` !== key) {
-      throw new Error(`non-string key ${key}`);
-    }
+    assert.typeof(key, 'string', X`non-string key ${key}`);
     return get(key) !== undefined;
   }
 
@@ -127,18 +121,14 @@ function makeSwingStore(dirPath, forceReset = false) {
    * Store a value for a given key.  The value will replace any prior value if
    * there was one.
    *
-   * @param key  The key whose value is being set.
-   * @param value  The value to set the key to.
+   * @param {string} key  The key whose value is being set.
+   * @param {string} value  The value to set the key to.
    *
    * @throws if either parameter is not a string.
    */
   function set(key, value) {
-    if (`${key}` !== key) {
-      throw new Error(`non-string key ${key}`);
-    }
-    if (`${value}` !== value) {
-      throw new Error(`non-string value ${value}`);
-    }
+    assert.typeof(key, 'string', X`non-string key ${key}`);
+    assert.typeof(value, 'string', X`non-string value ${value}`);
     ensureTxn();
     txn.putString(dbi, key, value);
   }
@@ -147,14 +137,12 @@ function makeSwingStore(dirPath, forceReset = false) {
    * Remove any stored value for a given key.  It is permissible for there to
    * be no existing stored value for the key.
    *
-   * @param key  The key whose value is to be deleted
+   * @param {string} key  The key whose value is to be deleted
    *
    * @throws if key is not a string.
    */
   function del(key) {
-    if (`${key}` !== key) {
-      throw new Error(`non-string key ${key}`);
-    }
+    assert.typeof(key, 'string', X`non-string key ${key}`);
     if (has(key)) {
       ensureTxn();
       txn.del(dbi, key);
@@ -201,12 +189,12 @@ function makeSwingStore(dirPath, forceReset = false) {
  * Create a swingset store backed by an LMDB database.  If there is an existing
  * store at the given `dirPath`, it will be reinitialized to an empty state.
  *
- * @param dirPath  Path to a directory in which database files may be kept.
+ * @param {string} dirPath  Path to a directory in which database files may be kept.
  *   This directory need not actually exist yet (if it doesn't it will be
  *   created) but it is reserved (by the caller) for the exclusive use of this
  *   swing store instance.
  *
- * @return an object: {
+ * returns an object: {
  *   storage, // a storage API object to load and store data
  *   commit,  // a function to commit changes made since the last commit
  *   close    // a function to shutdown the store, abandoning any uncommitted
@@ -224,12 +212,12 @@ export function initSwingStore(dirPath) {
  * Open a swingset store backed by an LMDB database.  If there is no existing
  * store at the given `dirPath`, a new, empty store will be created.
  *
- * @param dirPath  Path to a directory in which database files may be kept.
+ * @param {string} dirPath  Path to a directory in which database files may be kept.
  *   This directory need not actually exist yet (if it doesn't it will be
  *   created) but it is reserved (by the caller) for the exclusive use of this
  *   swing store instance.
  *
- * @return an object: {
+ * returns an object: {
  *   storage, // a storage API object to load and store data
  *   commit,  // a function to commit changes made since the last commit
  *   close    // a function to shutdown the store, abandoning any uncommitted
@@ -246,10 +234,10 @@ export function openSwingStore(dirPath) {
 /**
  * Is this directory a compatible swing store?
  *
- * @param dirPath  Path to a directory in which database files might be present.
+ * @param {string} dirPath  Path to a directory in which database files might be present.
  *   This directory need not actually exist
  *
- * @return boolean
+ * @returns {boolean}
  *   If the directory is present and contains the files created by initSwingStore
  *   or openSwingStore, returns true. Else returns false.
  *

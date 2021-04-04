@@ -1,5 +1,3 @@
-/* global harden */
-
 /**
  * The VatAdmin wrapper vat.
  *
@@ -7,10 +5,11 @@
  * must ensure that only data goes in and out. It's also responsible for turning
  * device affordances into objects that can be used by code in other vats.
  */
-import { producePromise } from '@agoric/produce-promise';
+import { makePromiseKit } from '@agoric/promise-kit';
+import { Far } from '@agoric/marshal';
 
 function producePRR() {
-  const { promise, resolve, reject } = producePromise();
+  const { promise, resolve, reject } = makePromiseKit();
   return [promise, { resolve, reject }];
 }
 
@@ -19,32 +18,39 @@ export function buildRootObject(vatPowers) {
   const pending = new Map(); // vatID -> { resolve, reject } for promise
   const running = new Map(); // vatID -> { resolve, reject } for doneP
 
+  function finishVatCreation(vatAdminNode, vatID) {
+    const [promise, pendingRR] = producePRR();
+    pending.set(vatID, pendingRR);
+
+    const [doneP, doneRR] = producePRR();
+    running.set(vatID, doneRR);
+    doneP.catch(() => {}); // shut up false whine about unhandled rejection
+
+    const adminNode = Far('adminNode', {
+      terminateWithFailure(reason) {
+        D(vatAdminNode).terminateWithFailure(vatID, reason);
+      },
+      adminData() {
+        return D(vatAdminNode).adminStats(vatID);
+      },
+      done() {
+        return doneP;
+      },
+    });
+    return promise.then(root => {
+      return { adminNode, root };
+    });
+  }
+
   function createVatAdminService(vatAdminNode) {
-    return harden({
+    return Far('vatAdminService', {
       createVat(code, options) {
         const vatID = D(vatAdminNode).create(code, options);
-
-        const [promise, pendingRR] = producePRR();
-        pending.set(vatID, pendingRR);
-
-        const [doneP, doneRR] = producePRR();
-        running.set(vatID, doneRR);
-
-        const adminNode = harden({
-          terminate() {
-            D(vatAdminNode).terminate(vatID);
-            // TODO(hibbert): cleanup admin vat data structures
-          },
-          adminData() {
-            return D(vatAdminNode).adminStats(vatID);
-          },
-          done() {
-            return doneP;
-          },
-        });
-        return promise.then(root => {
-          return { adminNode, root };
-        });
+        return finishVatCreation(vatAdminNode, vatID);
+      },
+      createVatByName(bundleName, options) {
+        const vatID = D(vatAdminNode).createByName(bundleName, options);
+        return finishVatCreation(vatAdminNode, vatID);
       },
     });
   }
@@ -61,19 +67,17 @@ export function buildRootObject(vatPowers) {
   }
 
   // the kernel sends this when the vat halts
-  function vatTerminated(vatID, error) {
-    // 'error' is undefined if adminNode.terminate() killed it, else it
-    // will be a RangeError from a metering fault
+  function vatTerminated(vatID, shouldReject, info) {
     const { resolve, reject } = running.get(vatID);
     running.delete(vatID);
-    if (error) {
-      reject(error);
+    if (shouldReject) {
+      reject(info);
     } else {
-      resolve();
+      resolve(info);
     }
   }
 
-  return harden({
+  return Far('root', {
     createVatAdminService,
     newVatCallback,
     vatTerminated,

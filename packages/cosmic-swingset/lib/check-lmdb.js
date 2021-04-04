@@ -8,6 +8,8 @@ import {
   initSwingStore as initSwingStoreSimple,
 } from '@agoric/swing-store-simple';
 
+import { assert, details as X } from '@agoric/assert';
+
 /*
  * Return an 'openSwingStore' function for the best kind of DB that works on
  * this platform. This will be LMDB if possible, else Simple.
@@ -33,13 +35,12 @@ export function getBestSwingStore(tempdir) {
     tdb1.close();
 
     const tdb2 = openSwingStoreLMDB(tempdir);
-    if (!tdb2.storage.has('test key')) {
-      throw Error(`LMDB test disavows test key`);
-    }
+    assert(tdb2.storage.has('test key'), X`LMDB test disavows test key`);
     const val = tdb2.storage.get('test key');
-    if (val !== 'test value') {
-      throw Error(`LMDB test returned '${val}', not 'test value'`);
-    }
+    assert(
+      val === 'test value',
+      X`LMDB test returned '${val}', not 'test value'`,
+    );
     tdb2.close();
     // if we made it this far, LMDB works
     return {
@@ -47,7 +48,7 @@ export function getBestSwingStore(tempdir) {
       initSwingStore: initSwingStoreLMDB,
     };
   } catch (e) {
-    console.log(`LMDB does not work, falling back to Simple DB`);
+    console.log(`LMDB does not work, falling back to Simple DB`, e);
     // see https://github.com/Agoric/agoric-sdk/issues/950 for details
     return {
       openSwingStore: openSwingStoreSimple,

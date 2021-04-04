@@ -1,11 +1,16 @@
 {
   "name": "@agoric/eventual-send",
-  "version": "0.9.3",
+  "version": "0.13.4",
   "description": "Extend a Promise class to implement the eventual-send API",
-  "main": "src/index.js",
+  "parsers": {
+    "js": "mjs"
+  },
+  "main": "src/no-shim.js",
   "types": "src/index.d.ts",
   "scripts": {
-    "test": "tape -r esm 'test/**/test*.js'",
+    "test": "ava",
+    "test:nyc": "nyc ava",
+    "test:xs": "exit 0",
     "build": "exit 0",
     "lint-fix": "eslint --fix '**/*.js'",
     "lint-check": "eslint '**/*.js'"
@@ -20,17 +25,14 @@
     "url": "https://github.com/Agoric/agoric-sdk/issues"
   },
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
-  "dependencies": {
-  },
   "devDependencies": {
+    "@agoric/assert": "^0.2.4",
+    "@agoric/install-ses": "^0.5.4",
+    "@agoric/swingset-vat": "^0.14.0",
+    "ava": "^3.12.1",
     "esm": "^3.2.7",
-    "@agoric/install-ses": "^0.2.0",
-    "rollup": "^1.2.2",
-    "tape": "^4.11.0",
-    "tape-promise": "^4.0.0"
-  },
-  "directories": {
-    "test": "test"
+    "nyc": "^15.1.0",
+    "rollup": "^1.2.2"
   },
   "keywords": [
     "eventual send",
@@ -38,9 +40,28 @@
   ],
   "files": [
     "src",
-    "dist"
+    "dist",
+    "shim.js"
   ],
+  "eslintConfig": {
+    "extends": [
+      "@agoric"
+    ]
+  },
+  "prettier": {
+    "trailingComma": "all",
+    "singleQuote": true
+  },
   "publishConfig": {
     "access": "public"
+  },
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ],
+    "timeout": "2m"
   }
 }

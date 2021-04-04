@@ -1,10 +1,12 @@
-/* global harden */
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject(vatPowers, vatParameters) {
   const { D, testLog: log } = vatPowers;
-  return harden({
-    async bootstrap(argv, vats, devices) {
+  return Far('root', {
+    async bootstrap(vats, devices) {
+      const { argv } = vatParameters;
       if (argv[0] === '1') {
         log(`calling d2.method1`);
         const ret = D(devices.d2).method1('hello');
@@ -18,13 +20,13 @@ export function buildRootObject(vatPowers) {
         log(`calling d2.method3`);
         // devices can't yet do sendOnly on pass-by-presence objects, but
         // they should still be able to accept and return them
-        const o = harden({});
+        const o = Far('iface', {});
         const ret = D(devices.d2).method3(o);
         log(`ret ${ret === o}`);
       } else if (argv[0] === '4') {
         log(`calling d2.method4`);
         // now exercise sendOnly on pass-by-presence objects
-        const o = harden({
+        const o = Far('o', {
           foo(obj) {
             log(`d2.m4 foo`);
             D(obj).bar('hello');
@@ -59,7 +61,7 @@ export function buildRootObject(vatPowers) {
         D(devices.mailbox).remove('peer2', 4, 'data4');
         // should leave peer1: [data2,data3], peer2: [], peer3: [data5]
       } else if (argv[0] === 'mailbox2') {
-        const handler = harden({
+        const handler = Far('mailbox', {
           deliverInboundMessages(peer, messages) {
             log(`dm-${peer}`);
             messages.forEach(m => {
@@ -74,7 +76,7 @@ export function buildRootObject(vatPowers) {
       } else if (argv[0] === 'command1') {
         D(devices.command).sendBroadcast({ hello: 'everybody' });
       } else if (argv[0] === 'command2') {
-        const handler = harden({
+        const handler = Far('handler', {
           inbound(count, body) {
             log(`handle-${count}-${body.piece}`);
             D(devices.command).sendResponse(count, body.doReject, {
@@ -83,9 +85,23 @@ export function buildRootObject(vatPowers) {
           },
         });
         D(devices.command).registerInboundHandler(handler);
+      } else if (argv[0] === 'promise1') {
+        const p = Promise.resolve();
+        log('sending Promise');
+        try {
+          // this will be rejected by liveslots before the device is involved
+          D(devices.d0).send({ p });
+          // shouldn't get here
+          log('oops: survived sending Promise');
+        } catch (e) {
+          log('good: callNow failed');
+        }
       } else {
-        throw new Error(`unknown argv mode '${argv[0]}'`);
+        assert.fail(X`unknown argv mode '${argv[0]}'`);
       }
+    },
+    ping() {
+      return true;
     },
   });
 }

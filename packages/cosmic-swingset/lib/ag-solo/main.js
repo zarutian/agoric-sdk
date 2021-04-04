@@ -1,3 +1,4 @@
+/* global __dirname */
 import fs from 'fs';
 import path from 'path';
 import parseArgs from 'minimist';
@@ -8,6 +9,7 @@ import { assert } from '@agoric/assert';
 import anylogger from 'anylogger';
 
 // Start a network service
+import addChain from './add-chain';
 import initBasedir from './init-basedir';
 import resetState from './reset-state';
 import setGCIIngress from './set-gci-ingress';
@@ -56,13 +58,27 @@ start
   }
 
   switch (argv[0]) {
+    case 'setup': {
+      const { netconfig } = parseArgs(argv.slice(1));
+      if (!AG_SOLO_BASEDIR) {
+        console.error(`setup: you must set $AG_SOLO_BASEDIR`);
+        return;
+      }
+      if (!fs.existsSync(AG_SOLO_BASEDIR)) {
+        await solo(progname, ['init', AG_SOLO_BASEDIR, ...argv.slice(1)]);
+      }
+      process.chdir(AG_SOLO_BASEDIR);
+      await solo(progname, ['add-chain', netconfig]);
+      await solo(progname, ['start']);
+      break;
+    }
     case 'init': {
       const { _: subArgs, ...subOpts } = parseArgs(argv.slice(1), {
         default: {
           webport: '8000',
-          // If we're in Vagrant, default to listen on the VM's routable address.
-          webhost: fs.existsSync('/vagrant') ? '0.0.0.0' : '127.0.0.1',
+          webhost: '127.0.0.1',
           egresses: DEFAULT_EGRESSES,
+          defaultManagerType: process.env.SWINGSET_WORKER_TYPE || 'local',
         },
       });
       const webport = Number(subOpts.webport);
@@ -70,7 +86,14 @@ start
       const basedir = subArgs[0] || AG_SOLO_BASEDIR;
       const subdir = subArgs[1];
       assert(basedir !== undefined, 'you must provide a BASEDIR');
-      initBasedir(basedir, webport, webhost, subdir, egresses.split(','));
+      initBasedir(
+        basedir,
+        webport,
+        webhost,
+        subdir,
+        egresses.split(','),
+        subOpts,
+      );
       await resetState(basedir);
 
       // TODO: We may want to give some instructions.  This is probably not the
@@ -78,6 +101,15 @@ start
       // log.error(
       //   `Run '(cd ${basedir} && ${progname} start)' to start the vat machine`,
       // );
+      break;
+    }
+    case 'add-chain': {
+      const basedir = insistIsBasedir();
+      const { _: subArgs, ...subOpts } = parseArgs(argv.slice(1), {
+        boolean: ['reset'],
+      });
+      const [chainConfig] = subArgs;
+      await addChain(basedir, chainConfig, subOpts.reset);
       break;
     }
     case 'set-gci-ingress': {
@@ -91,14 +123,16 @@ start
     }
     case 'set-fake-chain': {
       const basedir = insistIsBasedir();
-      const { _: subArgs, role, delay } = parseArgs(argv.slice(1), {});
+      const { _: subArgs, delay } = parseArgs(argv.slice(1), {});
       const GCI = subArgs[0];
-      setFakeChain(basedir, GCI, role, delay);
+      setFakeChain(basedir, GCI, delay);
       break;
     }
     case 'start': {
       const basedir = insistIsBasedir();
-      await start(basedir, argv.slice(1));
+      await start(basedir, {
+        ROLE: 'client',
+      });
       break;
     }
     case 'reset-state': {

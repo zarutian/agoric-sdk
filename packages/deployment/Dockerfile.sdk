@@ -1,24 +1,45 @@
-ARG SWINGSET_TAG=latest
-ARG REPO=agoric/cosmic-swingset
-FROM $REPO:$SWINGSET_TAG as cosmic-swingset-go
+###########################
+# The golang build container
+FROM golang:1.15-buster as cosmos-go
 
+WORKDIR /usr/src/agoric-sdk/golang/cosmos
+COPY go.mod go.sum ../../
+RUN go mod download
+
+COPY golang/cosmos ./
+
+COPY packages/cosmic-swingset/lib/*.txt ./
+RUN make MOD_READONLY= compile-go
+
+###############################
 # The js build container
-FROM node:lts-stretch AS build-js
+FROM node:12-buster AS build-js
+ARG MODDABLE_COMMIT_HASH
 
 WORKDIR /usr/src/agoric-sdk
 COPY . .
-COPY --from=cosmic-swingset-go /usr/src/app/lib/ packages/cosmic-swingset/lib/
 RUN ln -s agoric-sdk/packages/cosmic-swingset ../app
 
-RUN yarn install
+RUN yarn install --frozen-lockfile --ignore-scripts
 
 # Need to build the Node.js node extension that uses our above Golang shared library.
-RUN cd packages/cosmic-swingset && yarn build:gyp
+COPY --from=cosmos-go /usr/src/agoric-sdk/golang/cosmos/build golang/cosmos/build/
+RUN cd golang/cosmos && yarn build:gyp
 
-RUN yarn build
+# Install the entry points in the path.
+RUN cd packages/cosmic-swingset && make install install-helper
 
+# Check out the specified Moddable SDK version.
+RUN MODDABLE_COMMIT_HASH="$MODDABLE_COMMIT_HASH" yarn build
+
+# Remove dev dependencies.
+RUN rm -rf packages/xsnap/moddable
+RUN find . -name node_modules -prune -print0 | xargs -0 rm -rf
+RUN yarn install --frozen-lockfile --production
+
+###############################
 # The install container.
-FROM node:lts-stretch AS install
+FROM node:12-buster AS install
 
 # Install some conveniences.
 RUN apt-get update && apt-get install -y vim jq less && apt-get clean -y
@@ -27,10 +48,10 @@ WORKDIR /usr/src
 COPY --from=build-js /usr/src/agoric-sdk agoric-sdk
 RUN ln -s agoric-sdk/packages/cosmic-swingset app
 
-COPY --from=cosmic-swingset-go /go/bin/ag-cosmos-helper /usr/local/bin/
+COPY --from=build-js /root/go/bin/ag-cosmos-helper /usr/local/bin/
 RUN ln -s /usr/src/app/bin/ag-chain-cosmos /usr/local/bin/
 
 # By default, run the daemon with specified arguments.
 WORKDIR /root
-EXPOSE 26657
+EXPOSE 1317 9090 26657
 ENTRYPOINT [ "/usr/src/agoric-sdk/packages/cosmic-swingset/scripts/chain-entry.sh" ]

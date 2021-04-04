@@ -1,5 +1,5 @@
-import Nat from '@agoric/nat';
-import { assert, details } from '@agoric/assert';
+import { Nat } from '@agoric/nat';
+import { assert, details as X } from '@agoric/assert';
 
 // Object/promise references (in the kernel) contain a two-tuple of (type,
 // index). All object references point to entries in the kernel Object
@@ -17,11 +17,11 @@ import { assert, details } from '@agoric/assert';
  *      id: Nat
  *   }
  *
- * @param s  The string to be parsed, as described above.
+ * @param {string} s  The string to be parsed, as described above.
  *
- * @return a kernel slot object corresponding to the parameter.
+ * @returns {{type: 'object' | 'device' | 'promise', id: number}} a kernel slot object corresponding to the parameter.
  *
- * @throws if the given string is syntactically incorrect.
+ * @throws {Error} if the given string is syntactically incorrect.
  */
 export function parseKernelSlot(s) {
   assert.typeof(s, 'string');
@@ -37,21 +37,21 @@ export function parseKernelSlot(s) {
     type = 'promise';
     idSuffix = s.slice(2);
   } else {
-    throw new Error(`invalid kernelSlot ${s}`);
+    assert.fail(X`invalid kernelSlot ${s}`);
   }
-  const id = Nat(Number(idSuffix));
+  const id = Nat(BigInt(idSuffix));
   return { type, id };
 }
 
 /**
  * Generate a kernel slot reference string given a type and id.
  *
- * @param type  The type, 'object', 'device', or 'promise'.
- * @param id    The id, a Nat.
+ * @param {'object' | 'device' | 'promise'} type  The type
+ * @param {number} id    The id, a Nat.
  *
- * @return the corresponding kernel slot reference string.
+ * @returns {string} the corresponding kernel slot reference string.
  *
- * @throws if type is not one of the above known types.
+ * @throws {Error} if type is not one of the above known types.
  */
 export function makeKernelSlot(type, id) {
   if (type === 'object') {
@@ -63,23 +63,23 @@ export function makeKernelSlot(type, id) {
   if (type === 'promise') {
     return `kp${Nat(id)}`;
   }
-  throw new Error(`unknown type ${type}`);
+  assert.fail(X`unknown type ${type}`);
 }
 
 /**
  * Assert function to ensure that a kernel slot reference string refers to a
  * slot of a given type.
  *
- * @param type  The kernel slot type desired, a string.
- * @param kernelSlot  The kernel slot reference string being tested
+ * @param {'object' | 'device' | 'promise'} type  The kernel slot type desired, a string.
+ * @param {string} kernelSlot  The kernel slot reference string being tested
  *
  * @throws if kernelSlot is not of the given type or is malformed.
  *
- * @return nothing
+ * @returns {void}
  */
 export function insistKernelType(type, kernelSlot) {
   assert(
     type === parseKernelSlot(kernelSlot).type,
-    details`kernelSlot ${kernelSlot} is not of type ${type}`,
+    X`kernelSlot ${kernelSlot} is not of type ${type}`,
   );
 }

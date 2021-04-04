@@ -28,9 +28,29 @@ export function dumpStore(store, outfile, rawMode) {
     gap();
   }
 
-  popt('runQueue');
+  const runQueue = JSON.parse(eat('runQueue'));
+  if (runQueue.length === 0) {
+    p('runQueue :: []');
+  } else {
+    p('runQueue :: [');
+    let idx = 1;
+    for (const entry of runQueue) {
+      const comma = idx === runQueue.length ? '' : ',';
+      idx += 1;
+      p(`  ${JSON.stringify(entry)}${comma}`);
+    }
+    p(']');
+  }
+
   popt('crankNumber');
   popt('kernelStats');
+  gap();
+
+  p('// bundles');
+  poptBig('bundle', 'kernelBundle');
+  for (const key of groupKeys('bundle.')) {
+    poptBig('bundle', key);
+  }
   gap();
 
   p('// device info');
@@ -53,6 +73,8 @@ export function dumpStore(store, outfile, rawMode) {
 
   for (const [dn, d] of devs.entries()) {
     p(`// device ${d} (${dn})`);
+    popt(`${d}.options`);
+    poptBig('bundle', `${d}.source`);
     popt(`${d}.o.nextID`);
     for (const key of groupKeys(`${d}.c.kd`)) {
       const val = popt(key);
@@ -63,6 +85,7 @@ export function dumpStore(store, outfile, rawMode) {
 
   p('// vat info');
   popt('vat.nextID');
+  const vatDynamicIDsRaw = popt('vat.dynamicIDs');
   const vats = new Map();
   const vatNamesRaw = popt('vat.names');
   if (vatNamesRaw) {
@@ -71,6 +94,14 @@ export function dumpStore(store, outfile, rawMode) {
       const v = popt(`vat.name.${vn}`);
       vats.set(vn, v);
     }
+  }
+  if (vatDynamicIDsRaw) {
+    const vatDynamicIDs = JSON.parse(vatDynamicIDsRaw);
+    for (const vdid of vatDynamicIDs) {
+      vats.set(`dynamic-${vdid}`, vdid);
+    }
+  }
+  if (vatNamesRaw || vatDynamicIDsRaw) {
     gap();
   }
 
@@ -92,6 +123,8 @@ export function dumpStore(store, outfile, rawMode) {
       gap();
     }
     p(`// vat ${v} (${vn})`);
+    popt(`${v}.options`);
+    poptBig('bundle', `${v}.source`);
     popt(`${v}.d.nextID`);
     popt(`${v}.o.nextID`);
     popt(`${v}.p.nextID`);
@@ -108,9 +141,11 @@ export function dumpStore(store, outfile, rawMode) {
       const val = popt(key);
       popt(`${v}.c.${val}`);
     }
+    for (const key of groupKeys(`${v}.vs`)) {
+      popt(key);
+    }
     for (const key of groupKeys(`${v}.t.`)) {
-      transcript.push([key, state.get(key)]);
-      state.delete(key);
+      transcript.push([key, eat(key)]);
     }
   }
 
@@ -137,6 +172,10 @@ export function dumpStore(store, outfile, rawMode) {
     popt(key);
   }
 
+  if (outfile) {
+    out.end('');
+  }
+
   function p(str) {
     out.write(str);
     out.write('\n');
@@ -161,20 +200,74 @@ export function dumpStore(store, outfile, rawMode) {
   }
 
   function pgroup(baseKey) {
+    const toSort = [];
     for (const key of groupKeys(baseKey)) {
-      pkv(key, state.get(key));
-      state.delete(key);
+      toSort.push([key, eat(key)]);
+    }
+    // sort similar keys by their numeric portions if possible, e.g.,
+    // "ko7.owner" should be less than "ko43.owner" even though it would be the
+    // other way around if they were simply compared as strings.
+    toSort.sort((elem1, elem2) => {
+      // chop off baseKey, since it's not useful for comparisons
+      const key1 = elem1[0].slice(baseKey.length);
+      const key2 = elem2[0].slice(baseKey.length);
+
+      // find the first non leading digit position in each key
+      const cut1 = key1.search(/[^0-9]/);
+      const cut2 = key2.search(/[^0-9]/);
+
+      // if either key lacks leading digits, at least one of them has no number
+      // to compare, so just compare the keys themselves
+      if (cut1 === 0 || cut2 === 0) {
+        return key1.localeCompare(key2);
+      }
+
+      // treat the number parts as numbers
+      const num1 = Number(key1.substr(0, cut1));
+      const num2 = Number(key2.substr(0, cut2));
+
+      if (num1 !== num2) {
+        // if the numbers are different, the comparison is the comparison of the
+        // numbers
+        return num1 - num2;
+      } else {
+        // if the numbers are the same, the comparison is the comparison of the
+        // remainder of the key, which, because of how we got here, is the same
+        // as comparing the whole key
+        return key1.localeCompare(key2);
+      }
+    });
+    for (const [key, value] of toSort) {
+      pkv(key, value);
     }
   }
 
-  function popt(key) {
+  function eat(key) {
     if (state.has(key)) {
       const value = state.get(key);
-      pkv(key, value);
       state.delete(key);
       return value;
     } else {
       return undefined;
+    }
+  }
+
+  function popt(key) {
+    const value = eat(key);
+    if (value) {
+      pkv(key, value);
+    }
+    return value;
+  }
+
+  function poptBig(tag, key) {
+    const value = eat(key);
+    if (value) {
+      if (value.length > 50) {
+        pkv(key, `<<${tag} ${value.length}>>`);
+      } else {
+        pkv(key, value);
+      }
     }
   }
 }

@@ -1,14 +1,19 @@
 {
   "name": "@agoric/swing-store-simple",
-  "version": "0.2.3",
+  "version": "0.3.4",
   "description": "Persistent storage for SwingSet, based on a Map, optionally backed by a simple JSON file",
+  "parsers": {
+    "js": "mjs"
+  },
   "main": "simpleSwingStore.js",
   "repository": "https://github.com/Agoric/agoric-sdk",
   "author": "Agoric",
   "license": "Apache-2.0",
   "scripts": {
     "build": "exit 0",
-    "test": "tape -r esm 'test/**/test*.js' | tap-spec",
+    "test": "ava",
+    "test:nyc": "nyc ava",
+    "test:xs": "exit 0",
     "lint-fix": "eslint --fix '**/*.js'",
     "lint-check": "eslint '**/*.js'"
   },
@@ -16,12 +21,29 @@
     "n-readlines": "^1.0.0"
   },
   "devDependencies": {
+    "ava": "^3.12.1",
     "esm": "^3.2.25",
-    "tap-spec": "^5.0.0",
-    "tape": "^4.10.2",
-    "tape-promise": "^4.0.0"
+    "nyc": "^15.1.0"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ],
+    "timeout": "2m"
+  },
+  "eslintConfig": {
+    "extends": [
+      "@agoric"
+    ]
+  },
+  "prettier": {
+    "trailingComma": "all",
+    "singleQuote": true
   }
 }

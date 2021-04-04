@@ -1,12 +1,13 @@
+/* global require setTimeout clearTimeout setInterval clearInterval */
 // Start a network service
 import path from 'path';
 import http from 'http';
 import { createConnection } from 'net';
 import express from 'express';
 import WebSocket from 'ws';
-import fs from 'fs';
-
 import anylogger from 'anylogger';
+
+import { getAccessToken } from './access-token';
 
 // We need to CommonJS require morgan or else it warns, until:
 // https://github.com/expressjs/morgan/issues/190
@@ -23,6 +24,13 @@ const send = (ws, msg) => {
   }
 };
 
+const verifyToken = (actual, expected) => {
+  // TODO: This should be a constant-time operation so that
+  // the caller cannot tell the difference between initial characters
+  // that match vs. ones that don't.
+  return actual === expected;
+};
+
 export async function makeHTTPListener(basedir, port, host, rawInboundCommand) {
   // Enrich the inbound command with some metadata.
   const inboundCommand = (
@@ -30,9 +38,26 @@ export async function makeHTTPListener(basedir, port, host, rawInboundCommand) {
     { channelID, dispatcher, url, headers: { origin } = {} } = {},
     id = undefined,
   ) => {
+    // Strip away the query params, as the inbound command device can't handle
+    // it and the accessToken is there.
+    const parsedURL = new URL(url, 'http://some-host');
+    const query = { isQuery: true };
+    for (const [key, val] of parsedURL.searchParams.entries()) {
+      if (key !== 'accessToken') {
+        query[key] = val;
+      }
+    }
+
     const obj = {
       ...body,
-      meta: { channelID, dispatcher, origin, url, date: Date.now() },
+      meta: {
+        channelID,
+        dispatcher,
+        origin,
+        query,
+        url: parsedURL.pathname,
+        date: Date.now(),
+      },
     };
     return rawInboundCommand(obj).catch(err => {
       const idpfx = id ? `${id} ` : '';
@@ -42,7 +67,7 @@ export async function makeHTTPListener(basedir, port, host, rawInboundCommand) {
         'from',
         JSON.stringify(obj, undefined, 2),
       );
-      throw (err && err.message) || JSON.stringify(err);
+      throw (err && err.message) || err;
     });
   };
 
@@ -60,59 +85,79 @@ export async function makeHTTPListener(basedir, port, host, rawInboundCommand) {
   app.use(express.json()); // parse application/json
   const server = http.createServer(app);
 
-  // Override with Dapp html, if any.
-  const dapphtmldir = path.join(basedir, 'dapp-html');
-  try {
-    fs.statSync(dapphtmldir);
-    log(`Serving Dapp files from ${dapphtmldir}`);
-    app.use(express.static(dapphtmldir));
-  } catch (e) {
-    // Do nothing.
-  }
-
   // serve the static HTML for the UI
   const htmldir = path.join(basedir, 'html');
   log(`Serving static files from ${htmldir}`);
   app.use(express.static(htmldir));
 
-  const validateOrigin = req => {
+  // The rules for validation:
+  //
+  // path outside /private: always accept
+  //
+  // all paths within /private: origin-based access control: reject anything except
+  // chrome-extension:, moz-extension:, and http:/https: localhost/127.0.0.1
+  //
+  // path in /private but not /private/wallet-bridge: also require correct
+  // accessToken= in query params
+  const validateOriginAndAccessToken = async req => {
     const { origin } = req.headers;
     const id = `${req.socket.remoteAddress}:${req.socket.remotePort}:`;
 
-    if (!req.url.startsWith('/private/')) {
-      // Allow any origin that's not marked private.
+    const parsedUrl = new URL(req.url, 'http://some-host');
+    const fullPath = parsedUrl.pathname;
+
+    if (!fullPath.startsWith('/private/')) {
+      // Allow any origin that's not marked private, without a accessToken.
       return true;
+    }
+
+    // Bypass accessToken just for the wallet bridge.
+    if (fullPath !== '/private/wallet-bridge') {
+      // Validate the private accessToken.
+      const accessToken = await getAccessToken(port);
+      const reqToken = parsedUrl.searchParams.get('accessToken');
+
+      if (!verifyToken(reqToken, accessToken)) {
+        log.error(
+          id,
+          `Invalid access token ${JSON.stringify(
+            reqToken,
+          )}; try running "agoric open"`,
+        );
+        return false;
+      }
     }
 
     if (!origin) {
       log.error(id, `Missing origin header`);
       return false;
     }
-    const url = new URL(origin);
+    const originUrl = new URL(origin);
     const isLocalhost = hostname =>
       hostname.match(/^(localhost|127\.0\.0\.1)$/);
 
-    if (['chrome-extension:', 'moz-extension:'].includes(url.protocol)) {
-      // Extensions such as metamask can access the wallet.
+    if (['chrome-extension:', 'moz-extension:'].includes(originUrl.protocol)) {
+      // Extensions such as metamask are local and can access the wallet.
+      // Especially since the access token has been supplied.
       return true;
     }
 
-    if (!isLocalhost(url.hostname)) {
+    if (!isLocalhost(originUrl.hostname)) {
       log.error(id, `Invalid origin host ${origin} is not localhost`);
       return false;
     }
 
-    if (!['http:', 'https:'].includes(url.protocol)) {
-      log.error(id, `Invalid origin protocol ${origin}`, url.protocol);
+    if (!['http:', 'https:'].includes(originUrl.protocol)) {
+      log.error(id, `Invalid origin protocol ${origin}`, originUrl.protocol);
       return false;
     }
     return true;
   };
 
   // accept POST messages to arbitrary endpoints
-  app.post('*', (req, res) => {
-    if (!validateOrigin(req)) {
-      res.json({ ok: false, rej: 'Unauthorized Origin' });
+  app.post('*', async (req, res) => {
+    if (!(await validateOriginAndAccessToken(req))) {
+      res.json({ ok: false, rej: 'Unauthorized' });
       return;
     }
 
@@ -129,8 +174,8 @@ export async function makeHTTPListener(basedir, port, host, rawInboundCommand) {
   // This senses the Upgrade header to distinguish between plain
   // GETs (which should return index.html) and WebSocket requests.
   const wss = new WebSocket.Server({ noServer: true });
-  server.on('upgrade', (req, socket, head) => {
-    if (!validateOrigin(req)) {
+  server.on('upgrade', async (req, socket, head) => {
+    if (!(await validateOriginAndAccessToken(req))) {
       socket.destroy();
       return;
     }
@@ -166,6 +211,28 @@ export async function makeHTTPListener(basedir, port, host, rawInboundCommand) {
 
   server.listen(port, host, () => log.info('Listening on', `${host}:${port}`));
 
+  const wsActions = {
+    noop() {
+      // do nothing.
+    },
+    heartbeat() {
+      this.isAlive = true;
+    },
+  };
+
+  const pingInterval = setInterval(function ping() {
+    wss.clients.forEach(ws => {
+      if (!ws.isAlive) {
+        ws.terminate();
+        return;
+      }
+      ws.isAlive = false;
+      ws.ping(wsActions.noop);
+    });
+  }, 30000);
+
+  wss.on('close', () => clearInterval(pingInterval));
+
   let lastChannelID = 0;
 
   function newChannel(ws, req) {
@@ -175,6 +242,10 @@ export async function makeHTTPListener(basedir, port, host, rawInboundCommand) {
     const id = `${req.socket.remoteAddress}:${req.socket.remotePort}[${channelID}]:`;
 
     log(id, `new WebSocket ${req.url}`);
+
+    // Manage connection pings.
+    ws.isAlive = true;
+    ws.on('pong', wsActions.heartbeat);
 
     // Register the point-to-point channel.
     channels.set(channelID, ws);
@@ -192,7 +263,15 @@ export async function makeHTTPListener(basedir, port, host, rawInboundCommand) {
       ).finally(() => channels.delete(channelID));
     });
 
-    inboundCommand({ type: 'ws/meta' }, { ...meta, dispatcher: 'onOpen' }, id);
+    // Close and throw if the open handler gives an error.
+    inboundCommand(
+      { type: 'ws/meta' },
+      { ...meta, dispatcher: 'onOpen' },
+      id,
+    ).catch(e => {
+      log(id, 'error opening connection:', e);
+      ws.close();
+    });
 
     ws.on('message', async message => {
       let obj = {};

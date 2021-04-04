@@ -1,5 +1,4 @@
-/* global harden */
-
+import { assert, details as X } from '@agoric/assert';
 import { insistStorageAPI } from '../../storageAPI';
 
 // We manage a host-realm Storage object with a has/getKeys/get/set/del API.
@@ -21,9 +20,9 @@ import { insistStorageAPI } from '../../storageAPI';
  * thrown errors and ensures that any return values that are supposed to be
  * strings actually are.
  *
- * @param hostStorage  Alleged host storage object to be wrapped this way.
+ * @param {*} hostStorage  Alleged host storage object to be wrapped this way.
  *
- * @return a hardened version of hostStorage wrapped as described.
+ * @returns {*} a hardened version of hostStorage wrapped as described.
  */
 export function guardStorage(hostStorage) {
   insistStorageAPI(hostStorage);
@@ -41,21 +40,24 @@ export function guardStorage(hostStorage) {
       return hostStorage[method](...args);
     } catch (err) {
       console.error(`error invoking hostStorage.${method}(${args})`, err);
-      throw new Error(`error invoking hostStorage.${method}(${args}): ${err}`);
+      assert.fail(X`error invoking hostStorage.${method}(${args}): ${err}`);
     }
   }
 
   function has(key) {
-    return !!callAndWrapError('has', `${key}`);
+    assert.typeof(key, 'string');
+    return !!callAndWrapError('has', key);
   }
 
   // hostStorage.getKeys returns a host-realm Generator, so we return a
   // kernel-realm wrapper generator that returns the same contents, and guard
   // against the host-realm Generator throwing any new errors as it runs
   function* getKeys(start, end) {
+    assert.typeof(start, 'string');
+    assert.typeof(end, 'string');
     try {
-      for (const key of hostStorage.getKeys(`${start}`, `${end}`)) {
-        yield `${key}`;
+      for (const key of hostStorage.getKeys(start, end)) {
+        yield key;
       }
     } catch (err) {
       console.error(
@@ -69,19 +71,23 @@ export function guardStorage(hostStorage) {
   }
 
   function get(key) {
-    const value = callAndWrapError('get', `${key}`);
+    assert.typeof(key, 'string');
+    const value = callAndWrapError('get', key);
     if (value === undefined) {
       return undefined;
     }
-    return `${value}`;
+    return value;
   }
 
   function set(key, value) {
-    callAndWrapError('set', `${key}`, `${value}`);
+    assert.typeof(key, 'string');
+    assert.typeof(value, 'string');
+    callAndWrapError('set', key, value);
   }
 
   function del(key) {
-    callAndWrapError('delete', `${key}`);
+    assert.typeof(key, 'string');
+    callAndWrapError('delete', key);
   }
 
   return harden({ has, getKeys, get, set, delete: del });
@@ -91,9 +97,9 @@ export function guardStorage(hostStorage) {
  * Create and return a crank buffer, which wraps a storage object with logic
  * that buffers any mutations until told to commit them.
  *
- * @param storage  The storage object that this crank buffer will be based on.
+ * @param {*} storage  The storage object that this crank buffer will be based on.
  *
- * @return an object {
+ * @returns {*} an object {
  *   crankBuffer,  // crank buffer as described, wrapping `storage`
  *   commitCrank,  // function to save buffered mutations to `storage`
  *   abortCrank,   // function to discard buffered mutations

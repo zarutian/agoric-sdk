@@ -1,17 +1,18 @@
-/* global harden */
+/* global HandledPromise */
 
-import { HandledPromise } from '@agoric/eventual-send';
 import {
-  QCLASS,
   Remotable,
-  getInterfaceOf,
-  mustPassByPresence,
+  passStyleOf,
+  REMOTE_STYLE,
   makeMarshal,
 } from '@agoric/marshal';
-import { assert, details } from '@agoric/assert';
-import { isPromise } from '@agoric/produce-promise';
+import { assert, details as X } from '@agoric/assert';
+import { isPromise } from '@agoric/promise-kit';
 import { insistVatType, makeVatSlot, parseVatSlot } from '../parseVatSlots';
 import { insistCapData } from '../capdata';
+import { makeVirtualObjectManager } from './virtualObjectManager';
+
+const DEFAULT_VIRTUAL_OBJECT_CACHE_SIZE = 3; // XXX ridiculously small value to force churn for testing
 
 // 'makeLiveSlots' is a dispatcher which uses javascript Maps to keep track
 // of local objects which have been exported. These cannot be persisted
@@ -22,14 +23,30 @@ import { insistCapData } from '../capdata';
  * Instantiate the liveslots layer for a new vat and then populate the vat with
  * a new root object and its initial associated object graph, if any.
  *
- * @param syscall  Kernel syscall interface that the vat will have access to
- * @param state  Object to store and retrieve state; not used // TODO fix wart
- * @param buildRootObject  Function that will create a root object for the new vat
- * @param forVatID  Vat ID label, for use in debug diagostics
+ * @param {*} syscall  Kernel syscall interface that the vat will have access to
+ * @param {*} forVatID  Vat ID label, for use in debug diagostics
+ * @param {number} cacheSize  Maximum number of entries in the virtual object state cache
+ * @param {boolean} enableDisavow
+ * @param {*} vatPowers
+ * @param {*} vatParameters
+ * @param {Console} console
+ * @returns {*} { vatGlobals, dispatch, setBuildRootObject }
  *
- * @return an extended dispatcher object for the new vat
+ * setBuildRootObject should be called, once, with a function that will
+ * create a root object for the new vat The caller provided buildRootObject
+ * function produces and returns the new vat's root object:
+ *
+ * buildRootObject(vatPowers, vatParameters)
  */
-function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
+function build(
+  syscall,
+  forVatID,
+  cacheSize,
+  enableDisavow,
+  vatPowers,
+  vatParameters,
+  console,
+) {
   const enableLSDebug = false;
   function lsdebug(...args) {
     if (enableLSDebug) {
@@ -37,24 +54,32 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     }
   }
 
+  let didRoot = false;
+
   const outstandingProxies = new WeakSet();
 
-  /** Map in-vat object references -> vat slot strings.
-
-      Uses a weak map so that vat objects can (in princple) be GC'd.  Note that
-      they currently can't actually be GC'd because the slotToVal table keeps
-      them alive, but that will have to be addressed by a different
-      mechanism. */
+  /**
+   * Map in-vat object references -> vat slot strings.
+   *
+   * Uses a weak map so that vat objects can (in princple) be GC'd.  Note that
+   * they currently can't actually be GC'd because the slotToVal table keeps
+   * them alive, but that will have to be addressed by a different mechanism.
+   */
   const valToSlot = new WeakMap();
 
   /** Map vat slot strings -> in-vat object references. */
   const slotToVal = new Map();
 
+  /** Remember disavowed Presences which will kill the vat if you try to talk
+   * to them */
+  const disavowedPresences = new WeakSet();
+  const disavowalError = harden(Error(`this Presence has been disavowed`));
+
   const importedPromisesByPromiseID = new Map();
   let nextExportID = 1;
   let nextPromiseID = 5;
 
-  function makeImportedPresence(slot) {
+  function makeImportedPresence(slot, iface = `Alleged: presence ${slot}`) {
     // Called by convertSlotToVal for type=object (an `o-NN` reference). We
     // build a Presence for application-level code to receive. This Presence
     // is associated with 'slot' so that all handled messages get sent to
@@ -62,9 +87,14 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
 
     lsdebug(`makeImportedPresence(${slot})`);
     const fulfilledHandler = {
-      applyMethod(_o, prop, args, returnedP) {
+      applyMethod(o, prop, args, returnedP) {
         // Support: o~.[prop](...args) remote method invocation
         lsdebug(`makeImportedPresence handler.applyMethod (${slot})`);
+        if (disavowedPresences.has(o)) {
+          // eslint-disable-next-line no-use-before-define
+          exitVatWithFailure(disavowalError);
+          throw disavowalError;
+        }
         // eslint-disable-next-line no-use-before-define
         return queueMessage(slot, prop, args, returnedP);
       },
@@ -73,11 +103,11 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     let presence;
     const p = new HandledPromise((_res, _rej, resolveWithPresence) => {
       const remote = resolveWithPresence(fulfilledHandler);
-      presence = Remotable(`Presence ${slot}`, undefined, remote);
+      presence = Remotable(iface, undefined, remote);
       // remote === presence, actually
 
       // todo: mfig says to swap remote and presence (resolveWithPresence
-      // gives us a Presence, Remoteable gives us a Remote). I think that
+      // gives us a Presence, Remotable gives us a Remote). I think that
       // implies we have a lot of renaming to do, 'makeRemote' instead of
       // 'makeImportedPresence', etc. I'd like to defer that for a later
       // cleanup/renaming pass.
@@ -112,11 +142,11 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     insistVatType('promise', vpid);
     lsdebug(`makeImportedPromise(${vpid})`);
 
-    // The Promise will we associated with a handler that converts p~.foo()
-    // into a syscall.send() that targets the vpid. When the Promise is
-    // resolved (during receipt of a dispatch.notifyFulfill* or
-    // notifyReject), this Promise's handler will be replaced by the handler
-    // of the resolution, which might be a Presence or a local object.
+    // The Promise will we associated with a handler that converts p~.foo() into
+    // a syscall.send() that targets the vpid. When the Promise is resolved
+    // (during receipt of a dispatch.notify), this Promise's handler will be
+    // replaced by the handler of the resolution, which might be a Presence or a
+    // local object.
 
     // for safety as we shake out bugs in HandledPromise, we guard against
     // this handler being used after it was supposed to be resolved
@@ -127,7 +157,7 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
         lsdebug(`makeImportedPromise handler.applyMethod (${vpid})`);
         if (!handlerActive) {
           console.error(`mIPromise handler called after resolution`);
-          throw Error(`mIPromise handler called after resolution`);
+          assert.fail(X`mIPromise handler called after resolution`);
         }
         // eslint-disable-next-line no-use-before-define
         return queueMessage(vpid, prop, args, returnedP);
@@ -161,8 +191,8 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     return harden(p);
   }
 
-  function makeDeviceNode(id) {
-    return Remotable(`Device ${id}`);
+  function makeDeviceNode(id, iface = `Alleged: device ${id}`) {
+    return Remotable(iface);
   }
 
   // TODO: fix awkward non-orthogonality: allocateExportID() returns a number,
@@ -184,11 +214,15 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     return makeVatSlot('promise', true, promiseID);
   }
 
+  const knownResolutions = new WeakMap();
+
   function exportPromise(p) {
     const pid = allocatePromiseID();
     lsdebug(`Promise allocation ${forVatID}:${pid} in exportPromise`);
-    // eslint-disable-next-line no-use-before-define
-    p.then(thenResolve(pid), thenReject(pid));
+    if (!knownResolutions.has(p)) {
+      // eslint-disable-next-line no-use-before-define
+      p.then(thenResolve(p, pid), thenReject(p, pid));
+    }
     return pid;
   }
 
@@ -196,6 +230,32 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     const exportID = allocateExportID();
     return makeVatSlot('object', true, exportID);
   }
+
+  // eslint-disable-next-line no-use-before-define
+  const m = makeMarshal(convertValToSlot, convertSlotToVal, {
+    marshalName: `liveSlots:${forVatID}`,
+    // TODO Temporary hack.
+    // See https://github.com/Agoric/agoric-sdk/issues/2780
+    errorIdNum: 70000,
+    marshalSaveError: err =>
+      // By sending this to `console.log`, under cosmic-swingset this is
+      // controlled by the `console` option given to makeLiveSlots.  For Agoric,
+      // this output is enabled by `agoric start -v` and not enabled without the
+      // `-v` flag.
+      console.log('Logging sent error stack', err),
+  });
+
+  const {
+    makeVirtualObjectRepresentative,
+    makeWeakStore,
+    makeKind,
+  } = makeVirtualObjectManager(
+    syscall,
+    allocateExportID,
+    valToSlot,
+    m,
+    cacheSize,
+  );
 
   function convertValToSlot(val) {
     // lsdebug(`serializeToSlot`, val, Object.isFrozen(val));
@@ -216,7 +276,12 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
       if (isPromise(val)) {
         slot = exportPromise(val);
       } else {
-        mustPassByPresence(val);
+        if (disavowedPresences.has(val)) {
+          // eslint-disable-next-line no-use-before-define
+          exitVatWithFailure(disavowalError);
+          throw disavowalError; // cannot reference a disavowed object
+        }
+        assert.equal(passStyleOf(val), REMOTE_STYLE);
         slot = exportPassByPresence();
       }
       parseVatSlot(slot); // assertion
@@ -226,39 +291,116 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     return valToSlot.get(val);
   }
 
-  function convertSlotToVal(slot) {
-    if (!slotToVal.has(slot)) {
-      let val;
-      const { type, allocatedByVat } = parseVatSlot(slot);
-      assert(!allocatedByVat, details`I don't remember allocating ${slot}`);
+  let importedPromises = null;
+  function beginCollectingPromiseImports() {
+    importedPromises = new Set();
+  }
+  function finishCollectingPromiseImports() {
+    const result = importedPromises;
+    importedPromises = null;
+    return result;
+  }
+
+  function convertSlotToVal(slot, iface = undefined) {
+    let val = slotToVal.get(slot);
+    if (val) {
+      return val;
+    }
+    const { type, allocatedByVat, virtual } = parseVatSlot(slot);
+    if (virtual) {
+      // Virtual objects should never be put in the slotToVal table, as their
+      // entire raison d'etre is to be absent from memory when they're not being
+      // used.  They *do* get put in the valToSlot table, which is OK because
+      // it's a WeakMap, but they don't get put there here.  Instead, they are
+      // put there by makeVirtualObjectRepresentative, who already has to do
+      // this anyway in the cases of creating virtual objects in the first place
+      // and swapping them in from disk.
+      assert.equal(type, 'object');
+      val = makeVirtualObjectRepresentative(slot);
+    } else {
+      assert(!allocatedByVat, X`I don't remember allocating ${slot}`);
       if (type === 'object') {
         // this is a new import value
-        val = makeImportedPresence(slot);
+        val = makeImportedPresence(slot, iface);
       } else if (type === 'promise') {
         assert(
           !parseVatSlot(slot).allocatedByVat,
-          details`kernel is being presumptuous: vat got unrecognized vatSlot ${slot}`,
+          X`kernel is being presumptuous: vat got unrecognized vatSlot ${slot}`,
         );
         val = makeImportedPromise(slot);
         // ideally we'd wait until .then is called on p before subscribing,
         // but the current Promise API doesn't give us a way to discover
         // this, so we must subscribe right away. If we were using Vows or
         // some other then-able, we could just hook then() to notify us.
-        syscall.subscribe(slot);
+        if (importedPromises) {
+          importedPromises.add(slot);
+        } else {
+          syscall.subscribe(slot);
+        }
       } else if (type === 'device') {
-        val = makeDeviceNode(slot);
+        val = makeDeviceNode(slot, iface);
       } else {
-        throw Error(`unrecognized slot type '${type}'`);
+        assert.fail(X`unrecognized slot type '${type}'`);
       }
       slotToVal.set(slot, val);
       valToSlot.set(val, slot);
     }
-    return slotToVal.get(slot);
+    return val;
   }
 
-  const m = makeMarshal(convertValToSlot, convertSlotToVal);
+  function resolutionCollector() {
+    const resolutions = [];
+    const doneResolutions = new Set();
+
+    function scanSlots(slots) {
+      for (const slot of slots) {
+        const { type } = parseVatSlot(slot);
+        if (type === 'promise') {
+          const p = slotToVal.get(slot);
+          assert(p, X`should have a value for ${slot} but didn't`);
+          const priorResolution = knownResolutions.get(p);
+          if (priorResolution && !doneResolutions.has(slot)) {
+            const [priorRejected, priorRes] = priorResolution;
+            // eslint-disable-next-line no-use-before-define
+            collect(slot, priorRejected, priorRes);
+          }
+        }
+      }
+    }
+
+    function collect(promiseID, rejected, value) {
+      doneResolutions.add(promiseID);
+      const valueSer = m.serialize(value);
+      resolutions.push([promiseID, rejected, valueSer]);
+      scanSlots(valueSer.slots);
+    }
+
+    function forPromise(promiseID, rejected, value) {
+      collect(promiseID, rejected, value);
+      return resolutions;
+    }
+
+    function forSlots(slots) {
+      scanSlots(slots);
+      return resolutions;
+    }
+
+    return {
+      forPromise,
+      forSlots,
+    };
+  }
 
   function queueMessage(targetSlot, prop, args, returnedP) {
+    if (typeof prop === 'symbol') {
+      if (prop === Symbol.asyncIterator) {
+        // special-case this Symbol for now, will be replaced in #2481
+        prop = 'Symbol.asyncIterator';
+      } else {
+        throw Error(`arbitrary Symbols cannot be used as method names`);
+      }
+    }
+
     const serArgs = m.serialize(harden(args));
     const resultVPID = allocatePromiseID();
     lsdebug(`Promise allocation ${forVatID}:${resultVPID} in queueMessage`);
@@ -268,9 +410,15 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     const p = makeImportedPromise(resultVPID);
 
     lsdebug(
-      `ls.qm send(${JSON.stringify(targetSlot)}, ${prop}) -> ${resultVPID}`,
+      `ls.qm send(${JSON.stringify(targetSlot)}, ${String(
+        prop,
+      )}) -> ${resultVPID}`,
     );
     syscall.send(targetSlot, prop, serArgs, resultVPID);
+    const resolutions = resolutionCollector().forSlots(serArgs.slots);
+    if (resolutions.length > 0) {
+      syscall.resolve(resolutions);
+    }
 
     // ideally we'd wait until .then is called on p before subscribing, but
     // the current Promise API doesn't give us a way to discover this, so we
@@ -292,14 +440,24 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     return p;
   }
 
+  function forbidPromises(serArgs) {
+    for (const slot of serArgs.slots) {
+      assert(
+        parseVatSlot(slot).type !== 'promise',
+        X`D() arguments cannot include a Promise`,
+      );
+    }
+  }
+
   function DeviceHandler(slot) {
     return {
       get(target, prop) {
-        if (prop !== `${prop}`) {
+        if (typeof prop !== 'string' && typeof prop !== 'symbol') {
           return undefined;
         }
         return (...args) => {
           const serArgs = m.serialize(harden(args));
+          forbidPromises(serArgs);
           const ret = syscall.callNow(slot, prop, serArgs);
           insistCapData(ret);
           const retval = m.unserialize(ret);
@@ -325,17 +483,16 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
   }
 
   function deliver(target, method, argsdata, result) {
+    assert(didRoot);
     insistCapData(argsdata);
     lsdebug(
       `ls[${forVatID}].dispatch.deliver ${target}.${method} -> ${result}`,
     );
-    const t = slotToVal.get(target);
-    if (!t) {
-      throw Error(`no target ${target}`);
-    }
+    const t = convertSlotToVal(target);
+    assert(t, X`no target ${target}`);
     // TODO: if we acquire new decision-making authority over a promise that
     // we already knew about ('result' is already in slotToVal), we should no
-    // longer accept dispatch.notifyFulfill from the kernel. We currently use
+    // longer accept dispatch.notify from the kernel. We currently use
     // importedPromisesByPromiseID to track a combination of "we care about
     // when this promise resolves" and "we are listening for the kernel to
     // resolve it". We should split that into two tables or something. And we
@@ -343,17 +500,11 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     // the same vpid as a result= twice, or getting a result= for an exported
     // promise (for which we were already the decider).
 
-    const args = m.unserialize(argsdata);
-
-    let notifySuccess = () => undefined;
-    let notifyFailure = () => undefined;
-    if (result) {
-      insistVatType('promise', result);
-      // eslint-disable-next-line no-use-before-define
-      notifySuccess = thenResolve(result);
-      // eslint-disable-next-line no-use-before-define
-      notifyFailure = thenReject(result);
+    if (method === 'Symbol.asyncIterator') {
+      method = Symbol.asyncIterator;
     }
+
+    const args = m.unserialize(argsdata);
 
     // If the method is missing, or is not a Function, or the method throws a
     // synchronous exception, we notify the caller (by rejecting the result
@@ -367,23 +518,26 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     // Both situations are the business of this vat and the calling vat, not
     // the kernel. deliver() does not report such exceptions to the kernel.
 
-    try {
-      if (!(method in t)) {
-        const names = Object.getOwnPropertyNames(t);
-        throw new TypeError(`target[${method}] does not exist, has ${names}`);
-      }
-      if (!(t[method] instanceof Function)) {
-        const ftype = typeof t[method];
-        const names = Object.getOwnPropertyNames(t);
-        throw new TypeError(
-          `target[${method}] is not a function, typeof is ${ftype}, has ${names}`,
-        );
-      }
-      const res = t[method](...args);
-      Promise.resolve(res).then(notifySuccess, notifyFailure);
-    } catch (err) {
-      notifyFailure(err);
+    // We have a presence, so forward to it.
+    let res;
+    if (args) {
+      // It has arguments, must be a method application.
+      res = HandledPromise.applyMethod(t, method, args);
+    } else {
+      // Just a getter.
+      // TODO: untested, but in principle sound.
+      res = HandledPromise.get(t, method);
     }
+    let notifySuccess = () => undefined;
+    let notifyFailure = () => undefined;
+    if (result) {
+      insistVatType('promise', result);
+      // eslint-disable-next-line no-use-before-define
+      notifySuccess = thenResolve(res, result);
+      // eslint-disable-next-line no-use-before-define
+      notifyFailure = thenReject(res, result);
+    }
+    res.then(notifySuccess, notifyFailure);
   }
 
   function retirePromiseID(promiseID) {
@@ -394,201 +548,213 @@ function build(syscall, _state, buildRootObject, forVatID, vatPowers) {
     slotToVal.delete(promiseID);
   }
 
-  function retirePromiseIDIfEasy(promiseID, data) {
-    for (const slot of data.slots) {
-      const { type } = parseVatSlot(slot);
-      if (type === 'promise') {
-        lsdebug(
-          `Unable to retire ${promiseID} because slot ${slot} is a promise`,
-        );
-        return;
-      }
-    }
-    retirePromiseID(promiseID);
-  }
-
-  function thenResolve(promiseID) {
+  function thenHandler(p, promiseID, rejected) {
     insistVatType('promise', promiseID);
-    return res => {
-      harden(res);
-      lsdebug(`ls.thenResolve fired`, res);
+    return value => {
+      knownResolutions.set(p, harden([rejected, value]));
+      harden(value);
+      lsdebug(`ls.thenHandler fired`, value);
+      const resolutions = resolutionCollector().forPromise(
+        promiseID,
+        rejected,
+        value,
+      );
 
-      // We need to know if this is resolving to an imported/exported
-      // presence, because then the kernel can deliver queued messages. We
-      // could build a simpler way of doing this.
-      const ser = m.serialize(res);
-      lsdebug(` ser ${ser.body} ${JSON.stringify(ser.slots)}`);
-      // find out what resolution category we're using
-      const unser = JSON.parse(ser.body);
-      if (
-        Object(unser) === unser &&
-        QCLASS in unser &&
-        unser[QCLASS] === 'slot'
-      ) {
-        const slot = ser.slots[unser.index];
-        insistVatType('object', slot);
-        syscall.fulfillToPresence(promiseID, slot);
-      } else {
-        // if it resolves to data, .thens fire but kernel-queued messages are
-        // rejected, because you can't send messages to data
-        syscall.fulfillToData(promiseID, ser);
-      }
+      syscall.resolve(resolutions);
 
-      // If we were *also* waiting on this promise (perhaps we received it as
-      // an argument, and also as a result=), then we are responsible for
-      // notifying ourselves. The kernel assumes we're a grownup and don't
-      // need to be reminded of something we did ourselves.
       const pRec = importedPromisesByPromiseID.get(promiseID);
       if (pRec) {
-        pRec.resolve(res);
+        if (rejected) {
+          pRec.reject(value);
+        } else {
+          pRec.resolve(value);
+        }
       }
-      retirePromiseIDIfEasy(promiseID, ser);
+      retirePromiseID(promiseID);
     };
   }
 
-  function thenReject(promiseID) {
-    return rej => {
-      harden(rej);
-      lsdebug(`ls thenReject fired`, rej);
-      const ser = m.serialize(rej);
-      syscall.reject(promiseID, ser);
-      const pRec = importedPromisesByPromiseID.get(promiseID);
-      if (pRec) {
-        pRec.reject(rej);
-      }
-      retirePromiseIDIfEasy(promiseID, ser);
-    };
+  function thenResolve(p, promiseID) {
+    return thenHandler(p, promiseID, false);
   }
 
-  function notifyFulfillToData(promiseID, data) {
+  function thenReject(p, promiseID) {
+    return thenHandler(p, promiseID, true);
+  }
+
+  function notifyOnePromise(promiseID, rejected, data) {
     insistCapData(data);
     lsdebug(
-      `ls.dispatch.notifyFulfillToData(${promiseID}, ${data.body}, ${data.slots})`,
+      `ls.dispatch.notify(${promiseID}, ${rejected}, ${data.body}, [${data.slots}])`,
     );
     insistVatType('promise', promiseID);
     // TODO: insist that we do not have decider authority for promiseID
-    if (!importedPromisesByPromiseID.has(promiseID)) {
-      throw new Error(`unknown promiseID '${promiseID}'`);
-    }
+    assert(
+      importedPromisesByPromiseID.has(promiseID),
+      X`unknown promiseID '${promiseID}'`,
+    );
     const pRec = importedPromisesByPromiseID.get(promiseID);
     const val = m.unserialize(data);
-    pRec.resolve(val);
-    retirePromiseIDIfEasy(promiseID, data);
+    if (rejected) {
+      pRec.reject(val);
+    } else {
+      pRec.resolve(val);
+    }
   }
 
-  function notifyFulfillToPresence(promiseID, slot) {
-    lsdebug(`ls.dispatch.notifyFulfillToPresence(${promiseID}, ${slot})`);
-    insistVatType('promise', promiseID);
-    // TODO: insist that we do not have decider authority for promiseID
-    insistVatType('object', slot);
-    if (!importedPromisesByPromiseID.has(promiseID)) {
-      throw new Error(`unknown promiseID '${promiseID}'`);
+  function notify(resolutions) {
+    assert(didRoot);
+    beginCollectingPromiseImports();
+    for (const resolution of resolutions) {
+      const [vpid, rejected, data] = resolution;
+      notifyOnePromise(vpid, rejected, data);
     }
-    const pRec = importedPromisesByPromiseID.get(promiseID);
-    const val = convertSlotToVal(slot);
-    // val is either a local pass-by-presence object, or a Presence (which
-    // points at some remote pass-by-presence object).
-    pRec.resolve(val);
-    retirePromiseID(promiseID);
+    for (const resolution of resolutions) {
+      const [vpid] = resolution;
+      retirePromiseID(vpid);
+    }
+    const imports = finishCollectingPromiseImports();
+    for (const slot of imports) {
+      if (slotToVal.get(slot)) {
+        syscall.subscribe(slot);
+      }
+    }
+  }
+
+  function dropExports(vrefs) {
+    assert(Array.isArray(vrefs));
+    vrefs.map(vref => insistVatType('object', vref));
+    vrefs.map(vref => assert(parseVatSlot(vref).allocatedByVat));
+    console.log(`-- liveslots ignoring dropExports`);
   }
 
   // TODO: when we add notifyForward, guard against cycles
 
-  function notifyReject(promiseID, data) {
-    insistCapData(data);
-    lsdebug(
-      `ls.dispatch.notifyReject(${promiseID}, ${data.body}, ${data.slots})`,
-    );
-    insistVatType('promise', promiseID);
-    // TODO: insist that we do not have decider authority for promiseID
-    if (!importedPromisesByPromiseID.has(promiseID)) {
-      throw new Error(`unknown promiseID '${promiseID}'`);
+  function exitVat(completion) {
+    syscall.exit(false, m.serialize(harden(completion)));
+  }
+
+  function exitVatWithFailure(reason) {
+    syscall.exit(true, m.serialize(harden(reason)));
+  }
+
+  function disavow(presence) {
+    if (!valToSlot.has(presence)) {
+      assert.fail(X`attempt to disavow unknown ${presence}`);
     }
-    const pRec = importedPromisesByPromiseID.get(promiseID);
-    const val = m.unserialize(data);
-    pRec.reject(val);
-    retirePromiseIDIfEasy(promiseID, data);
+    const slot = valToSlot.get(presence);
+    const { type, allocatedByVat } = parseVatSlot(slot);
+    assert.equal(type, 'object', X`attempt to disavow non-object ${presence}`);
+    // disavow() is only for imports: we'll use a different API to revoke
+    // exports, one which accepts an Error object
+    assert.equal(allocatedByVat, false, X`attempt to disavow an export`);
+    valToSlot.delete(presence);
+    slotToVal.delete(slot);
+    disavowedPresences.add(presence);
+
+    syscall.dropImports([slot]);
   }
 
   // vats which use D are in: acorn-eventual-send, cosmic-swingset
   // (bootstrap, bridge, vat-http), swingset
 
-  // here we finally invoke the vat code, and get back the root object
-  const rootObject = buildRootObject(harden({ D, ...vatPowers }));
-  mustPassByPresence(rootObject);
+  const vatGlobals = harden({
+    makeWeakStore,
+    makeKind,
+  });
 
-  const rootSlot = makeVatSlot('object', true, 0);
-  valToSlot.set(rootObject, rootSlot);
-  slotToVal.set(rootSlot, rootObject);
+  function setBuildRootObject(buildRootObject) {
+    assert(!didRoot);
+    didRoot = true;
 
-  return {
-    m,
-    deliver,
-    // subscribe,
-    notifyFulfillToData,
-    notifyFulfillToPresence,
-    notifyReject,
-  };
+    const vpow = {
+      D,
+      exitVat,
+      exitVatWithFailure,
+      ...vatPowers,
+    };
+    if (enableDisavow) {
+      vpow.disavow = disavow;
+    }
+
+    // here we finally invoke the vat code, and get back the root object
+    const rootObject = buildRootObject(harden(vpow), harden(vatParameters));
+    assert.equal(passStyleOf(rootObject), REMOTE_STYLE);
+
+    const rootSlot = makeVatSlot('object', true, 0n);
+    valToSlot.set(rootObject, rootSlot);
+    slotToVal.set(rootSlot, rootObject);
+  }
+
+  const dispatch = harden({ deliver, notify, dropExports });
+  return harden({ vatGlobals, setBuildRootObject, dispatch, m });
 }
 
 /**
  * Instantiate the liveslots layer for a new vat and then populate the vat with
  * a new root object and its initial associated object graph, if any.
  *
- * @param syscall  Kernel syscall interface that the vat will have access to
- * @param state  Object to store and retrieve state
- * @param buildRootObject  Function that will create a root object for the new vat
- * @param forVatID  Vat ID label, for use in debug diagostics
+ * @param {*} syscall  Kernel syscall interface that the vat will have access to
+ * @param {*} forVatID  Vat ID label, for use in debug diagostics
+ * @param {*} vatPowers
+ * @param {*} vatParameters
+ * @param {number} cacheSize  Upper bound on virtual object cache size
+ * @param {boolean} enableDisavow
+ * @param {*} _gcTools
+ * @param {Console} [liveSlotsConsole]
+ * @returns {*} { vatGlobals, dispatch, setBuildRootObject }
  *
- * @return a dispatcher object for the new vat
+ * setBuildRootObject should be called, once, with a function that will
+ * create a root object for the new vat The caller provided buildRootObject
+ * function produces and returns the new vat's root object:
  *
- * The caller provided buildRootObject function produces and returns the new vat's
- * root object:
+ * buildRootObject(vatPowers, vatParameters)
  *
- *     buildRootObject(vatPowers)
+ * Within the vat, `import { E } from '@agoric/eventual-send'` will
+ * provide the E wrapper. For any object x, E(x) returns a proxy object
+ * that converts any method invocation into a corresponding eventual send
+ * to x. That is, E(x).foo(arg1, arg2) is equivalent to x~.foo(arg1,
+ * arg2)
  *
- *     Within the vat, `import { E } from '@agoric/eventual-send'` will
- *     provide the E wrapper. For any object x, E(x) returns a proxy object
- *     that converts any method invocation into a corresponding eventual send
- *     to x. That is, E(x).foo(arg1, arg2) is equivalent to x~.foo(arg1,
- *     arg2)
+ * If x is the presence in this vat of a remote object (that is, an object
+ * outside the vat), this will result in a message send out of the vat via
+ * the kernel syscall interface.
  *
- *     If x is the presence in this vat of a remote object (that is, an object
- *     outside the vat), this will result in a message send out of the vat via
- *     the kernel syscall interface.
- *
- *     In the same vein, if x is the presence in this vat of a kernel device,
- *     vatPowers.D(x) returns a proxy such that a method invocation on it is
- *     translated into the corresponding immediate invocation of the device
- *     (using, once again, the kernel syscall interface). D(x).foo(args) will
- *     perform an immediate syscall.callNow on the device node.
+ * In the same vein, if x is the presence in this vat of a kernel device,
+ * vatPowers.D(x) returns a proxy such that a method invocation on it is
+ * translated into the corresponding immediate invocation of the device
+ * (using, once again, the kernel syscall interface). D(x).foo(args) will
+ * perform an immediate syscall.callNow on the device node.
  */
 export function makeLiveSlots(
   syscall,
-  state,
-  buildRootObject,
   forVatID = 'unknown',
   vatPowers = harden({}),
+  vatParameters = harden({}),
+  cacheSize = DEFAULT_VIRTUAL_OBJECT_CACHE_SIZE,
+  enableDisavow = false,
+  _gcTools,
+  liveSlotsConsole = console,
 ) {
-  const {
-    deliver,
-    notifyFulfillToData,
-    notifyFulfillToPresence,
-    notifyReject,
-  } = build(syscall, state, buildRootObject, forVatID, {
+  const allVatPowers = {
     ...vatPowers,
-    getInterfaceOf,
-    Remotable,
-  });
-  return harden({
-    deliver,
-    notifyFulfillToData,
-    notifyFulfillToPresence,
-    notifyReject,
-  });
+    makeMarshal,
+  };
+  const r = build(
+    syscall,
+    forVatID,
+    cacheSize,
+    enableDisavow,
+    allVatPowers,
+    vatParameters,
+    liveSlotsConsole,
+  );
+  const { vatGlobals, dispatch, setBuildRootObject } = r; // omit 'm'
+  return harden({ vatGlobals, dispatch, setBuildRootObject });
 }
 
 // for tests
 export function makeMarshaller(syscall) {
-  return { m: build(syscall, null, _E => harden({})).m };
+  const { m } = build(syscall);
+  return { m };
 }

@@ -1,66 +1,49 @@
+/* global __dirname */
 /* eslint-disable no-await-in-loop */
-import inquirer from 'inquirer';
 import djson from 'deterministic-json';
-import crypto from 'crypto';
+import { createHash } from 'crypto';
 import chalk from 'chalk';
 import parseArgs from 'minimist';
-import doInit from './init';
-import {
-  chdir,
-  doRun,
-  needBacktick,
-  needDoRun,
-  shellEscape,
-  shellMetaRegexp,
-  setSilent,
-} from './run';
-import {
-  dirname,
-  exists,
-  readFile,
-  resolve,
-  stat,
-  streamFromString,
-  createFile,
-  mkdir,
-  readdir,
-} from './files';
-import {
-  SETUP_HOME,
-  DEFAULT_BOOT_TOKENS,
-  playbook,
-  sleep,
-  SSH_TYPE,
-} from './setup';
+import { assert, details as X } from '@agoric/assert';
+import { doInit } from './init';
+import { shellMetaRegexp, shellEscape } from './run';
+import { streamFromString } from './files';
+import { SSH_TYPE, DEFAULT_BOOT_TOKENS } from './setup';
 
 const PROVISION_DIR = 'provision';
-const PROVISIONER_NODE = 'node0'; // FIXME: Allow configuration.
 const COSMOS_DIR = 'ag-chain-cosmos';
-const CONTROLLER_DIR = 'ag-pserver';
+const DWEB_DIR = 'dweb';
 const SECONDS_BETWEEN_BLOCKS = 5;
+const DEFAULT_SWINGSET_PROMETHEUS_PORT = 9464;
 
-// This is needed for hyphenated group names not to trigger Ansible.
-process.env.ANSIBLE_TRANSFORM_INVALID_GROUP_CHARS = 'ignore';
+// We now use Cloudflare, not dweb.
+const ALL_NODES_DWEB = false;
 
-const trimReadFile = async file => String(await readFile(file)).trimRight();
+const isPublicRpc = (roles, cluster) => {
+  if (Object.values(roles).includes('peer')) {
+    // We have some marked as "peer", so only advertise them.
+    return roles[cluster] === 'peer';
+  }
+  // Advertise all validators.
+  return roles[cluster] === 'validator';
+};
+const isPersistentPeer = isPublicRpc;
 
-const guardFile = async (file, maker) => {
-  if (await exists(file)) {
+const makeGuardFile = ({ rd, wr }) => async (file, maker) => {
+  if (await rd.exists(file)) {
     return 0;
   }
-  const parent = dirname(file);
-  if (!(await exists(parent))) {
-    await mkdir(parent);
-  }
+  const parent = rd.dirname(file);
+  await wr.mkdir(parent, { recursive: true });
   let made = false;
   const ret = await maker(async contents => {
-    await createFile(file, contents);
+    await wr.createFile(file, contents);
     made = true;
   });
   if (!made) {
     if (!ret) {
       // Create a timestamp by default.
-      await createFile(file, String(new Date()));
+      await wr.createFile(file, String(new Date()));
     } else {
       // They failed.
       throw ret;
@@ -69,7 +52,13 @@ const guardFile = async (file, maker) => {
   return ret;
 };
 
-const waitForStatus = async (user, host, service, doRetry, acceptFn) => {
+const waitForStatus = ({ setup, running }) => async (
+  user,
+  host,
+  service,
+  doRetry,
+  acceptFn,
+) => {
   const hostArgs = host ? [`-l${host}`] : [];
   const serviceArgs = service ? [`-eservice=${service}`] : [];
   let retryNum = 0;
@@ -78,11 +67,11 @@ const waitForStatus = async (user, host, service, doRetry, acceptFn) => {
     await doRetry(retryNum);
     let buf = '';
     // eslint-disable-next-line no-await-in-loop
-    const code = await needDoRun(
-      playbook('status', `-euser=${user}`, ...hostArgs, ...serviceArgs),
+    const code = await running.doRun(
+      setup.playbook('status', `-euser=${user}`, ...hostArgs, ...serviceArgs),
       undefined,
       chunk => {
-        process.stdout.write(chunk);
+        running.stdout.write(chunk);
         buf += String(chunk);
       },
     );
@@ -94,37 +83,52 @@ const waitForStatus = async (user, host, service, doRetry, acceptFn) => {
   }
 };
 
-const provisionOutput = async () => {
+const provisionOutput = async ({ rd, wr, running }) => {
   const jsonFile = `${PROVISION_DIR}/terraform.json`;
-  await guardFile(jsonFile, async makeFile => {
-    const json = await needBacktick(`terraform output -json`);
+  await makeGuardFile({ rd, wr })(jsonFile, async makeFile => {
+    const json = await running.needBacktick(`terraform output -json`);
     await makeFile(json);
   });
-  const json = String(await readFile(jsonFile));
+  const json = String(await rd.readFile(jsonFile));
   return JSON.parse(json);
 };
 
-const main = async (progname, rawArgs) => {
+const main = async (progname, rawArgs, powers) => {
+  const { env, rd, wr, setup, running, inquirer, fetch } = powers;
   const { _: args, ...opts } = parseArgs(rawArgs, {
     boolean: ['version', 'help'],
     stopEarly: true,
   });
 
+  // This is needed for hyphenated group names not to trigger Ansible.
+  env.ANSIBLE_TRANSFORM_INVALID_GROUP_CHARS = 'ignore';
+
+  const trimReadFile = async file =>
+    String(await rd.readFile(file)).trimRight();
+  const guardFile = makeGuardFile({ rd, wr });
+  const {
+    doRun,
+    needDoRun,
+    needBacktick,
+    setSilent,
+    cwd,
+    chdir,
+    stdout,
+  } = running;
+
   const reMain = async reArgs => {
     const displayArgs = [progname, ...args];
     console.error('$', ...displayArgs.map(shellEscape));
-    return main(progname, reArgs);
+    return main(progname, reArgs, powers);
   };
 
   const needReMain = async reArgs => {
     const code = await reMain(reArgs);
-    if (code !== 0) {
-      throw Error(`Unexpected exit: ${code}`);
-    }
+    assert(code === 0, X`Unexpected exit: ${code}`);
   };
 
   const initHint = () => {
-    const adir = process.cwd();
+    const adir = cwd();
     console.error(`\
 
 NOTE: to manage the ${adir} setup directory, do
@@ -152,17 +156,17 @@ show-config      display the client connection parameters
   const inited = async (cmd = `${progname} init`, ...files) => {
     files = [...files, 'ansible.cfg', 'vars.tf'];
     try {
-      const ps = files.map(path => stat(path));
+      const ps = files.map(path => rd.stat(path));
       await Promise.all(ps);
     } catch (e) {
       throw Error(
-        `${process.cwd()} does not appear to be a directory created by \`${cmd}'`,
+        `${cwd()} does not appear to be a directory created by \`${cmd}'`,
       );
     }
   };
 
   const cmd = args[0];
-  if (SETUP_HOME) {
+  if (setup.SETUP_HOME) {
     // Switch to the chain home.
     switch (cmd) {
       case 'bootstrap':
@@ -172,8 +176,8 @@ show-config      display the client connection parameters
       case 'ssh':
         break;
       default:
-        if (process.cwd() !== SETUP_HOME) {
-          await chdir(SETUP_HOME);
+        if (cwd() !== setup.SETUP_HOME) {
+          await chdir(setup.SETUP_HOME);
         }
         break;
     }
@@ -200,8 +204,8 @@ show-config      display the client connection parameters
         },
       );
 
-      const dir = SETUP_HOME;
-      if (await exists(`${dir}/network.txt`)) {
+      const dir = setup.SETUP_HOME;
+      if (await rd.exists(`${dir}/network.txt`)) {
         // Change to directory.
         await chdir(dir);
       } else {
@@ -209,9 +213,7 @@ show-config      display the client connection parameters
         await needReMain([
           'init',
           dir,
-          ...(process.env.AG_SETUP_COSMOS_NAME
-            ? [process.env.AG_SETUP_COSMOS_NAME]
-            : []),
+          ...(env.AG_SETUP_COSMOS_NAME ? [env.AG_SETUP_COSMOS_NAME] : []),
         ]);
       }
 
@@ -230,7 +232,7 @@ show-config      display the client connection parameters
           } else if (code !== 2) {
             return code;
           }
-          await sleep(10, 'for hosts to boot SSH');
+          await setup.sleep(10, 'for hosts to boot SSH');
         }
         return 0;
       });
@@ -242,7 +244,7 @@ show-config      display the client connection parameters
 
       switch (subArgs[0]) {
         case undefined: {
-          await createFile('boot-tokens.txt', bootTokens);
+          await wr.createFile('boot-tokens.txt', bootTokens);
           const bootOpts = [];
           for (const propagate of ['bump', 'import-from']) {
             const val = subOpts[propagate];
@@ -254,7 +256,7 @@ show-config      display the client connection parameters
           break;
         }
         default: {
-          throw Error(`Unrecognized bootstrap argument ${subArgs[0]}`);
+          assert.fail(X`Unrecognized bootstrap argument ${subArgs[0]}`);
         }
       }
       break;
@@ -262,49 +264,25 @@ show-config      display the client connection parameters
 
     case 'bump-chain-version': {
       await inited();
-      const { _: subArgs, ...subOpts } = parseArgs(args.slice(1), {
-        string: ['tag'],
-      });
-
+      const subArgs = args.slice(1);
       const versionFile = `chain-version.txt`;
 
-      let major = 0;
-      let minor = 0;
-      let revision = 0;
-      let tag = '';
-      if (await exists(versionFile)) {
+      let epoch = '0';
+      if (await rd.exists(versionFile)) {
         const vstr = await trimReadFile(versionFile);
-        const match = vstr.match(/^(\d+)\.(\d+)\.(\d+)(.*)$/);
-        if (match) {
-          [major, minor, revision, tag] = match.slice(1);
-        } else {
-          tag = vstr;
-        }
+        const match = vstr.match(/^(\d+)/);
+        epoch = match[1] || '0';
       }
 
       let versionKind = subArgs[0];
-      if (subOpts.tag !== undefined) {
-        tag = subOpts.tag;
-      } else if (subArgs[0] === undefined || String(subArgs[0]) === 'true') {
+      if (subArgs[0] === undefined || String(subArgs[0]) === 'true') {
         // Default bump.
-        versionKind = 'patch';
+        versionKind = 'epoch';
       }
 
       switch (versionKind) {
-        case 'major':
-          major = Number(major) + 1;
-          minor = '0';
-          revision = '0';
-          break;
-
-        case 'minor':
-          minor = Number(minor) + 1;
-          revision = '0';
-          break;
-
-        case 'revision':
-        case 'patch':
-          revision = Number(revision) + 1;
+        case 'epoch':
+          epoch = Number(epoch) + 1;
           break;
 
         case 'none':
@@ -312,19 +290,18 @@ show-config      display the client connection parameters
           break;
 
         default:
-          if (!versionKind.match(/^[1-9]/)) {
-            throw Error(
-              `${versionKind} is not one of "major", "minor", "revision", or 1.2.3`,
-            );
-          }
+          assert(
+            versionKind.match(/^[1-9]/),
+            X`${versionKind} is not one of "epoch", or NNN`,
+          );
       }
 
-      let vstr = `${major}.${minor}.${revision}${tag}`;
+      let vstr = `${epoch}`;
       if (versionKind.match(/^[1-9]/)) {
         vstr = versionKind;
       }
       console.log(vstr);
-      await createFile(versionFile, vstr);
+      await wr.createFile(versionFile, vstr);
       break;
     }
 
@@ -340,15 +317,17 @@ show-config      display the client connection parameters
       const importFlags = [];
       const importFrom = subOpts['import-from'];
       if (importFrom) {
-        console.error(
-          chalk.redBright('FIXME: --import-from is not yet supported!'),
-        );
-        return 1;
+        if (importFrom.startsWith('node') && !importFrom.endsWith('/')) {
+          // Export from all nodes.
+          await needReMain(['play', 'export-genesis']);
+        }
+
         // Add the exported prefix if not absolute.
-        /*
-        const absImportFrom = resolve(`${SETUP_HOME}/exported`, importFrom);
+        const absImportFrom = rd.resolve(
+          `${setup.SETUP_HOME}/exported`,
+          importFrom,
+        );
         importFlags.push(`--import-from=${absImportFrom}`);
-        */
       }
 
       if (subOpts.bump) {
@@ -357,42 +336,28 @@ show-config      display the client connection parameters
       }
 
       // Make sure the version file exists.
-      await guardFile(`chain-version.txt`, makeFile => makeFile('0.0.0'));
+      await guardFile(`chain-version.txt`, makeFile => makeFile('1'));
 
       // Assign the chain name.
       const networkName = await trimReadFile('network.txt');
       const chainVersion = await trimReadFile('chain-version.txt');
       const chainName = `${networkName}-${chainVersion}`;
-      const pserverPassword = (await exists('pserver-password.txt'))
-        ? await trimReadFile('pserver-password.txt')
-        : '';
       const currentChainName = await trimReadFile(
         `${COSMOS_DIR}/chain-name.txt`,
       ).catch(_ => undefined);
 
       if (subOpts.bump || currentChainName !== chainName) {
         // We don't have matching parameters, so restart the chain.
-        // Stop all the services.
-        await reMain(['play', 'stop', '-eservice=ag-pserver']);
-        await reMain([
-          'play',
-          'stop',
-          '-eservice=ag-controller',
-          '-euser=ag-pserver',
-        ]);
+        // Stop the chain services.
         await reMain(['play', 'stop', '-eservice=ag-chain-cosmos']);
+        await reMain(['play', 'stop', '-eservice=dweb']);
 
-        // Blow away controller/cosmos state.
-        await needDoRun(['rm', '-rf', CONTROLLER_DIR, COSMOS_DIR]);
+        // Blow away cosmos state.
+        await needDoRun(['rm', '-rf', COSMOS_DIR]);
       }
       await guardFile(`${COSMOS_DIR}/chain-name.txt`, async makeFile => {
         await makeFile(chainName);
       });
-
-      // Initialize the controller.
-      await guardFile(`${CONTROLLER_DIR}/prepare.stamp`, () =>
-        needReMain(['play', 'prepare-controller']),
-      );
 
       // Bootstrap the chain nodes.
       await guardFile(`${COSMOS_DIR}/prepare.stamp`, () =>
@@ -405,17 +370,20 @@ show-config      display the client connection parameters
       await guardFile(`${COSMOS_DIR}/set-defaults.stamp`, async () => {
         await needReMain(['play', 'cosmos-clone-config']);
 
-        const agoricCli = resolve(
-          __dirname,
-          `../agoric-cli/bin/agoric`,
-        ).replace('/cosmic-swingset/', '/');
+        const agoricCli = rd
+          .resolve(__dirname, `../agoric-cli/bin/agoric`)
+          .replace('/cosmic-swingset/', '/');
         // FIXME: The above .replace hacks around legacy /usr/src/agoric-sdk/packages/cosmic-swingset/setup location.
         // TODO: Should change the Dockerfiles to use /usr/src/agoric-sdk/packages/deployment instead.
 
         // Apply the Agoric set-defaults to all the .dst dirs.
-        const files = await readdir(`${COSMOS_DIR}/data`);
+        const files = await rd.readdir(`${COSMOS_DIR}/data`);
         const dsts = files.filter(fname => fname.endsWith('.dst'));
         const peers = await needBacktick(`${shellEscape(progname)} show-peers`);
+        const seeds = await needBacktick(`${shellEscape(progname)} show-seeds`);
+        const allIds = await needBacktick(
+          `${shellEscape(progname)} show-all-ids`,
+        );
         await Promise.all(
           dsts.map(async (dst, i) => {
             // Update the config.toml and genesis.json.
@@ -424,15 +392,17 @@ show-config      display the client connection parameters
               `set-defaults`,
               `ag-chain-cosmos`,
               `--persistent-peers=${peers}`,
+              `--seeds=${seeds}`,
+              `--unconditional-peer-ids=${allIds}`,
               ...importFlags,
               `${COSMOS_DIR}/data/${dst}`,
             ]);
             if (i === 0) {
               // Make a canonical copy of the genesis.json.
-              const data = await readFile(
+              const data = await rd.readFile(
                 `${COSMOS_DIR}/data/${dst}/genesis.json`,
               );
-              await createFile(`${COSMOS_DIR}/data/genesis.json`, data);
+              await wr.createFile(`${COSMOS_DIR}/data/genesis.json`, data);
             }
           }),
         );
@@ -448,15 +418,28 @@ show-config      display the client connection parameters
         needReMain(['play', 'install-cosmos']),
       );
 
+      let SWINGSET_PROMETHEUS_PORT;
+      if (await rd.exists(`prometheus-tendermint.txt`)) {
+        SWINGSET_PROMETHEUS_PORT = DEFAULT_SWINGSET_PROMETHEUS_PORT;
+      }
+      const agChainCosmosEnvironment = SWINGSET_PROMETHEUS_PORT
+        ? [
+            `-eserviceLines=${shellEscape(
+              `Environment="OTEL_EXPORTER_PROMETHEUS_PORT=${SWINGSET_PROMETHEUS_PORT}"`,
+            )}`,
+          ]
+        : [];
       await guardFile(`${COSMOS_DIR}/service.stamp`, () =>
         needReMain([
           'play',
           'install',
           `-eexecline=${shellEscape(
-            '/usr/src/cosmic-swingset/bin/ag-chain-cosmos start --pruning=nothing',
+            '/usr/src/cosmic-swingset/bin/ag-chain-cosmos start --log_level=warn',
           )}`,
+          ...agChainCosmosEnvironment,
         ]),
       );
+
       await guardFile(`${COSMOS_DIR}/start.stamp`, () =>
         needReMain(['play', 'start']),
       );
@@ -464,128 +447,97 @@ show-config      display the client connection parameters
       await needReMain(['wait-for-any']);
 
       // Add the bootstrap validators.
-      await guardFile(`${COSMOS_DIR}/validators.stamp`, () =>
-        needReMain(['play', 'cosmos-validators']),
-      );
+      if (!importFrom) {
+        await guardFile(`${COSMOS_DIR}/validators.stamp`, () =>
+          needReMain(['play', 'cosmos-validators']),
+        );
+      }
 
       console.error(
         chalk.black.bgGreenBright.bold(
           'Your Agoric Cosmos chain is now running!',
         ),
       );
+      await needReMain(['dweb']);
+      break;
+    }
+
+    case 'dweb': {
+      await inited();
       const cfg = await needBacktick(`${shellEscape(progname)} show-config`);
-      process.stdout.write(`${chalk.yellow(cfg)}\n`);
+      stdout.write(`${chalk.yellow(cfg)}\n`);
 
-      await guardFile(
-        `${CONTROLLER_DIR}/data/cosmos-chain.json`,
-        async makeFile => {
-          await makeFile(cfg);
-        },
-      );
-
-      await guardFile(`${CONTROLLER_DIR}/gci.txt`, async makeFile => {
-        const gci = await needBacktick(`${shellEscape(progname)} show-gci`);
-        await makeFile(gci);
-      });
-      await guardFile(`${CONTROLLER_DIR}/rpcaddrs.txt`, async makeFile => {
-        const rpcAddrs = await needBacktick(
-          `${shellEscape(progname)} show-rpcaddrs`,
-        );
-        await makeFile(rpcAddrs.replace(/,/g, ' '));
-      });
-      await guardFile(`${CONTROLLER_DIR}/install.stamp`, () =>
-        needReMain(['play', 'install-controller']),
-      );
-
-      // Install any pubkeys from a former instantiation.
-      await guardFile(`${CONTROLLER_DIR}/pubkeys.stamp`, () =>
-        needReMain([
-          'ssh',
-          'ag-pserver',
-          'sudo',
-          '-u',
-          'ag-pserver',
-          '/usr/src/app/ve3/bin/ag-pserver',
-          'add-pubkeys',
-          '-c',
-          'http://localhost:8000/private/repl',
-        ]),
-      );
-
-      let pserverFlags = '';
-      const installFlags = [];
-      const pub = `${networkName}.crt`;
-      const key = `${networkName}.key`;
-      if ((await exists(pub)) && (await exists(key))) {
-        pserverFlags = ` ${shellEscape(
-          `--listen=ssl:443:privateKey=.ag-pserver/${key}:certKey=.ag-pserver/${pub}`,
-        )}`;
-        installFlags.push(
-          `-eserviceLines=AmbientCapabilities=CAP_NET_BIND_SERVICE`,
-        );
-      }
-
-      const mountpoint =
-        pserverPassword === ''
-          ? ''
-          : ` -m ${shellEscape(`/provision-${pserverPassword}`)}`;
-      const execline = `/usr/src/app/ve3/bin/ag-pserver start${pserverFlags}${mountpoint} -c http://localhost:8000/private/repl`;
-      await guardFile(`${CONTROLLER_DIR}/service.stamp`, () =>
-        needReMain([
-          'play',
-          'install',
-          '-eservice=ag-pserver',
-          `-eexecline=${shellEscape(execline)}`,
-          ...installFlags,
-        ]),
-      );
-
-      await guardFile(`${CONTROLLER_DIR}/start.stamp`, () =>
-        needReMain(['play', 'start', '-eservice=ag-pserver']),
-      );
+      await wr.mkdir(`${DWEB_DIR}/data`, { recursive: true });
+      await wr.createFile(`${DWEB_DIR}/data/cosmos-chain.json`, cfg);
 
       const rpcAddrs = await needBacktick(
         `${shellEscape(progname)} show-rpcaddrs`,
       );
       const match = rpcAddrs.match(/^([^,]+):\d+(,|$)/);
-      const pserverHost = pserverFlags
-        ? `https://${match[1]}`
-        : `http://${match[1]}:8001`;
-      const pserverUrl = `${pserverHost}${pserverPassword &&
-        `/provision-${pserverPassword}`}`;
+
+      let execline = `npx http-server ./public`;
+      let dwebHost;
+      const cert = `dweb.crt`;
+      const key = `dweb.key`;
+      if ((await rd.exists(cert)) && (await rd.exists(key))) {
+        execline += ` --port=443 --ssl`;
+        execline += ` --cert=${shellEscape(cert)}`;
+        execline += ` --key=${shellEscape(key)}`;
+        dwebHost = `https://${match[1]}`;
+      } else {
+        execline += ` --port=80`;
+        dwebHost = `http://${match[1]}`;
+      }
+
+      await reMain(['play', 'stop', '-eservice=dweb']);
+
+      // Copy the needed files to the web server.
+      await needReMain([
+        'play',
+        'dweb-copy',
+        `-eexecline=${shellEscape(execline)}`,
+      ]);
+
+      await needReMain([
+        'play',
+        'install',
+        '-eservice=dweb',
+        `-eexecline=/home/dweb/start.sh`,
+        `-eserviceLines=AmbientCapabilities=CAP_NET_BIND_SERVICE`,
+      ]);
+
+      await needReMain(['play', 'start', '-eservice=dweb']);
+
       initHint();
 
       console.error(
         `Use the following to provision:
-${chalk.yellow.bold(
-  `ag-setup-solo --netconfig='${pserverHost}/network-config'`,
-)}
-and get your codes from:
-${chalk.yellow.bold(`curl ${pserverUrl}/request-code?nickname=MY-NICK`)}
+${chalk.yellow.bold(`ag-setup-solo --netconfig='${dwebHost}/network-config'`)}
 `,
       );
-      if (await exists('/vagrant')) {
-        console.log(`to publish a chain-connected server to your host, do something like:
-"${chalk.yellow.bold(`ve3/bin/ag-setup-solo --webhost=0.0.0.0`)}"`);
-      }
+      break;
+    }
+
+    case 'add-egress':
+    case 'add-delegate': {
+      await inited();
+      await needDoRun(['./faucet-helper.sh', ...args]);
       break;
     }
 
     case 'show-chain-name': {
       await inited();
       const chainName = await trimReadFile(`${COSMOS_DIR}/chain-name.txt`);
-      process.stdout.write(chainName);
+      stdout.write(chainName);
       break;
     }
 
     case 'ssh': {
       const [host, ...sshArgs] = args.slice(1);
-      if (!host) {
-        throw Error(`Need: [host]`);
-      }
+      assert(host, X`Need: [host]`);
 
       setSilent(true);
-      await chdir(SETUP_HOME);
+      await chdir(setup.SETUP_HOME);
       await inited();
       const json = await needBacktick(
         `ansible-inventory --host=${shellEscape(host)}`,
@@ -607,14 +559,15 @@ ${chalk.yellow.bold(`curl ${pserverUrl}/request-code?nickname=MY-NICK`)}
 
     case 'show-config': {
       setSilent(true);
-      await chdir(SETUP_HOME);
+      await chdir(setup.SETUP_HOME);
       await inited();
-      const [chainName, gci, peers, rpcAddrs] = await Promise.all(
+      const [chainName, gci, peers, rpcAddrs, seeds] = await Promise.all(
         [
           'show-chain-name',
           'show-gci',
           'show-peers',
           'show-rpcaddrs',
+          'show-seeds',
         ].map(subcmd =>
           needBacktick([progname, subcmd].map(shellEscape).join(' ')),
         ),
@@ -624,8 +577,9 @@ ${chalk.yellow.bold(`curl ${pserverUrl}/request-code?nickname=MY-NICK`)}
         gci,
         peers: peers.split(','),
         rpcAddrs: rpcAddrs.split(','),
+        seeds: seeds.split(','),
       };
-      process.stdout.write(`${JSON.stringify(obj, undefined, 2)}\n`);
+      stdout.write(`${JSON.stringify(obj, undefined, 2)}\n`);
       break;
     }
 
@@ -638,27 +592,23 @@ ${chalk.yellow.bold(`curl ${pserverUrl}/request-code?nickname=MY-NICK`)}
       }
 
       // Expand the hosts into nodes.
-      const nodeMap = {};
+      const nodeSet = new Set();
       for (const host of hosts) {
         const hostLines = await needBacktick(
           `ansible --list-hosts ${shellEscape(host)}`,
         );
-        for (const line of hostLines.split('\n')) {
-          const match = line.match(/^\s*(node\d+)/);
-          if (match) {
-            nodeMap[match[1]] = true;
-          }
-        }
+        hostLines
+          .split('\n')
+          .slice(1)
+          .forEach(h => nodeSet.add(h.trim()));
       }
 
-      const nodes = Object.keys(nodeMap).sort();
-      if (nodes.length === 0) {
-        throw Error(`Need at least one node`);
-      }
+      const nodes = [...nodeSet.keys()].sort();
+      assert(nodes.length > 0, X`Need at least one node`);
 
       for (const node of nodes) {
         const nodePlaybook = (book, ...pbargs) =>
-          playbook(book, '-l', node, ...pbargs);
+          setup.playbook(book, '-l', node, ...pbargs);
         await needDoRun(nodePlaybook('restart'));
         await needDoRun([progname, 'wait-for-any', node]);
       }
@@ -670,25 +620,29 @@ ${chalk.yellow.bold(`curl ${pserverUrl}/request-code?nickname=MY-NICK`)}
       await inited();
 
       if (!host) {
-        host = 'ag-chain-cosmos';
+        host = 'validator';
       }
 
       // Detect when blocks are being produced.
-      const height = await waitForStatus(
+      const height = await waitForStatus({ setup, running })(
         'ag-chain-cosmos', // user
         host, // host
         'ag-chain-cosmos', // service
         _retries =>
-          sleep(
+          setup.sleep(
             SECONDS_BETWEEN_BLOCKS + 1,
             `to check if ${chalk.underline(host)} has committed a block`,
           ),
-        buf => {
+        (buf, code) => {
+          if (buf === '' && code === 1) {
+            // No status information.  Probably an empty inventory label.
+            return true;
+          }
           const match = buf.match(
-            /Committed state.*module=state.*height=([1-9]\d*)/,
+            /( block-manager: block ([1-9]\d*) commit|Committed state.*module=state.*height=([1-9]\d*))/,
           );
           if (match) {
-            return match[1];
+            return match[2] || match[3];
           }
           return undefined;
         },
@@ -716,11 +670,15 @@ ${chalk.yellow.bold(`curl ${pserverUrl}/request-code?nickname=MY-NICK`)}
 
     case 'show-rpcaddrs': {
       await inited();
-      const prov = await provisionOutput();
+      const prov = await provisionOutput({ rd, wr, running });
 
       let rpcaddrs = '';
       let sep = '';
       for (const CLUSTER of Object.keys(prov.public_ips.value)) {
+        if (!isPublicRpc(prov.roles.value, CLUSTER)) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         const ips = prov.public_ips.value[CLUSTER];
         const PORT = 26657;
         for (const IP of ips) {
@@ -729,86 +687,103 @@ ${chalk.yellow.bold(`curl ${pserverUrl}/request-code?nickname=MY-NICK`)}
         }
       }
 
-      process.stdout.write(rpcaddrs);
+      stdout.write(rpcaddrs);
       break;
     }
 
-    case 'show-peers': {
+    case 'show-seeds':
+    case 'show-peers':
+    case 'show-all-ids': {
       await inited();
-      const prov = await provisionOutput();
+
+      const prov = await provisionOutput({ rd, wr, running });
       const publicIps = [];
       const publicPorts = [];
+      const hosts = [];
+      let selector;
+      switch (cmd) {
+        case 'show-seeds': {
+          selector = placement => prov.roles.value[placement] === 'seed';
+          break;
+        }
+        case 'show-peers': {
+          selector = placement => isPersistentPeer(prov.roles.value, placement);
+          break;
+        }
+        case 'show-all-ids': {
+          selector = _placement => true;
+          break;
+        }
+        default: {
+          assert.fail(X`Unrecognized show command ${cmd}`);
+        }
+      }
+
       for (const CLUSTER of Object.keys(prov.public_ips.value)) {
+        if (!selector(CLUSTER)) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         const ips = prov.public_ips.value[CLUSTER];
         const offset = Number(prov.offsets.value[CLUSTER]);
         for (let i = 0; i < ips.length; i += 1) {
-          publicIps[offset + i] = ips[i];
+          publicIps.push(ips[i]);
+          hosts.push(`${prov.roles.value[CLUSTER]}${offset + i}`);
         }
       }
 
       const DEFAULT_PORT = 26656;
 
-      let peers = '';
+      let ret = '';
       let sep = '';
-      let idPath;
-      let i = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
+      for (let i = 0; i < hosts.length; i += 1) {
         // Read the node-id file for this node.
-        idPath = `${COSMOS_DIR}/data/node${i}/node-id`;
-        if (!(await exists(idPath))) {
-          break;
-        }
+        const host = hosts[i];
+        const idPath = `${COSMOS_DIR}/data/${host}/node-id`;
 
         const raw = await trimReadFile(idPath);
         const ID = String(raw);
 
-        if (!ID) {
-          throw Error(`${idPath} does not contain a node ID`);
+        assert(ID, X`${idPath} must contain a node ${ID}`);
+        assert(
+          ID.match(/^[a-f0-9]+/),
+          X`${idPath} contains an invalid ID ${ID}`,
+        );
+        if (cmd.endsWith('-ids')) {
+          ret += `${sep}${ID}`;
+        } else {
+          const IP = publicIps[i];
+          assert(IP, X`${idPath} does not correspond to a Terraform public IP`);
+          const PORT = publicPorts[i] || DEFAULT_PORT;
+          ret += `${sep}${ID}@${IP}:${PORT}`;
         }
-        if (!ID.match(/^[a-f0-9]+/)) {
-          throw Error(`${idPath} contains an invalid ID ${ID}`);
-        }
-        const IP = publicIps[i];
-        if (!IP) {
-          throw Error(`${idPath} does not correspond to a Terraform public IP`);
-        }
-        const PORT = publicPorts[i] || DEFAULT_PORT;
-        peers += `${sep}${ID}@${IP}:${PORT}`;
         sep = ',';
-        i += 1;
       }
-      if (i === 0) {
-        throw Error(`No ${idPath} file found`);
-      }
-      process.stdout.write(peers);
+      stdout.write(ret);
       break;
     }
 
     case 'show-gci': {
-      const genesis = await readFile(`${COSMOS_DIR}/data/genesis.json`);
+      const genesis = await rd.readFile(`${COSMOS_DIR}/data/genesis.json`);
       const s = djson.stringify(JSON.parse(String(genesis)));
-      const gci = crypto
-        .createHash('sha256')
+      const gci = createHash('sha256')
         .update(s)
         .digest('hex');
-      process.stdout.write(gci);
+      stdout.write(gci);
       break;
     }
 
     case 'destroy': {
       let [dir] = args.slice(1);
       if (!dir) {
-        dir = SETUP_HOME;
+        dir = setup.SETUP_HOME;
       }
-      if (!dir) {
-        throw Error(`Need: [dir]`);
-      }
+      assert(dir, X`Need: [dir]`);
 
       // Unprovision terraform.
       await chdir(dir);
 
-      if (await exists(`.terraform`)) {
+      if (await rd.exists(`.terraform`)) {
         // Terraform will prompt.
         await needDoRun(['terraform', 'destroy']);
       } else {
@@ -820,37 +795,38 @@ ${chalk.yellow.bold(`curl ${pserverUrl}/request-code?nickname=MY-NICK`)}
             message: `Type "yes" if you are sure you want to reset ${dir} state:`,
           },
         ]);
-        if (CONFIRM !== 'yes') {
-          throw Error(`Aborting due to user request`);
-        }
+        assert(CONFIRM === 'yes', X`Aborting due to user request`);
       }
 
       // We no longer are provisioned or have Cosmos.
-      await needDoRun(['rm', '-rf', PROVISION_DIR, CONTROLLER_DIR, COSMOS_DIR]);
+      await needDoRun(['rm', '-rf', COSMOS_DIR, PROVISION_DIR]);
       break;
     }
 
     case 'init': {
-      await doInit(progname, args);
+      await doInit({ env, rd, wr, running, setup, inquirer, fetch })(
+        progname,
+        args,
+      );
       initHint();
       break;
     }
 
     case 'provision': {
       await inited();
-      if (!(await exists('.terraform'))) {
+      if (!(await rd.exists('.terraform'))) {
         await needDoRun(['terraform', 'init']);
       }
       await needDoRun(['terraform', 'apply', ...args.slice(1)]);
-      await needDoRun(['rm', '-rf', PROVISION_DIR]);
+      await needDoRun(['rm', '-f', `${PROVISION_DIR}/*.stamp`]);
       break;
     }
 
     case 'show-hosts': {
-      const SSH_PRIVATE_KEY_FILE = resolve(`id_${SSH_TYPE}`);
+      const SSH_PRIVATE_KEY_FILE = rd.resolve(`id_${SSH_TYPE}`);
       await inited(`${progname} init`, SSH_PRIVATE_KEY_FILE);
-      const prov = await provisionOutput();
-      const out = process.stdout;
+      const prov = await provisionOutput({ rd, wr, running });
+      const out = stdout;
       const prefixLines = (str, prefix) => {
         const allLines = str.split('\n');
         if (allLines[allLines.length - 1] === '') {
@@ -875,38 +851,47 @@ ${name}:
 
       const addAll = makeGroup('all');
       const addChainCosmos = makeGroup('ag-chain-cosmos', 4);
+      const addDweb = makeGroup('dweb', 4);
+      const addRole = {};
       for (const provider of Object.keys(prov.public_ips.value).sort()) {
         const addProvider = makeGroup(provider, 4);
         const ips = prov.public_ips.value[provider];
         const offset = Number(prov.offsets.value[provider]);
+        const role = prov.roles.value[provider];
+        if (!addRole[role]) {
+          addRole[role] = makeGroup(role, 4);
+        }
         for (let instance = 0; instance < ips.length; instance += 1) {
           const ip = ips[instance];
-          const node = `node${offset + instance}`;
-          const units =
-            node === PROVISIONER_NODE
-              ? `\
-  units:
-  - ag-pserver.service
-  - ag-chain-cosmos.service
-`
-              : '';
+          const node = `${role}${offset + instance}`;
+          let roleParams = '';
+          if (role === 'validator') {
+            // These are the validator params.
+            roleParams = `
+  moniker: Agoric${offset + instance}
+  website: https://testnet.agoric.com
+  identity: https://keybase.io/team/agoric.testnet.validators`;
+          }
           const host = `\
-${node}:
+${node}:${roleParams}
   ansible_host: ${ip}
   ansible_ssh_user: root
   ansible_ssh_private_key_file: '${SSH_PRIVATE_KEY_FILE}'
-  ansible_python_interpreter: /usr/bin/python
-${units}`;
+  ansible_python_interpreter: /usr/bin/python`;
           addProvider(host);
 
           addAll(host);
 
-          // TODO: Don't make these hardcoded assumptions.
-          // For now, we add all the nodes to ag-chain-cosmos, and the first node to ag-pserver.
+          // We add all the cosmos nodes to ag-chain-cosmos.
           addChainCosmos(host);
-          if (node === PROVISIONER_NODE) {
-            makeGroup('ag-pserver', 4)(host);
+
+          if (ALL_NODES_DWEB) {
+            // Install the decentralised web on all the hosts.
+            addDweb(host);
           }
+
+          // Add the role-specific group.
+          addRole[role](host);
         }
       }
       out.write(byGroup.all);
@@ -921,21 +906,18 @@ ${units}`;
 
     case 'play': {
       const [pb, ...pbargs] = args.slice(1);
-      if (!pb) {
-        throw Error(`Need: [playbook name]`);
-      }
-      if (!pb.match(/^\w[-\w]*$/)) {
-        throw Error(`[playbook] ${JSON.stringify(pb)} must be a word`);
-      }
+      assert(pb, X`Need: [playbook name]`);
+      assert(
+        pb.match(/^\w[-\w]*$/),
+        X`[playbook] ${JSON.stringify(pb)} must be a word`,
+      );
       await inited();
-      return doRun(playbook(pb, ...pbargs));
+      return doRun(setup.playbook(pb, ...pbargs));
     }
 
     case 'run': {
       const [host, ...subcmd] = args.slice(1);
-      if (!host || subcmd.length === 0) {
-        throw Error(`Need: [host] [cmd...]`);
-      }
+      assert(host && subcmd.length !== 0, X`Need: [host] [cmd...]`);
       await inited();
       let runArg;
       if (subcmd.length === 1) {
@@ -956,7 +938,7 @@ ${units}`;
     }
 
     default:
-      throw Error(`Unknown command ${cmd}; try \`${progname} help'`);
+      assert.fail(X`Unknown command ${cmd}; try \`${progname} help'`);
   }
   return 0;
 };

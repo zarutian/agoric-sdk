@@ -1,16 +1,18 @@
-/* global harden */
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject(vatPowers, vatParameters) {
   const { D, testLog: log } = vatPowers;
-  const receiver = harden({
+  const receiver = Far('receiver', {
     receive(body) {
       log(`ch.receive ${body}`);
     },
   });
 
-  return harden({
-    async bootstrap(argv, vats, devices) {
+  return Far('root', {
+    async bootstrap(vats, devices) {
+      const { argv } = vatParameters;
       D(devices.mailbox).registerInboundHandler(vats.vattp);
       await E(vats.vattp).registerMailboxDevice(devices.mailbox);
       const name = 'remote1';
@@ -23,7 +25,7 @@ export function buildRootObject(vatPowers) {
       } else if (argv[0] === '2') {
         E(transmitter).transmit('out1');
       } else {
-        throw new Error(`unknown argv mode '${argv[0]}'`);
+        assert.fail(X`unknown argv mode '${argv[0]}'`);
       }
     },
   });

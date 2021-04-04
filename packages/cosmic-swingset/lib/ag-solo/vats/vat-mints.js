@@ -1,6 +1,5 @@
-/* global harden */
-
-import makeIssuerKit from '@agoric/ertp';
+import { Far } from '@agoric/marshal';
+import { makeIssuerKit } from '@agoric/ertp';
 
 import makeStore from '@agoric/store';
 
@@ -10,7 +9,7 @@ import makeStore from '@agoric/store';
 export function buildRootObject(_vatPowers) {
   const mintsAndMath = makeStore('issuerName');
 
-  const api = harden({
+  const api = Far('api', {
     getAllIssuerNames: () => mintsAndMath.keys(),
     getIssuer: issuerName => {
       const mint = mintsAndMath.get(issuerName);
@@ -24,12 +23,18 @@ export function buildRootObject(_vatPowers) {
     getMint: name => mintsAndMath.get(name).mint,
     getMints: issuerNames => issuerNames.map(api.getMint),
     // For example, issuerNameSingular might be 'moola', or 'simolean'
-    makeMintAndIssuer: issuerNameSingular => {
-      const { mint, issuer, amountMath } = makeIssuerKit(issuerNameSingular);
+    makeMintAndIssuer: (issuerNameSingular, ...issuerArgs) => {
+      const { mint, issuer, amountMath } = makeIssuerKit(
+        issuerNameSingular,
+        ...issuerArgs,
+      );
       mintsAndMath.init(issuerNameSingular, { mint, amountMath });
       return issuer;
     },
     mintInitialPayment: (issuerName, value) => {
+      if (!mintsAndMath.has(issuerName)) {
+        return undefined;
+      }
       const { mint, amountMath } = mintsAndMath.get(issuerName);
       const amount = amountMath.make(value);
       return mint.mintPayment(amount);

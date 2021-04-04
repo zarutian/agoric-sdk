@@ -1,22 +1,20 @@
-/* global harden */
+import { assert, details as X } from '@agoric/assert';
 
-export default function setup(syscall, state, helpers, _vatPowers) {
+export default function setup(syscall, state, _helpers, vatPowers) {
+  const { testLog } = vatPowers;
   let deviceRef;
   const dispatch = harden({
     deliver(facetid, method, args, _result) {
       if (method === 'bootstrap') {
         const argb = JSON.parse(args.body);
-        const deviceIndex = argb[2].d1.index;
+        const deviceIndex = argb[1].d1.index;
         deviceRef = args.slots[deviceIndex];
-        if (deviceRef !== 'd-70') {
-          throw new Error(`bad deviceRef ${deviceRef}`);
-        }
+        assert(deviceRef === 'd-70', X`bad deviceRef ${deviceRef}`);
       } else if (method === 'step1') {
-        console.log('in step1');
-        helpers.testLog(`callNow`);
-        const setArgs = harden({ body: JSON.stringify([]), slots: [] });
+        testLog(`callNow`);
+        const setArgs = harden({ body: JSON.stringify([1, 2]), slots: [] });
         const ret = syscall.callNow(deviceRef, 'set', setArgs);
-        helpers.testLog(JSON.stringify(ret));
+        testLog(JSON.stringify(ret));
       }
     },
   });

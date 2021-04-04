@@ -1,8 +1,7 @@
-/* global harden */
-
+/* global require */
 import '@agoric/install-metering-and-ses';
 import bundleSource from '@agoric/bundle-source';
-import tap from 'tap';
+import test from 'ava';
 import { buildVatController } from '../../src/index';
 import makeNextLog from '../make-nextlog';
 
@@ -17,11 +16,15 @@ function capargs(args, slots = []) {
 // This test checks that dynamic vats (which are metered) can import bundles,
 // and that those bundles are also metered.
 
-tap.test('metering dynamic vat which imports bundle', async t => {
+test('metering dynamic vat which imports bundle', async t => {
   // We first create a static vat with vat-load-dynamic.js
   const config = {
-    vats: new Map(),
-    bootstrapIndexJS: require.resolve('./vat-load-dynamic.js'),
+    bootstrap: 'bootstrap',
+    vats: {
+      bootstrap: {
+        sourceSpec: require.resolve('./vat-load-dynamic.js'),
+      },
+    },
   };
   const c = await buildVatController(config, []);
   const nextLog = makeNextLog(c);
@@ -37,7 +40,7 @@ tap.test('metering dynamic vat which imports bundle', async t => {
 
   // 'createVat' will import the bundle
   c.queueToVatExport(
-    '_bootstrap',
+    'bootstrap',
     'o+0',
     'createVat',
     capargs([dynamicVatBundle]),
@@ -50,16 +53,16 @@ tap.test('metering dynamic vat which imports bundle', async t => {
     require.resolve('./grandchild.js'),
   );
   const r = c.queueToVatExport(
-    '_bootstrap',
+    'bootstrap',
     'o+0',
     'load',
     capargs([grandchildBundle]),
   );
   await c.run();
-  t.deepEqual(r.resolution(), capargs('ok'));
+  t.deepEqual(c.kpResolution(r), capargs('ok'));
 
   // First, send a message to the grandchild that runs normally
-  c.queueToVatExport('_bootstrap', 'o+0', 'bundleRun', capargs([]));
+  c.queueToVatExport('bootstrap', 'o+0', 'bundleRun', capargs([]));
   await c.run();
 
   t.deepEqual(nextLog(), ['did run'], 'first run ok');
@@ -68,7 +71,7 @@ tap.test('metering dynamic vat which imports bundle', async t => {
   // result promise should be rejected, and the control facet should report
   // the vat's demise
   c.queueToVatExport(
-    '_bootstrap',
+    'bootstrap',
     'o+0',
     'bundleExplode',
     capargs(['allocate']),
@@ -78,20 +81,18 @@ tap.test('metering dynamic vat which imports bundle', async t => {
   t.deepEqual(
     nextLog(),
     [
-      'did explode: RangeError: Allocate meter exceeded',
-      'terminated: RangeError: Allocate meter exceeded',
+      'did explode: Error: vat terminated',
+      'terminated: Error: Allocate meter exceeded',
     ],
     'grandchild go boom',
   );
 
   // the whole vat should be dead (we use 'run' instead of 'bundleRun')
-  c.queueToVatExport('_bootstrap', 'o+0', 'run', capargs([]));
+  c.queueToVatExport('bootstrap', 'o+0', 'run', capargs([]));
   await c.run();
   t.deepEqual(
     nextLog(),
-    ['run exploded: RangeError: Allocate meter exceeded'],
+    ['run exploded: Error: vat terminated'],
     'whole dynamic vat is dead',
   );
-
-  t.end();
 });

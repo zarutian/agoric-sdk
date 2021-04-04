@@ -1,16 +1,14 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+/* global __dirname */
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { test } from '@agoric/swingset-vat/tools/prepare-test-env-ava';
+
 import path from 'path';
+// eslint-disable-next-line import/no-extraneous-dependencies
 import { buildVatController, loadBasedir } from '@agoric/swingset-vat';
 
 async function main(basedir, argv) {
   const dir = path.resolve(`${__dirname}/..`, basedir);
   const config = await loadBasedir(dir);
-  const ldSrcPath = require.resolve(
-    '@agoric/swingset-vat/src/devices/loopbox-src',
-  );
-  config.devices = [['loopbox', ldSrcPath, {}]];
-
   const controller = await buildVatController(config, argv);
   await controller.run();
   return controller.dump();
@@ -20,8 +18,7 @@ const sharedMapContentsGolden = ['starting testSharedMapStorage'];
 
 test('run sharing Demo --sharedMap contents', async t => {
   const dump = await main('sharingService', ['sharedMap']);
-  t.deepEquals(dump.log, sharedMapContentsGolden);
-  t.end();
+  t.deepEqual(dump.log, sharedMapContentsGolden);
 });
 
 const sharingTestGolden = [
@@ -31,8 +28,7 @@ const sharingTestGolden = [
 
 test('run sharing Demo --sharing service', async t => {
   const dump = await main('sharingService', ['sharing']);
-  t.deepEquals(dump.log, sharingTestGolden);
-  t.end();
+  t.deepEqual(dump.log, sharingTestGolden);
 });
 
 const twoPartySharingGolden = [
@@ -42,6 +38,5 @@ const twoPartySharingGolden = [
 
 test('run sharing Demo --Two Party handoff', async t => {
   const dump = await main('sharingService', ['twoVatSharing']);
-  t.deepEquals(dump.log, twoPartySharingGolden);
-  t.end();
+  t.deepEqual(dump.log, twoPartySharingGolden);
 });

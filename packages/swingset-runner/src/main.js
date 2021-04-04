@@ -1,10 +1,17 @@
+/* global globalThis __dirname */
 import path from 'path';
+import fs from 'fs';
 import process from 'process';
 import repl from 'repl';
 import util from 'util';
 
 import { makeStatLogger } from '@agoric/stat-logger';
-import { buildVatController, loadBasedir } from '@agoric/swingset-vat';
+import {
+  loadSwingsetConfigFile,
+  loadBasedir,
+  initializeSwingset,
+  makeSwingsetController,
+} from '@agoric/swingset-vat';
 import {
   initSwingStore as initSimpleSwingStore,
   openSwingStore as openSimpleSwingStore,
@@ -16,7 +23,13 @@ import {
 
 import { dumpStore } from './dumpstore';
 import { auditRefCounts } from './auditstore';
-import { printStats, printBenchmarkStats } from './printStats';
+import {
+  organizeBenchmarkStats,
+  printBenchmarkStats,
+  organizeMainStats,
+  printMainStats,
+  outputStats,
+} from './printStats';
 
 const log = console.log;
 
@@ -34,28 +47,36 @@ Command line:
   runner [FLAGS...] CMD [{BASEDIR|--} [ARGS...]]
 
 FLAGS may be:
-  --init         - discard any existing saved state at startup.
-  --lmdb         - runs using LMDB as the data store (default)
-  --filedb       - runs using the simple file-based data store
-  --memdb        - runs using the non-persistent in-memory data store
-  --blockmode    - run in block mode (checkpoint every BLOCKSIZE blocks)
-  --blocksize N  - set BLOCKSIZE to N cranks (default 200)
-  --logtimes     - log block execution time stats while running
-  --logmem       - log memory usage stats after each block
-  --logdisk      - log disk space usage stats after each block
-  --logstats     - log kernel stats after each block
-  --logall       - log kernel stats, block times, memory use, and disk space
-  --logtag STR   - tag for stats log file (default "runner")
-  --forcegc      - run garbage collector after each block
-  --batchsize N  - set BATCHSIZE to N cranks (default 200)
-  --verbose      - output verbose debugging messages as it runs
-  --audit        - audit kernel promise reference counts after each crank
-  --dump         - dump a kernel state store snapshot after each crank
-  --dumpdir DIR  - place kernel state dumps in directory DIR (default ".")
-  --dumptag STR  - prefix kernel state dump filenames with STR (default "t")
-  --raw          - perform kernel state dumps in raw mode
-  --stats        - print performance stats at the end of a run
-  --benchmark N  - perform an N round benchmark after the initial run
+  --init           - discard any existing saved state at startup
+  --initonly       - initialize the swingset but exit without running it
+  --lmdb           - runs using LMDB as the data store (default)
+  --filedb         - runs using the simple file-based data store
+  --memdb          - runs using the non-persistent in-memory data store
+  --dbdir DIR      - specify where the data store should go (default BASEDIR)
+  --blockmode      - run in block mode (checkpoint every BLOCKSIZE blocks)
+  --blocksize N    - set BLOCKSIZE to N cranks (default 200)
+  --logtimes       - log block execution time stats while running
+  --logmem         - log memory usage stats after each block
+  --logdisk        - log disk space usage stats after each block
+  --logstats       - log kernel stats after each block
+  --logall         - log kernel stats, block times, memory use, and disk space
+  --logtag STR     - tag for stats log file (default "runner")
+  --slog FILE      - write swingset log to FILE
+  --forcegc        - run garbage collector after each block
+  --batchsize N    - set BATCHSIZE to N cranks (default 200)
+  --verbose        - output verbose debugging messages as it runs
+  --audit          - audit kernel promise reference counts after each crank
+  --dump           - dump a kernel state store snapshot after each crank
+  --dumpdir DIR    - place kernel state dumps in directory DIR (default ".")
+  --dumptag STR    - prefix kernel state dump filenames with STR (default "t")
+  --raw            - perform kernel state dumps in raw mode
+  --stats          - print a performance stats report at the end of a run
+  --statsfile FILE - output performance stats to FILE as a JSON object
+  --benchmark N    - perform an N round benchmark after the initial run
+  --indirect       - launch swingset from a vat instead of launching directly
+  --globalmetering - install metering on global objects
+  --meter          - run metered vats (implies --globalmetering and --indirect)
+  --config FILE    - read swingset config from FILE instead of inferring it
 
 CMD is one of:
   help   - print this helpful usage information
@@ -80,6 +101,53 @@ function fail(message, printUsage) {
   process.exit(1);
 }
 
+function generateIndirectConfig(baseConfig) {
+  const config = {
+    bootstrap: 'launcher',
+    bundles: {},
+    vats: {
+      launcher: {
+        sourceSpec: path.resolve(__dirname, 'vat-launcher.js'),
+        parameters: {
+          config: {
+            bootstrap: baseConfig.bootstrap,
+            vats: {},
+          },
+        },
+      },
+    },
+  };
+  if (baseConfig.vats) {
+    for (const vatName of Object.keys(baseConfig.vats)) {
+      const baseVat = { ...baseConfig.vats[vatName] };
+      let newBundleName = `bundle-${vatName}`;
+      if (baseVat.sourceSpec) {
+        config.bundles[newBundleName] = { sourceSpec: baseVat.sourceSpec };
+        delete baseVat.sourceSpec;
+      } else if (baseVat.bundleSpec) {
+        config.bundles[newBundleName] = { bundleSpec: baseVat.bundleSpec };
+        delete baseVat.bundleSpec;
+      } else if (baseVat.bundle) {
+        config.bundles[newBundleName] = { bundle: baseVat.bundle };
+        delete baseVat.bundle;
+      } else if (baseVat.bundleName) {
+        newBundleName = baseVat.bundleName;
+        config.bundles[newBundleName] = baseConfig.bundles[baseVat.bundleName];
+      } else {
+        fail(`this can't happen`);
+      }
+      baseVat.bundleName = newBundleName;
+      config.vats.launcher.parameters.config.vats[vatName] = baseVat;
+    }
+  }
+  if (baseConfig.bundles) {
+    for (const bundleName of Object.keys(baseConfig.bundles)) {
+      config.bundles[bundleName] = baseConfig.bundles[bundleName];
+    }
+  }
+  return config;
+}
+
 /* eslint-disable no-use-before-define */
 
 /**
@@ -98,6 +166,7 @@ export async function main() {
   let logDisk = false;
   let logStats = false;
   let logTag = 'runner';
+  let slogFile = null;
   let forceGC = false;
   let verbose = false;
   let doDumps = false;
@@ -106,13 +175,24 @@ export async function main() {
   let dumpTag = 't';
   let rawMode = false;
   let shouldPrintStats = false;
+  let globalMeteringActive = false;
+  let meterVats = false;
+  let launchIndirectly = false;
   let benchmarkRounds = 0;
+  let configPath = null;
+  let statsFile = null;
+  let dbDir = null;
+  let initOnly = false;
 
   while (argv[0] && argv[0].startsWith('-')) {
     const flag = argv.shift();
     switch (flag) {
       case '--init':
         forceReset = true;
+        break;
+      case '--initonly':
+        forceReset = true;
+        initOnly = true;
         break;
       case '--logtimes':
         logTimes = true;
@@ -134,6 +214,12 @@ export async function main() {
         break;
       case '--logtag':
         logTag = argv.shift();
+        break;
+      case '--slog':
+        slogFile = argv.shift();
+        break;
+      case '--config':
+        configPath = argv.shift();
         break;
       case '--forcegc':
         forceGC = true;
@@ -161,12 +247,29 @@ export async function main() {
         dumpTag = argv.shift();
         doDumps = true;
         break;
+      case '--dbdir':
+        dbDir = argv.shift();
+        break;
       case '--raw':
         rawMode = true;
         doDumps = true;
         break;
       case '--stats':
         shouldPrintStats = true;
+        break;
+      case '--statsfile':
+        statsFile = argv.shift();
+        break;
+      case '--globalmetering':
+        globalMeteringActive = true;
+        break;
+      case '--meter':
+        meterVats = true;
+        globalMeteringActive = true;
+        launchIndirectly = true;
+        break;
+      case '--indirect':
+        launchIndirectly = true;
         break;
       case '--audit':
         doAudits = true;
@@ -200,8 +303,12 @@ export async function main() {
     process.exit(0);
   }
 
+  if (globalMeteringActive) {
+    log('global metering is active');
+  }
+
   if (forceGC) {
-    if (!global.gc) {
+    if (!globalThis.gc) {
       fail(
         'To use --forcegc you must start node with the --expose-gc command line option',
       );
@@ -213,12 +320,28 @@ export async function main() {
 
   // Prettier demands that the conditional not be parenthesized.  Prettier is wrong.
   // eslint-disable-next-line prettier/prettier
-  const basedir = (argv[0] === '--' || argv[0] === undefined) ? '.' : argv.shift();
+  let basedir = (argv[0] === '--' || argv[0] === undefined) ? '.' : argv.shift();
   const bootstrapArgv = argv[0] === '--' ? argv.slice(1) : argv;
-  const config = await loadBasedir(basedir);
+
+  let config;
+  if (configPath) {
+    config = loadSwingsetConfigFile(configPath);
+    if (config === null) {
+      fail(`config file ${configPath} not found`);
+    }
+    basedir = path.dirname(configPath);
+  } else {
+    config = loadBasedir(basedir);
+  }
+  if (launchIndirectly) {
+    config = generateIndirectConfig(config);
+  }
+  if (!dbDir) {
+    dbDir = basedir;
+  }
 
   let store;
-  const kernelStateDBDir = path.join(basedir, 'swingset-kernel-state');
+  const kernelStateDBDir = path.join(dbDir, 'swingset-kernel-state');
   switch (dbMode) {
     case '--filedb':
       if (forceReset) {
@@ -240,20 +363,51 @@ export async function main() {
     default:
       fail(`invalid database mode ${dbMode}`, true);
   }
-  config.hostStorage = store.storage;
-  if (verbose) {
-    config.verbose = true;
+  if (config.bootstrap) {
+    config.vats[config.bootstrap].parameters.metered = meterVats;
   }
-
-  const controller = await buildVatController(config, bootstrapArgv);
-  let bootstrapResult = controller.bootstrapResult;
+  const runtimeOptions = {};
+  if (verbose) {
+    runtimeOptions.verbose = true;
+  }
+  if (slogFile) {
+    runtimeOptions.slogFile = slogFile;
+    if (forceReset) {
+      try {
+        fs.unlinkSync(slogFile);
+      } catch (e) {
+        if (e.code !== 'ENOENT') {
+          fail(`${e}`);
+        }
+      }
+    }
+  }
+  let bootstrapResult;
+  if (forceReset) {
+    bootstrapResult = await initializeSwingset(
+      config,
+      bootstrapArgv,
+      store.storage,
+      runtimeOptions,
+    );
+    if (initOnly) {
+      store.commit();
+      store.close();
+      return;
+    }
+  }
+  const controller = await makeSwingsetController(
+    store.storage,
+    {},
+    runtimeOptions,
+  );
 
   let blockNumber = 0;
   let statLogger = null;
   if (logTimes || logMem || logDisk) {
     let headers = ['block', 'steps'];
     if (logTimes) {
-      headers.push('btime');
+      headers.push('btime', 'ctime');
     }
     if (logMem) {
       headers = headers.concat(['rss', 'heapTotal', 'heapUsed', 'external']);
@@ -262,11 +416,14 @@ export async function main() {
       headers.push('disk');
     }
     if (logStats) {
-      const statNames = Object.getOwnPropertyNames(controller.getStats());
+      const statNames = Object.keys(controller.getStats());
       headers = headers.concat(statNames);
     }
     statLogger = makeStatLogger(logTag, headers);
   }
+
+  let mainStats;
+  let benchmarkStats;
 
   let crankNumber = 0;
   switch (command) {
@@ -367,33 +524,39 @@ export async function main() {
 
   async function runBenchmark(rounds) {
     const cranksPre = getCrankNumber();
-    const statsPre = controller.getStats();
+    const rawStatsPre = controller.getStats();
     const args = { body: '[]', slots: [] };
     let totalSteps = 0;
-    let totalDeltaT = BigInt(0);
+    let totalDeltaT = 0n;
     for (let i = 0; i < rounds; i += 1) {
       const roundResult = controller.queueToVatExport(
-        '_bootstrap',
+        launchIndirectly ? 'launcher' : 'bootstrap',
         'o+0',
         'runBenchmarkRound',
         args,
         'ignore',
       );
       // eslint-disable-next-line no-await-in-loop
-      const [steps, deltaT] = await runBatch(0, false);
-      const status = roundResult.status();
-      if (status === 'pending') {
+      const [steps, deltaT] = await runBatch(0, true);
+      const status = controller.kpStatus(roundResult);
+      if (status === 'unresolved') {
         log(`benchmark round ${i + 1} did not finish`);
       } else {
-        const resolution = JSON.stringify(roundResult.resolution());
+        const resolution = JSON.stringify(controller.kpResolution(roundResult));
         log(`benchmark round ${i + 1} ${status}: ${resolution}`);
       }
       totalSteps += steps;
       totalDeltaT += deltaT;
     }
     const cranksPost = getCrankNumber();
-    const statsPost = controller.getStats();
-    printBenchmarkStats(statsPre, statsPost, cranksPost - cranksPre, rounds);
+    const rawStatsPost = controller.getStats();
+    benchmarkStats = organizeBenchmarkStats(
+      rawStatsPre,
+      rawStatsPost,
+      cranksPost - cranksPre,
+      rounds,
+    );
+    printBenchmarkStats(benchmarkStats);
     return [totalSteps, totalDeltaT];
   }
 
@@ -422,18 +585,20 @@ export async function main() {
         log(`===> end of crank ${crankNumber}`);
       }
     }
+    const commitStartTime = readClock();
     if (doCommit) {
       store.commit();
     }
     const blockEndTime = readClock();
     if (forceGC) {
-      global.gc();
+      globalThis.gc();
     }
     if (statLogger) {
       blockNumber += 1;
       let data = [blockNumber, actualSteps];
       if (logTimes) {
         data.push(blockEndTime - blockStartTime);
+        data.push(blockEndTime - commitStartTime);
       }
       if (logMem) {
         const mem = process.memoryUsage();
@@ -482,41 +647,43 @@ export async function main() {
     if (!runInBlockMode) {
       store.commit();
     }
+    const cranks = getCrankNumber();
+    const rawStats = controller.getStats();
+    mainStats = organizeMainStats(rawStats, cranks);
     if (shouldPrintStats) {
-      const cranks = getCrankNumber();
-      printStats(controller.getStats(), cranks);
+      printMainStats(mainStats);
     }
     if (benchmarkRounds > 0) {
       const [moreSteps, moreDeltaT] = await runBenchmark(benchmarkRounds);
       totalSteps += moreSteps;
       deltaT += moreDeltaT;
     }
-    store.close();
     if (bootstrapResult) {
-      const status = bootstrapResult.status();
-      if (status === 'pending') {
+      const status = controller.kpStatus(bootstrapResult);
+      if (status === 'unresolved') {
         log('bootstrap result still pending');
+      } else if (status === 'unknown') {
+        log(`bootstrap result ${bootstrapResult} is unknown to the kernel`);
+        bootstrapResult = null;
       } else {
-        const resolution = JSON.stringify(bootstrapResult.resolution());
+        const resolution = JSON.stringify(
+          controller.kpResolution(bootstrapResult),
+        );
         log(`bootstrap result ${status}: ${resolution}`);
         bootstrapResult = null;
       }
     }
-    if (logTimes) {
-      if (totalSteps) {
-        const per = deltaT / BigInt(totalSteps);
-        log(
-          `runner finished ${totalSteps} cranks in ${deltaT} ns (${per}/crank)`,
-        );
-      } else {
-        log(`runner finished replay in ${deltaT} ns`);
-      }
+    store.close();
+    if (statsFile) {
+      outputStats(statsFile, mainStats, benchmarkStats);
+    }
+    if (totalSteps) {
+      const per = deltaT / BigInt(totalSteps);
+      log(
+        `runner finished ${totalSteps} cranks in ${deltaT} ns (${per}/crank)`,
+      );
     } else {
-      if (totalSteps) {
-        log(`runner finished ${totalSteps} cranks`);
-      } else {
-        log(`runner finished replay`);
-      }
+      log(`runner finished replay in ${deltaT} ns`);
     }
   }
 }

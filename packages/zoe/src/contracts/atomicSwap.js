@@ -1,12 +1,17 @@
 // @ts-check
 
 // Eventually will be importable from '@agoric/zoe-contract-support'
-import { makeZoeHelpers } from '../contractSupport';
+import {
+  assertIssuerKeywords,
+  swap,
+  assertProposalShape,
+} from '../contractSupport';
 
 import '../../exported';
 
 /**
  * Trade one item for another.
+ * https://agoric.com/documentation/zoe/guide/contracts/atomic-swap.html
  *
  * The initial offer is { give: { Asset: A }, want: { Price: B } }.
  * The outcome from the first offer is an invitation for the second party,
@@ -14,39 +19,44 @@ import '../../exported';
  * amount no greater than the original's give, and a give amount at least as
  * large as the original's want.
  *
- * @param {ContractFacet} zcf
+ * @type {ContractStartFn}
  */
-const makeContract = zcf => {
-  const { swap, assertKeywords, checkHook } = makeZoeHelpers(zcf);
-  assertKeywords(harden(['Asset', 'Price']));
+const start = zcf => {
+  assertIssuerKeywords(zcf, harden(['Asset', 'Price']));
 
-  const makeMatchingInvite = firstOfferHandle => {
-    const {
-      proposal: { want, give },
-    } = zcf.getOffer(firstOfferHandle);
+  /** @type {OfferHandler} */
+  const makeMatchingInvitation = firstSeat => {
+    assertProposalShape(firstSeat, {
+      give: { Asset: null },
+      want: { Price: null },
+    });
+    const { want, give } = firstSeat.getProposal();
 
-    return zcf.makeInvitation(
-      offerHandle => swap(firstOfferHandle, offerHandle),
+    /** @type {OfferHandler} */
+    const matchingSeatOfferHandler = matchingSeat => {
+      const swapResult = swap(zcf, firstSeat, matchingSeat);
+      zcf.shutdown('Swap completed.');
+      return swapResult;
+    };
+
+    const matchingSeatInvitation = zcf.makeInvitation(
+      matchingSeatOfferHandler,
       'matchOffer',
-      harden({
-        customProperties: {
-          asset: give.Asset,
-          price: want.Price,
-        },
-      }),
+      {
+        asset: give.Asset,
+        price: want.Price,
+      },
     );
+    return matchingSeatInvitation;
   };
 
-  const firstOfferExpected = harden({
-    give: { Asset: null },
-    want: { Price: null },
-  });
-
-  return zcf.makeInvitation(
-    checkHook(makeMatchingInvite, firstOfferExpected),
+  const creatorInvitation = zcf.makeInvitation(
+    makeMatchingInvitation,
     'firstOffer',
   );
+
+  return { creatorInvitation };
 };
 
-harden(makeContract);
-export { makeContract };
+harden(start);
+export { start };

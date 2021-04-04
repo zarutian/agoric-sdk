@@ -1,0 +1,20 @@
+{
+  "bootstrap": "bootstrap",
+  "vats": {
+    "host": {
+      "sourceSpec": "vat-host.js"
+    },
+    "http": {
+      "sourceSpec": "vat-http.js"
+    },
+    "network": {
+      "sourceSpec": "vat-network.js"
+    },
+    "uploads": {
+      "sourceSpec": "vat-uploads.js"
+    },
+    "bootstrap": {
+      "sourceSpec": "bootstrap.js"
+    }
+  }
+}

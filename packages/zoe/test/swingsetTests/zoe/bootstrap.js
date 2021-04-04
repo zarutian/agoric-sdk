@@ -1,17 +1,9 @@
-import { E } from '@agoric/eventual-send';
-import makeIssuerKit from '@agoric/ertp';
-import buildManualTimer from '../../../tools/manualTimer';
+// @ts-check
 
-/* eslint-disable import/no-unresolved, import/extensions */
-import automaticRefundBundle from './bundle-automaticRefund';
-import coveredCallBundle from './bundle-coveredCall';
-import publicAuctionBundle from './bundle-publicAuction';
-import atomicSwapBundle from './bundle-atomicSwap';
-import simpleExchangeBundle from './bundle-simpleExchange';
-import autoswapBundle from './bundle-autoswap';
-import sellItemsBundle from './bundle-sellItems';
-import mintAndSellNFTBundle from './bundle-mintAndSellNFT';
-/* eslint-enable import/no-unresolved, import/extensions */
+import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { makeIssuerKit, amountMath } from '@agoric/ertp';
+import buildManualTimer from '../../../tools/manualTimer';
 
 const setupBasicMints = () => {
   const all = [
@@ -21,20 +13,22 @@ const setupBasicMints = () => {
   ];
   const mints = all.map(objs => objs.mint);
   const issuers = all.map(objs => objs.issuer);
-  const amountMaths = all.map(objs => objs.amountMath);
+  const brands = all.map(objs => objs.brand);
 
   return harden({
     mints,
     issuers,
-    amountMaths,
+    brands,
   });
 };
 
 const makeVats = (log, vats, zoe, installations, startingValues) => {
   const timer = buildManualTimer(log);
-  const { mints, issuers, amountMaths } = setupBasicMints();
+  const { mints, issuers, brands } = setupBasicMints();
   const makePayments = values =>
-    mints.map((mint, i) => mint.mintPayment(amountMaths[i].make(values[i])));
+    mints.map((mint, i) =>
+      mint.mintPayment(amountMath.make(values[i], brands[i])),
+    );
   const [aliceValues, bobValues, carolValues, daveValues] = startingValues;
 
   // Setup Alice
@@ -86,22 +80,24 @@ const makeVats = (log, vats, zoe, installations, startingValues) => {
   return harden(result);
 };
 
-export function buildRootObject(vatPowers) {
-  const obj0 = {
-    async bootstrap(argv, vats, devices) {
+export function buildRootObject(vatPowers, vatParameters) {
+  const { argv, contractBundles: cb } = vatParameters;
+  return Far('root', {
+    async bootstrap(vats, devices) {
       const vatAdminSvc = await E(vats.vatAdmin).createVatAdminService(
         devices.vatAdmin,
       );
       const zoe = await E(vats.zoe).buildZoe(vatAdminSvc);
       const installations = {
-        automaticRefund: await E(zoe).install(automaticRefundBundle.bundle),
-        coveredCall: await E(zoe).install(coveredCallBundle.bundle),
-        publicAuction: await E(zoe).install(publicAuctionBundle.bundle),
-        atomicSwap: await E(zoe).install(atomicSwapBundle.bundle),
-        simpleExchange: await E(zoe).install(simpleExchangeBundle.bundle),
-        autoswap: await E(zoe).install(autoswapBundle.bundle),
-        sellItems: await E(zoe).install(sellItemsBundle.bundle),
-        mintAndSellNFT: await E(zoe).install(mintAndSellNFTBundle.bundle),
+        automaticRefund: await E(zoe).install(cb.automaticRefund),
+        coveredCall: await E(zoe).install(cb.coveredCall),
+        secondPriceAuction: await E(zoe).install(cb.secondPriceAuction),
+        atomicSwap: await E(zoe).install(cb.atomicSwap),
+        simpleExchange: await E(zoe).install(cb.simpleExchange),
+        autoswap: await E(zoe).install(cb.autoswap),
+        sellItems: await E(zoe).install(cb.sellItems),
+        mintAndSellNFT: await E(zoe).install(cb.mintAndSellNFT),
+        otcDesk: await E(zoe).install(cb.otcDesk),
       };
 
       const [testName, startingValues] = argv;
@@ -115,6 +111,5 @@ export function buildRootObject(vatPowers) {
       );
       await E(aliceP).startTest(testName, bobP, carolP, daveP);
     },
-  };
-  return harden(obj0);
+  });
 }

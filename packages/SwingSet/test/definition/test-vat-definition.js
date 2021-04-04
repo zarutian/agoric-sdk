@@ -1,6 +1,6 @@
-/* global harden */
-import '@agoric/install-ses';
-import tap from 'tap';
+/* global require */
+import { test } from '../../tools/prepare-test-env-ava';
+
 import { buildVatController } from '../../src/index';
 
 const mUndefined = { '@qclass': 'undefined' };
@@ -13,54 +13,57 @@ function capargs(args, slots = []) {
   return capdata(JSON.stringify(args), slots);
 }
 
-tap.test('create with setup and buildRootObject', async t => {
+test('create with setup and buildRootObject', async t => {
   const config = {
-    vats: new Map(),
+    vats: {
+      setup: {
+        sourceSpec: require.resolve('./vat-setup.js'),
+      },
+      liveslots: {
+        sourceSpec: require.resolve('./vat-liveslots.js'),
+      },
+    },
   };
-  config.vats.set('setup', {
-    sourcepath: require.resolve('./vat-setup.js'),
-    options: {},
-  });
-  config.vats.set('liveslots', {
-    sourcepath: require.resolve('./vat-liveslots.js'),
-    options: {},
-  });
   const c = await buildVatController(config, []);
   let r = c.queueToVatExport('setup', 'o+0', 'increment', capargs([]), 'panic');
   await c.run();
-  t.deepEqual(r.resolution(), capargs(mUndefined), 'setup incr');
+  t.deepEqual(c.kpResolution(r), capargs(mUndefined), 'setup incr');
   r = c.queueToVatExport('setup', 'o+0', 'read', capargs([]), 'panic');
   await c.run();
-  t.deepEqual(r.resolution(), capargs(1), 'setup read');
+  t.deepEqual(c.kpResolution(r), capargs(1), 'setup read');
   r = c.queueToVatExport('setup', 'o+0', 'tildot', capargs([]), 'panic');
   await c.run();
   t.deepEqual(
-    r.resolution(),
+    c.kpResolution(r),
     capargs('HandledPromise.applyMethod(x, "foo", [arg1]);'),
     'setup tildot',
   );
   r = c.queueToVatExport('setup', 'o+0', 'remotable', capargs([]), 'panic');
   await c.run();
   t.deepEqual(
-    r.resolution(),
-    capargs('iface1'),
+    c.kpResolution(r),
+    capargs('Alleged: iface1'),
     'setup Remotable/getInterfaceOf',
   );
 
   r = c.queueToVatExport('liveslots', 'o+0', 'increment', capargs([]), 'panic');
   await c.run();
-  t.deepEqual(r.resolution(), capargs(mUndefined), 'ls incr');
+  t.deepEqual(c.kpResolution(r), capargs(mUndefined), 'ls incr');
   r = c.queueToVatExport('liveslots', 'o+0', 'read', capargs([]), 'panic');
   await c.run();
-  t.deepEqual(r.resolution(), capargs(1), 'ls read');
+  t.deepEqual(c.kpResolution(r), capargs(1), 'ls read');
   r = c.queueToVatExport('liveslots', 'o+0', 'tildot', capargs([]), 'panic');
   await c.run();
   t.deepEqual(
-    r.resolution(),
+    c.kpResolution(r),
     capargs('HandledPromise.applyMethod(x, "foo", [arg1]);'),
     'ls tildot',
   );
   r = c.queueToVatExport('liveslots', 'o+0', 'remotable', capargs([]), 'panic');
   await c.run();
-  t.deepEqual(r.resolution(), capargs('iface1'), 'ls Remotable/getInterfaceOf');
+  t.deepEqual(
+    c.kpResolution(r),
+    capargs('Alleged: iface1'),
+    'ls Remotable/getInterfaceOf',
+  );
 });

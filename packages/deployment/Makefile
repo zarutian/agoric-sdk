@@ -1,70 +1,72 @@
 REPOSITORY = agoric/cosmic-swingset
 REPOSITORY_SDK = agoric/agoric-sdk
 SS := ../cosmic-swingset/
-TAG := $(shell test ! -f ../../package.json || sed -ne 's/.*"version": "\(.*\)".*/\1/p' ../../package.json)
+VERSION := $(shell node -e 'console.log(require("../../package.json").version)' 2>/dev/null)
 
-# Don't push alpha tags as ":latest".
+TAG := $(if $(VERSION),$(VERSION),latest)
+MODDABLE_COMMIT_HASH := $(shell git submodule status ../xsnap/moddable | \
+	sed -ne 's/^.\([^ ]*\).*/\1/p')
+
+# Don't push alpha tags as ":$(TAG)".
+ifeq ($(TAG),latest)
+DONT_PUSH_LATEST := :
+else
 DONT_PUSH_LATEST := $(if $(findstring -,$(TAG)),:,)
+endif
 
 docker-show-fat:
 	date > show-fat-bust-cache.stamp
 	docker build --file=Dockerfile.show-fat ../..
 
-docker-build: docker-build-base docker-build-sdk docker-build-solo \
-	docker-build-pserver docker-build-setup docker-build-setup-solo
+docker-build: docker-build-sdk docker-build-solo \
+	docker-build-setup docker-build-deployment
 
 docker-build-sdk:
-	docker build -t $(REPOSITORY_SDK):latest --file=Dockerfile.sdk ../..
-
-docker-build-setup:
-	docker build -t $(REPOSITORY)-setup:latest .
-
-docker-build-base:
 	hash=`git rev-parse --short HEAD`; \
 	  dirty=`git diff --quiet || echo -dirty`; \
 	  echo "$$hash$$dirty" > $(SS)lib/git-revision.txt
-	docker build -t $(REPOSITORY):latest $(SS)
+	docker build --build-arg=MODDABLE_COMMIT_HASH=$(MODDABLE_COMMIT_HASH) \
+		-t $(REPOSITORY_SDK):$(TAG) --file=Dockerfile.sdk ../..
+	docker tag $(REPOSITORY_SDK):$(TAG) $(REPOSITORY_SDK):latest
 
-docker-build-pserver:
-	docker build -t $(REPOSITORY)-pserver:latest $(SS)provisioning-server
+docker-build-setup:
+	docker build --build-arg=TAG=$(TAG)  -t $(REPOSITORY)-setup:$(TAG) .
+	docker tag $(REPOSITORY)-setup:$(TAG) $(REPOSITORY)-setup:latest
 
 docker-build-solo:
-	docker build -t $(REPOSITORY)-solo:latest $(SS)lib/ag-solo
+	docker build --build-arg=TAG=$(TAG) -t $(REPOSITORY)-solo:$(TAG) $(SS)lib/ag-solo
+	docker tag $(REPOSITORY)-solo:$(TAG) $(REPOSITORY)-solo:latest
 
-docker-build-setup-solo:
-	docker build -t $(REPOSITORY)-setup-solo:latest $(SS)setup-solo
+docker-build-deployment:
+	docker build --build-arg=TAG=$(TAG)  -t agoric/deployment:$(TAG) --file=Dockerfile.deployment ./docker
+	docker tag agoric/deployment:$(TAG) agoric/deployment:latest
+
+# Just push $(TAG)
+docker-push-only:
+	$(MAKE) docker-push DONT_PUSH_LATEST=: TAG=$(TAG)
 
 docker-push: docker-push-base docker-push-solo docker-push-setup \
-	docker-push-pserver docker-push-setup-solo docker-push-ibc-alpha
+	docker-push-ibc-alpha docker-push-deployment
 
 # ./docker is an emptyish directory.
 docker-build-ibc-alpha:
-	docker build -t $(REPOSITORY_SDK):ibc-alpha --file=Dockerfile.ibc-alpha ./docker
+	docker build --build-arg=MODDABLE_COMMIT_HASH=--build-arg=SDK_TAG=$(TAG) -t $(REPOSITORY_SDK):ibc-alpha --file=Dockerfile.ibc-alpha ./docker
 
 docker-push-ibc-alpha: docker-build-ibc-alpha
 	docker push $(REPOSITORY_SDK):ibc-alpha
 
 docker-push-setup:
-	docker tag $(REPOSITORY)-setup:latest $(REPOSITORY)-setup:$(TAG)
 	$(DONT_PUSH_LATEST) docker push $(REPOSITORY)-setup:latest
 	docker push $(REPOSITORY)-setup:$(TAG)
 
 docker-push-base:
-	docker tag $(REPOSITORY_SDK):latest $(REPOSITORY_SDK):$(TAG)
 	$(DONT_PUSH_LATEST) docker push $(REPOSITORY_SDK):latest
 	docker push $(REPOSITORY_SDK):$(TAG)
 
-docker-push-pserver:
-	docker tag $(REPOSITORY)-pserver:latest $(REPOSITORY)-pserver:$(TAG)
-	$(DONT_PUSH_LATEST) docker push $(REPOSITORY)-pserver:latest
-	docker push $(REPOSITORY)-pserver:$(TAG)
-
 docker-push-solo:
-	docker tag $(REPOSITORY)-solo:latest $(REPOSITORY)-solo:$(TAG)
 	$(DONT_PUSH_LATEST) docker push $(REPOSITORY)-solo:latest
 	docker push $(REPOSITORY)-solo:$(TAG)
 
-docker-push-setup-solo:
-	docker tag $(REPOSITORY)-setup-solo:latest $(REPOSITORY)-setup-solo:$(TAG)
-	$(DONT_PUSH_LATEST) docker push $(REPOSITORY)-setup-solo:latest
-	docker push $(REPOSITORY)-setup-solo:$(TAG)
+docker-push-deployment:
+	$(DONT_PUSH_LATEST) docker push agoric/deployment:latest
+	docker push agoric/deployment:$(TAG)

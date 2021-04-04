@@ -1,20 +1,24 @@
 {
   "name": "@agoric/assert",
-  "version": "0.0.8",
+  "version": "0.2.4",
   "description": "Assert expression support that protects sensitive data",
+  "parsers": {
+    "js": "mjs"
+  },
   "main": "src/assert.js",
   "engines": {
     "node": ">=11.0"
   },
   "scripts": {
     "build": "exit 0",
-    "test": "tape -r esm test/**/test*.js",
-    "lint-fix": "yarn lint --fix",
+    "test": "exit 0",
+    "test:nyc": "exit 0",
+    "test:xs": "exit 0",
+    "lint-fix": "yarn lint:eslint --fix && yarn lint:types",
     "lint-check": "yarn lint",
-    "lint": "yarn lint:types && eslint '**/*.js'",
-    "lint:types": "tsc -p jsconfig.json",
-    "lint-fix-jessie": "eslint -c '.eslintrc-jessie.js' --fix '**/*.js'",
-    "lint-check-jessie": "eslint -c '.eslintrc-jessie.js' '**/*.js'"
+    "lint": "yarn lint:types && yarn lint:eslint",
+    "lint:eslint": "eslint '**/*.js'",
+    "lint:types": "tsc -p jsconfig.json"
   },
   "repository": {
     "type": "git",
@@ -30,54 +34,28 @@
     "url": "https://github.com/Agoric/agoric-sdk/issues"
   },
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
-  "dependencies": {
-  },
   "devDependencies": {
+    "@agoric/install-ses": "^0.5.4",
+    "ava": "^3.12.1",
     "esm": "^3.2.25",
-    "@agoric/install-ses": "^0.2.0",
-    "tap-spec": "^5.0.0",
-    "tape": "^4.11.0",
-    "tape-promise": "^4.0.0"
+    "nyc": "^15.1.0"
   },
   "files": [
     "src/",
     "NEWS.md"
   ],
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ]
+  },
   "eslintConfig": {
     "extends": [
-      "airbnb-base",
-      "plugin:prettier/recommended"
-    ],
-    "env": {
-      "es6": true
-    },
-    "globals": {
-      "harden": "readonly"
-    },
-    "rules": {
-      "implicit-arrow-linebreak": "off",
-      "function-paren-newline": "off",
-      "arrow-parens": "off",
-      "strict": "off",
-      "no-console": "off",
-      "no-unused-vars": [
-        "error",
-        {
-          "argsIgnorePattern": "^_",
-          "varsIgnorePattern": "^_"
-        }
-      ],
-      "no-return-assign": "off",
-      "no-param-reassign": "off",
-      "no-restricted-syntax": [
-        "off",
-        "ForOfStatement"
-      ],
-      "no-unused-expressions": "off",
-      "no-loop-func": "off",
-      "no-inner-declarations": "off",
-      "import/prefer-default-export": "off"
-    }
+      "@agoric"
+    ]
   },
   "eslintIgnore": [
     "bundle-*.js"
@@ -88,5 +66,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "ses": "^0.12.6"
   }
 }

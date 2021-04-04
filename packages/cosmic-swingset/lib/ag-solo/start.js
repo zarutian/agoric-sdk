@@ -1,6 +1,8 @@
+/* global require process setTimeout */
 import fs from 'fs';
 import path from 'path';
 import temp from 'temp';
+import { fork } from 'child_process';
 import { promisify } from 'util';
 // import { createHash } from 'crypto';
 
@@ -9,16 +11,18 @@ import anylogger from 'anylogger';
 // import connect from 'lotion-connect';
 // import djson from 'deterministic-json';
 
+import { assert, details as X } from '@agoric/assert';
 import {
   loadBasedir,
+  loadSwingsetConfigFile,
   buildCommand,
-  buildVatController,
+  swingsetIsInitialized,
+  initializeSwingset,
+  makeSwingsetController,
   buildMailboxStateMap,
   buildMailbox,
+  buildPlugin,
   buildTimer,
-  getVatTPSourcePath,
-  getCommsSourcePath,
-  getTimerWrapperSourcePath,
 } from '@agoric/swingset-vat';
 import { getBestSwingStore } from '../check-lmdb';
 
@@ -29,9 +33,6 @@ import { makeWithQueue } from './vats/queue';
 import { connectToChain } from './chain-cosmos-sdk';
 import { connectToFakeChain } from './fake-chain';
 
-// import { makeChainFollower } from './follower';
-// import { makeDeliverator } from './deliver-with-ag-cosmos-helper';
-
 const log = anylogger('start');
 
 let swingSetRunning = false;
@@ -39,6 +40,7 @@ let swingSetRunning = false;
 const fsWrite = promisify(fs.write);
 const fsClose = promisify(fs.close);
 const rename = promisify(fs.rename);
+const symlink = promisify(fs.symlink);
 const unlink = promisify(fs.unlink);
 
 async function atomicReplaceFile(filename, contents) {
@@ -79,6 +81,7 @@ async function buildSwingset(
   vatsDir,
   argv,
   broadcast,
+  defaultManagerType,
 ) {
   const initialMailboxState = JSON.parse(fs.readFileSync(mailboxStateFile));
 
@@ -87,26 +90,66 @@ async function buildSwingset(
   const mb = buildMailbox(mbs);
   const cm = buildCommand(broadcast);
   const timer = buildTimer();
-
-  const config = await loadBasedir(vatsDir);
-  config.devices = [
-    ['mailbox', mb.srcPath, mb.endowments],
-    ['command', cm.srcPath, cm.endowments],
-    ['timer', timer.srcPath, timer.endowments],
-  ];
-  config.vats.set('vattp', { sourcepath: getVatTPSourcePath() });
-  config.vats.set('comms', {
-    sourcepath: getCommsSourcePath(),
-    options: { enablePipelining: true },
+  const withInputQueue = makeWithQueue();
+  const queueThunkForKernel = withInputQueue(async thunk => {
+    thunk();
+    // eslint-disable-next-line no-use-before-define
+    await processKernel();
   });
-  config.vats.set('timer', { sourcepath: getTimerWrapperSourcePath() });
+
+  const pluginDir = path.resolve('./plugins');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  const pluginsPrefix = `${pluginDir}${path.sep}`;
+  const pluginRequire = mod => {
+    // Ensure they can't traverse out of the plugins prefix.
+    const pluginFile = path.resolve(pluginsPrefix, mod);
+    assert(
+      pluginFile.startsWith(pluginsPrefix),
+      X`Cannot load ${pluginFile} plugin; outside of ${pluginDir}`,
+    );
+
+    // eslint-disable-next-line import/no-dynamic-require,global-require
+    return require(pluginFile);
+  };
+
+  const plugin = buildPlugin(pluginDir, pluginRequire, queueThunkForKernel);
+
+  let config = loadSwingsetConfigFile(`${vatsDir}/solo-config.json`);
+  if (config === null) {
+    config = loadBasedir(vatsDir);
+  }
+  config.devices = {
+    mailbox: {
+      sourceSpec: mb.srcPath,
+    },
+    command: {
+      sourceSpec: cm.srcPath,
+    },
+    timer: {
+      sourceSpec: timer.srcPath,
+    },
+    plugin: {
+      sourceSpec: plugin.srcPath,
+    },
+  };
+  const deviceEndowments = {
+    mailbox: { ...mb.endowments },
+    command: { ...cm.endowments },
+    timer: { ...timer.endowments },
+    plugin: { ...plugin.endowments },
+  };
 
   const tempdir = path.resolve(kernelStateDBDir, 'check-lmdb-tempdir');
   const { openSwingStore } = getBestSwingStore(tempdir);
   const { storage, commit } = openSwingStore(kernelStateDBDir);
-  config.hostStorage = storage;
 
-  const controller = await buildVatController(config, argv);
+  if (!swingsetIsInitialized(storage)) {
+    if (defaultManagerType && !config.defaultManagerType) {
+      config.defaultManagerType = defaultManagerType;
+    }
+    await initializeSwingset(config, argv, storage);
+  }
+  const controller = await makeSwingsetController(storage, deviceEndowments);
 
   async function saveState() {
     const ms = JSON.stringify(mbs.exportToData());
@@ -126,15 +169,11 @@ async function buildSwingset(
     }
   }
 
-  const withInputQueue = makeWithQueue();
-
   // Use the input queue to make sure it doesn't overlap with
   // other inbound messages.
   const queuedDeliverInboundToMbx = withInputQueue(
     async function deliverInboundToMbx(sender, messages, ack) {
-      if (!Array.isArray(messages)) {
-        throw new Error(`inbound given non-Array: ${messages}`);
-      }
+      assert(Array.isArray(messages), X`inbound given non-Array: ${messages}`);
       // console.debug(`deliverInboundToMbx`, messages, ack);
       if (mb.deliverInbound(sender, messages, ack, true)) {
         await processKernel();
@@ -217,6 +256,10 @@ async function buildSwingset(
       intervalMillis = interval;
       setTimeout(queuedMoveTimeForward, intervalMillis);
     },
+    resetOutdatedState: withInputQueue(() => {
+      plugin.reset();
+      return processKernel();
+    }),
   };
 }
 
@@ -238,6 +281,10 @@ export default async function start(basedir, argv) {
     }
   }
 
+  const { wallet, defaultManagerType } = JSON.parse(
+    fs.readFileSync('options.json', 'utf-8'),
+  );
+
   const vatsDir = path.join(basedir, 'vats');
   const stateDBDir = path.join(basedir, 'swingset-kernel-state');
   const d = await buildSwingset(
@@ -246,6 +293,7 @@ export default async function start(basedir, argv) {
     vatsDir,
     argv,
     broadcast,
+    defaultManagerType,
   );
 
   const {
@@ -253,8 +301,28 @@ export default async function start(basedir, argv) {
     deliverInboundCommand,
     deliverOutbound,
     startTimer,
+    resetOutdatedState,
   } = d;
 
+  // Remove wallet traces.
+  await unlink('html/wallet').catch(_ => {});
+
+  // Symlink the wallet.
+  const pjs = require.resolve(`${wallet}/package.json`);
+  const {
+    'agoric-wallet': {
+      htmlBasedir = 'ui/build',
+      deploy = ['contract/deploy.js', 'api/deploy.js'],
+    } = {},
+  } = JSON.parse(fs.readFileSync(pjs, 'utf-8'));
+
+  const agWallet = path.dirname(pjs);
+  const agWalletHtml = path.resolve(agWallet, htmlBasedir);
+  symlink(agWalletHtml, 'html/wallet', 'junction').catch(e => {
+    console.error('Cannot link html/wallet:', e);
+  });
+
+  let hostport;
   await Promise.all(
     connections.map(async c => {
       switch (c.type) {
@@ -275,11 +343,10 @@ export default async function start(basedir, argv) {
           }
           break;
         case 'fake-chain': {
-          log(`adding follower/sender for fake chain ${c.role} ${c.GCI}`);
+          log(`adding follower/sender for fake chain ${c.GCI}`);
           const deliverator = await connectToFakeChain(
             basedir,
             c.GCI,
-            c.role,
             c.fakeDelay,
             deliverInboundToMbx,
           );
@@ -288,9 +355,8 @@ export default async function start(basedir, argv) {
         }
         case 'http':
           log(`adding HTTP/WS listener on ${c.host}:${c.port}`);
-          if (broadcastJSON) {
-            throw new Error(`duplicate type=http in connections.json`);
-          }
+          assert(!broadcastJSON, X`duplicate type=http in connections.json`);
+          hostport = `${c.host}:${c.port}`;
           broadcastJSON = await makeHTTPListener(
             basedir,
             c.port,
@@ -299,15 +365,58 @@ export default async function start(basedir, argv) {
           );
           break;
         default:
-          throw new Error(`unknown connection type in ${c}`);
+          assert.fail(X`unknown connection type in ${c}`);
       }
     }),
   );
 
   // Start timer here!
   startTimer(1200);
+  resetOutdatedState();
 
   log.info(`swingset running`);
   swingSetRunning = true;
   deliverOutbound();
+
+  if (!hostport) {
+    return;
+  }
+
+  const deploys = typeof deploy === 'string' ? [deploy] : deploy;
+  // TODO: Shell-quote the deploy list.
+  const agWalletDeploy = deploys
+    .map(dep => path.resolve(agWallet, dep))
+    .join(' ');
+
+  const agoricCli = require.resolve('agoric/bin/agoric');
+
+  // Use the same verbosity as our caller did for us.
+  let verbosity;
+  if (process.env.DEBUG === undefined) {
+    verbosity = [];
+  } else if (process.env.DEBUG.includes('agoric')) {
+    verbosity = ['-vv'];
+  } else {
+    verbosity = ['-v'];
+  }
+
+  // Launch the agoric wallet deploys (if any).  The assumption is that the CLI
+  // runs correctly under the same version of the JS engine we're currently
+  // using.
+  fork(
+    agoricCli,
+    [
+      `deploy`,
+      ...verbosity,
+      `--provide=wallet`,
+      `--hostport=${hostport}`,
+      `${agWalletDeploy}`,
+    ],
+    { stdio: 'inherit' },
+    err => {
+      if (err) {
+        console.error(err);
+      }
+    },
+  );
 }

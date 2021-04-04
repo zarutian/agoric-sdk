@@ -1,5 +1,7 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+/* global __dirname */
+// eslint-disable-next-line import/order
+import { test } from '../tools/prepare-test-env-ava';
+
 import path from 'path';
 // import fs from 'fs';
 import {
@@ -25,23 +27,27 @@ test('transcript-one save', async t => {
     path.resolve(__dirname, 'basedir-transcript'),
   );
   const { storage } = initSwingStore();
-  config.hostStorage = storage;
-  const c1 = await buildVatController(config, ['one']);
+  const c1 = await buildVatController(config, ['one'], {
+    hostStorage: storage,
+  });
   const states1 = await buildTrace(c1, storage);
   /*
   states1.forEach( (s, i) =>
     fs.writeFileSync(`kdata-${i}.json`, JSON.stringify(s))
   ); */
 
+  const config2 = await loadBasedir(
+    path.resolve(__dirname, 'basedir-transcript'),
+  );
   const storage2 = initSwingStore().storage;
-  config.hostStorage = storage2;
-  const c2 = await buildVatController(config, ['one']);
+  const c2 = await buildVatController(config2, ['one'], {
+    hostStorage: storage2,
+  });
   const states2 = await buildTrace(c2, storage2);
 
   states1.forEach((s, i) => {
     t.deepEqual(s, states2[i]);
   });
-  t.end();
 });
 
 test('transcript-one load', async t => {
@@ -49,8 +55,7 @@ test('transcript-one load', async t => {
     path.resolve(__dirname, 'basedir-transcript'),
   );
   const s0 = initSwingStore().storage;
-  config.hostStorage = s0;
-  const c0 = await buildVatController(config, ['one']);
+  const c0 = await buildVatController(config, ['one'], { hostStorage: s0 });
   const states = await buildTrace(c0, s0);
   // states.forEach((s,j) =>
   //               fs.writeFileSync(`kdata-${j}.json`,
@@ -63,9 +68,8 @@ test('transcript-one load', async t => {
     );
     const s = initSwingStore().storage;
     setAllState(s, states[i]);
-    cfg.hostStorage = s;
     // eslint-disable-next-line no-await-in-loop
-    const c = await buildVatController(cfg, ['one']);
+    const c = await buildVatController(cfg, ['one'], { hostStorage: s });
     // eslint-disable-next-line no-await-in-loop
     const newstates = await buildTrace(c, s);
     // newstates.forEach((s,j) =>
@@ -73,5 +77,4 @@ test('transcript-one load', async t => {
     //                                   JSON.stringify(newstates[j])));
     t.deepEqual(states.slice(i), newstates);
   }
-  t.end();
 });

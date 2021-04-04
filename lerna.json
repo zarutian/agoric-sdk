@@ -2,16 +2,17 @@
   "command": {
     "version": {
       "message": "chore(release): publish",
-      "conventionalCommits": true
+      "conventionalCommits": true,
+      "preid": "dev"
     }
   },
   "packages": [
     ".",
+    "golang/cosmos",
     "packages/*", 
-    "packages/agoric-cli/template/.agservers",
-    "packages/agoric-cli/template/api",
-    "packages/agoric-cli/template/contract",
-    "packages/agoric-cli/template/ui"
+    "packages/dapp-*-wallet/api",
+    "packages/dapp-*-wallet/contract",
+    "packages/dapp-*-wallet/ui"
   ],
   "version": "independent"
 }

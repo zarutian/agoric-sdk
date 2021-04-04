@@ -1,5 +1,5 @@
-import Nat from '@agoric/nat';
-import { assert, details } from '@agoric/assert';
+import { Nat } from '@agoric/nat';
+import { assert, details as X } from '@agoric/assert';
 
 // NOTE: confusing terminology: "slot" vs. "reference".  All these things
 // called "slots" are references, but the word "slot" suggests something into
@@ -22,14 +22,14 @@ import { assert, details } from '@agoric/assert';
 /**
  * Parse a vat slot reference string into a vat slot object:
  *   {
- *      type: STRING, // 'object', 'device', 'promise', or 'resolver'
+ *      type: STRING, // 'object', 'device', 'promise'
  *      allocatedByVat: BOOL, // true=>allocated by vat, false=>by the kernel
  *      id: Nat
  *   }
  *
- * @param s  The string to be parsed, as described above.
+ * @param {string} s  The string to be parsed, as described above.
  *
- * @return a vat slot object corresponding to the parameter.
+ * @returns {*} a vat slot object corresponding to the parameter.
  *
  * @throws if the given string is syntactically incorrect.
  */
@@ -47,10 +47,8 @@ export function parseVatSlot(s) {
     type = 'device';
   } else if (typechar === 'p') {
     type = 'promise';
-  } else if (typechar === 'r') {
-    type = 'resolver';
   } else {
-    throw new Error(`invalid vatSlot ${s}`);
+    assert.fail(X`invalid vatSlot ${s}`);
   }
 
   if (allocchar === '+') {
@@ -58,21 +56,33 @@ export function parseVatSlot(s) {
   } else if (allocchar === '-') {
     allocatedByVat = false;
   } else {
-    throw new Error(`invalid vatSlot ${s}`);
+    assert.fail(X`invalid vatSlot ${s}`);
   }
 
-  const id = Nat(Number(idSuffix));
-  return { type, allocatedByVat, id };
+  const delim = idSuffix.indexOf('/');
+  let id;
+  let subid;
+  let virtual = false;
+  if (delim > 0) {
+    assert(type === 'object' && allocatedByVat, X`invalid vatSlot ${s}`);
+    virtual = true;
+    id = Nat(BigInt(idSuffix.substr(0, delim)));
+    subid = Nat(BigInt(idSuffix.slice(delim + 1)));
+  } else {
+    id = Nat(BigInt(idSuffix));
+  }
+
+  return { type, allocatedByVat, virtual, id, subid };
 }
 
 /**
  * Generate a vat slot reference string given a type, ownership, and id.
  *
- * @param type  The type, 'object', 'device', 'promise', or 'resolver'
- * @param allocatedByVat  Flag: true=>vat allocated, false=>kernel allocated
- * @param id    The id, a Nat.
+ * @param {'object'|'device'|'promise'} type The type
+ * @param {boolean} allocatedByVat  Flag: true=>vat allocated, false=>kernel allocated
+ * @param {number} id    The id, a Nat.
  *
- * @return the corresponding vat slot reference string.
+ * @returns {string} the corresponding vat slot reference string.
  *
  * @throws if type is not one of the above known types.
  */
@@ -93,27 +103,24 @@ export function makeVatSlot(type, allocatedByVat, id) {
   if (type === 'promise') {
     return `p${idSuffix}`;
   }
-  if (type === 'resolver') {
-    return `r${idSuffix}`;
-  }
-  throw new Error(`unknown type ${type}`);
+  assert.fail(X`unknown type ${type}`);
 }
 
 /**
  * Assert function to ensure that a vat slot reference string refers to a
  * slot of a given type.
  *
- * @param type  The vat slot type desired, a string.
- * @param vatSlot  The vat slot reference string being tested
+ * @param {string} type  The vat slot type desired, a string.
+ * @param {string} vatSlot  The vat slot reference string being tested
  *
  * @throws if vatSlot is not of the given type or is malformed.
  *
- * @return nothing
+ * @returns {void}
  */
 export function insistVatType(type, vatSlot) {
   assert.equal(
     type,
     parseVatSlot(vatSlot).type,
-    details`vatSlot ${vatSlot} is not of type ${type}`,
+    `vatSlot ${vatSlot} is not of type ${type}`,
   );
 }

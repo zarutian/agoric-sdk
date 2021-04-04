@@ -1,0 +1,64 @@
+{
+  "name": "@agoric/dapp-svelte-wallet-api",
+  "private": true,
+  "version": "0.6.1",
+  "description": "Wallet web server handler",
+  "scripts": {
+    "build": "exit 0",
+    "test": "ava",
+    "test:xs": "exit 0",
+    "lint": "yarn lint:types && yarn lint:eslint",
+    "lint-fix": "yarn lint:eslint --fix && yarn lint:types",
+    "lint-check": "yarn lint",
+    "lint:types": "tsc -p jsconfig.json",
+    "lint:eslint": "eslint '**/*.js'"
+  },
+  "devDependencies": {
+    "@agoric/bundle-source": "^1.2.4",
+    "@agoric/cosmic-swingset": "^0.27.0",
+    "@agoric/eslint-config": "^0.3.1",
+    "@agoric/install-ses": "^0.5.4",
+    "@agoric/registrar": "^0.2.4",
+    "ava": "^3.12.1"
+  },
+  "dependencies": {
+    "@agoric/assert": "^0.2.4",
+    "@agoric/ertp": "^0.10.1",
+    "@agoric/eventual-send": "^0.13.4",
+    "@agoric/marshal": "^0.4.1",
+    "@agoric/notifier": "^0.3.4",
+    "@agoric/promise-kit": "^0.2.4",
+    "@agoric/store": "^0.4.4",
+    "@agoric/zoe": "^0.13.1",
+    "esm": "^3.2.5"
+  },
+  "eslintConfig": {
+    "extends": [
+      "@agoric"
+    ]
+  },
+  "prettier": {
+    "trailingComma": "all",
+    "singleQuote": true
+  },
+  "keywords": [],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Agoric/agoric"
+  },
+  "author": "Agoric",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/Agoric/agoric/issues"
+  },
+  "homepage": "https://github.com/Agoric/agoric#readme",
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ],
+    "timeout": "2m"
+  }
+}

@@ -1,8 +1,21 @@
 import anylogger from 'anylogger';
 
+import { assert, details as X } from '@agoric/assert';
+
 const log = anylogger('outbound');
 
-const knownTargets = new Map(); // target => { deliverator, highestSent, highestAck }
+/**
+ * @typedef {Object} TargetRecord
+ * @property {(newMessages: Array<[number, string]>, acknum: number) => void} deliverator
+ * @property {number} highestSent
+ * @property {number} highestAck
+ * @property {number} trips
+ */
+
+/**
+ * @type {Map<string, TargetRecord>}
+ */
+const knownTargets = new Map();
 
 export function deliver(mbs) {
   const data = mbs.exportToData();
@@ -39,8 +52,8 @@ export function deliver(mbs) {
 }
 
 export function addDeliveryTarget(target, deliverator) {
-  if (knownTargets.has(target)) {
-    throw new Error(`target ${target} already added`);
-  }
-  knownTargets.set(target, { deliverator, highestSent: 0, highestAck: 0 });
+  assert(!knownTargets.has(target), X`target ${target} already added`);
+  /** @type {TargetRecord} */
+  const targetRecord = { deliverator, highestSent: 0, highestAck: 0 };
+  knownTargets.set(target, targetRecord);
 }

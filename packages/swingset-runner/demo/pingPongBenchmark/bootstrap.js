@@ -1,5 +1,3 @@
-/* global harden */
-
 import { E } from '@agoric/eventual-send';
 
 const log = console.log;
@@ -11,7 +9,7 @@ export function buildRootObject(_vatPowers) {
   let alice;
   let bob;
   return harden({
-    bootstrap(argv, vats) {
+    bootstrap(vats) {
       alice = vats.alice;
       bob = vats.bob;
       log('=> bootstrap() called');

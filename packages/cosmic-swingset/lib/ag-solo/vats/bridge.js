@@ -1,11 +1,13 @@
-/* global harden */
 // @ts-check
 
 import makeStore from '@agoric/store';
+import '@agoric/store/exported';
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
 
 /**
  * @template T
- * @typedef {Object} Device
+ * @typedef {'Device' & { __deviceType__: T }} Device
  */
 
 /**
@@ -15,7 +17,6 @@ import makeStore from '@agoric/store';
  */
 
 /**
- *
  * @typedef {Object} BridgeHandler An object that can receive messages from the bridge device
  * @property {(srcId: string, obj: any) => Promise<void>} fromBridge Handle an inbound message
  *
@@ -35,7 +36,7 @@ import makeStore from '@agoric/store';
  */
 export function makeBridgeManager(E, D, bridgeDevice) {
   /**
-   * @type {import('@agoric/store').Store<string, BridgeHandler>}
+   * @type {Store<string, BridgeHandler>}
    */
   const srcHandlers = makeStore('srcID');
 
@@ -50,12 +51,10 @@ export function makeBridgeManager(E, D, bridgeDevice) {
     // No return value.
   }
 
-  const bridgeHandler = harden({ inbound: bridgeInbound });
+  const bridgeHandler = Far('bridgeHandler', { inbound: bridgeInbound });
 
   function callOutbound(dstID, obj) {
-    if (!bridgeDevice) {
-      throw Error(`bridge device not yet connected`);
-    }
+    assert(bridgeDevice, X`bridge device not yet connected`);
     const retobj = D(bridgeDevice).callOutbound(dstID, obj);
     // note: *we* get this return value synchronously, but any callers (in
     // separate vats) only get a Promise, and will receive the value in some
@@ -69,7 +68,7 @@ export function makeBridgeManager(E, D, bridgeDevice) {
   // We now manage the device.
   D(bridgeDevice).registerInboundHandler(bridgeHandler);
 
-  return harden({
+  return Far('bridgeManager', {
     toBridge(dstID, obj) {
       return callOutbound(dstID, obj);
     },
@@ -77,9 +76,10 @@ export function makeBridgeManager(E, D, bridgeDevice) {
       srcHandlers.init(srcID, handler);
     },
     unregister(srcID, handler) {
-      if (srcHandlers.get(srcID) !== handler) {
-        throw Error(`Handler was not registered for ${srcID}`);
-      }
+      assert(
+        srcHandlers.get(srcID) === handler,
+        X`Handler was not registered for ${srcID}`,
+      );
       srcHandlers.delete(srcID);
     },
   });

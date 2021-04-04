@@ -1,14 +1,14 @@
 // eslint-disable-next-line no-redeclare
-/* global setImmediate harden */
-
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+/* global setImmediate */
+// eslint-disable-next-line import/order
+import { test } from '../tools/prepare-test-env-ava';
 
 import { E } from '@agoric/eventual-send';
-import { producePromise } from '@agoric/produce-promise';
+import { makePromiseKit } from '@agoric/promise-kit';
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
+import { WeakRef, FinalizationRegistry } from '../src/weakref';
 import { makeLiveSlots } from '../src/kernel/liveSlots';
-
-const RETIRE_VPIDS = true;
 
 function capdata(body, slots = []) {
   return harden({ body, slots });
@@ -16,6 +16,10 @@ function capdata(body, slots = []) {
 
 function capargs(args, slots = []) {
   return capdata(JSON.stringify(args), slots);
+}
+
+function oneResolution(promiseID, rejected, data) {
+  return [[promiseID, rejected, data]];
 }
 
 function buildSyscall() {
@@ -28,14 +32,8 @@ function buildSyscall() {
     subscribe(target) {
       log.push({ type: 'subscribe', target });
     },
-    fulfillToPresence(promiseID, slot) {
-      log.push({ type: 'fulfillToPresence', promiseID, slot });
-    },
-    fulfillToData(promiseID, data) {
-      log.push({ type: 'fulfillToData', promiseID, data });
-    },
-    reject(promiseID, data) {
-      log.push({ type: 'reject', promiseID, data });
+    resolve(resolutions) {
+      log.push({ type: 'resolve', resolutions });
     },
   };
 
@@ -55,8 +53,7 @@ function hush(p) {
 
 // The next batch of tests exercises how liveslots handles promise
 // identifiers ("vpid" strings) across various forms of resolution. Our
-// current code never retires vpids, but an upcoming storage-performance
-// improvement will retire them after resolution.
+// current code retires vpids after resolution.
 
 // legend:
 //  C: vat creates promise
@@ -116,7 +113,7 @@ function resolvePR(pr, mode, targets) {
       break;
     case 'local-object':
       pr.resolve(
-        harden({
+        Far('local-object', {
           two() {
             /* console.log(`local two() called`); */
           },
@@ -139,54 +136,71 @@ function resolvePR(pr, mode, targets) {
       pr.reject([targets.p1]);
       break;
     default:
-      throw Error(`unknown mode ${mode}`);
+      assert.fail(X`unknown mode ${mode}`);
   }
 }
 
+function slotArg(iface, index) {
+  return { '@qclass': 'slot', iface, index };
+}
 const slot0arg = { '@qclass': 'slot', index: 0 };
 const slot1arg = { '@qclass': 'slot', index: 1 };
 
 function resolutionOf(vpid, mode, targets) {
+  const resolution = {
+    type: 'resolve',
+    resolutions: [[vpid, false]],
+  };
   switch (mode) {
-    case 'presence':
-      return {
-        type: 'fulfillToPresence',
-        promiseID: vpid,
-        slot: targets.target2,
+    case 'presence': {
+      const presenceBody = {
+        '@qclass': 'slot',
+        iface: `Alleged: presence ${targets.target2}`,
+        index: 0,
       };
+      resolution.resolutions[0][2] = capargs(presenceBody, [targets.target2]);
+      break;
+    }
     case 'local-object':
-      return {
-        type: 'fulfillToPresence',
-        promiseID: vpid,
-        slot: targets.localTarget,
-      };
+      resolution.resolutions[0][2] = capargs(
+        slotArg('Alleged: local-object', 0),
+        [targets.localTarget],
+      );
+      break;
     case 'data':
-      return {
-        type: 'fulfillToData',
-        promiseID: vpid,
-        data: capargs(4, []),
-      };
+      resolution.resolutions[0][2] = capargs(4, []);
+      break;
     case 'promise-data':
-      return {
-        type: 'fulfillToData',
-        promiseID: vpid,
-        data: capargs([slot0arg], [targets.p1]),
-      };
+      resolution.resolutions[0][2] = capargs([slot0arg], [targets.p1]);
+      break;
     case 'reject':
-      return {
-        type: 'reject',
-        promiseID: vpid,
-        data: capargs('error', []),
-      };
+      resolution.resolutions[0][1] = true;
+      resolution.resolutions[0][2] = capargs('error', []);
+      break;
     case 'promise-reject':
-      return {
-        type: 'reject',
-        promiseID: vpid,
-        data: capargs([slot0arg], [targets.p1]),
-      };
+      resolution.resolutions[0][1] = true;
+      resolution.resolutions[0][2] = capargs([slot0arg], [targets.p1]);
+      break;
     default:
-      throw Error(`unknown mode ${mode}`);
+      assert.fail(X`unknown mode ${mode}`);
   }
+  return resolution;
+}
+
+function makeDispatch(syscall, build, vatID = 'vatA') {
+  function vatDecref() {}
+  const gcTools = harden({ WeakRef, FinalizationRegistry, vatDecref });
+  const { setBuildRootObject, dispatch } = makeLiveSlots(
+    syscall,
+    vatID,
+    {},
+    {},
+    undefined,
+    false,
+    gcTools,
+  );
+  setBuildRootObject(build);
+  return dispatch;
 }
 
 async function doVatResolveCase1(t, mode) {
@@ -194,20 +208,20 @@ async function doVatResolveCase1(t, mode) {
   const { log, syscall } = buildSyscall();
 
   function build(_vatPowers) {
-    const pr = producePromise();
-    return harden({
+    const pr = makePromiseKit();
+    return Far('root', {
       async run(target1, target2) {
         const p1 = pr.promise;
         E(target1).one(p1);
         resolvePR(pr, mode, { target2, p1 });
         // TODO: this stall shouldn't be necessary, but if I omit it, the
-        // fulfillToPresence happens *after* two() is sent
+        // resolution happens *after* two() is sent
         await Promise.resolve();
         E(target1).two(p1);
       },
     });
   }
-  const dispatch = makeLiveSlots(syscall, {}, build, 'vatA');
+  const dispatch = makeDispatch(syscall, build);
   t.deepEqual(log, []);
 
   const rootA = 'o+0';
@@ -241,14 +255,8 @@ async function doVatResolveCase1(t, mode) {
   t.deepEqual(log.shift(), resolutionOf(expectedP1, mode, targets));
 
   // then it should send 'two'.
-  const expectRetirement =
-    RETIRE_VPIDS && mode !== 'promise-data' && mode !== 'promise-reject';
-  let expectedTwoArg = expectedP3;
-  let expectedResultOfTwo = expectedP4;
-  if (!expectRetirement) {
-    expectedTwoArg = expectedP1;
-    expectedResultOfTwo = expectedP3;
-  }
+  const expectedTwoArg = expectedP3;
+  const expectedResultOfTwo = expectedP4;
   t.deepEqual(log.shift(), {
     type: 'send',
     targetSlot: target1,
@@ -256,13 +264,10 @@ async function doVatResolveCase1(t, mode) {
     args: capargs([slot0arg], [expectedTwoArg]),
     resultSlot: expectedResultOfTwo,
   });
+  const targets2 = { target2, localTarget, p1: expectedP3 };
+  t.deepEqual(log.shift(), resolutionOf(expectedTwoArg, mode, targets2));
   t.deepEqual(log.shift(), { type: 'subscribe', target: expectedResultOfTwo });
-  if (expectRetirement) {
-    t.deepEqual(log.shift(), resolutionOf(expectedP3, mode, targets));
-  }
   t.deepEqual(log, []);
-
-  t.end();
 }
 
 for (const mode of modes) {
@@ -276,13 +281,6 @@ for (const mode of modes) {
 // authority is exercised when the vat resolves the Promise that was returned
 // from an inbound `result()` message. Liveslots always notifies the kernel
 // about this act of resolution.
-
-// In the current code, the kernel then echoes the resolution back into the
-// vat (by delivering a `dispatch.notifyFulfillTo..` message in a subsequent
-// crank). In the upcoming retire-promiseid branch, the kernel does not, and
-// liveslots must notice that we're also subscribed to this promise, and
-// exercise the resolver/rejector that would normally be waiting for a
-// message from the kernel.
 
 // Ordering guarantees: we don't intend to make any promises (haha) about the
 // relative ordering of the syscall that resolves the promise, and the
@@ -305,9 +303,9 @@ async function doVatResolveCase23(t, which, mode, stalls) {
 
   function build(_vatPowers) {
     let p1;
-    const pr = producePromise();
+    const pr = makePromiseKit();
     const p0 = pr.promise;
-    return harden({
+    return Far('root', {
       promise(p) {
         p1 = p;
         stashP1 = p1;
@@ -337,7 +335,7 @@ async function doVatResolveCase23(t, which, mode, stalls) {
         // code access to p1. When we resolve the p0 we returned from
         // `result`, liveslots will resolve p1 for us. But remember that p0
         // !== p1 . This resolution will eventually cause a
-        // `syscall.fulfillToData` (or related) call into the kernel, and
+        // `syscall.resolve` call into the kernel, and
         // will eventually cause `p1` to be resolved to something, which may
         // affect both where previously-queued messages (two) wind up, and
         // where subsequently sent messages (four) wind up.
@@ -354,9 +352,9 @@ async function doVatResolveCase23(t, which, mode, stalls) {
 
         // If we don't stall here, then all four messages get pipelined out
         // before we tell the kernel about the resolution
-        // (syscall.fulfillToPresence).
+        // (syscall.resolve).
 
-        // If we stall two turns, then the fulfillToPresence goes to the
+        // If we stall two turns, then the resolve goes to the
         // kernel before three() and four(), but our 'p1' is not yet marked
         // as resolved, so four() is sent to a Promise, rather than to
         // target2. This Promise ought to get a new vpid, because we retired
@@ -376,7 +374,7 @@ async function doVatResolveCase23(t, which, mode, stalls) {
       },
     });
   }
-  const dispatch = makeLiveSlots(syscall, {}, build, 'vatA');
+  const dispatch = makeDispatch(syscall, build);
   t.deepEqual(log, []);
 
   const rootA = 'o+0';
@@ -397,7 +395,7 @@ async function doVatResolveCase23(t, which, mode, stalls) {
     dispatch.deliver(rootA, 'promise', capargs([slot0arg], [p1]));
     dispatch.deliver(rootA, 'result', capargs([], []), p1);
   } else {
-    throw Error(`bad which=${which}`);
+    assert.fail(X`bad which=${which}`);
   }
   await endOfCrank();
   t.deepEqual(log.shift(), { type: 'subscribe', target: p1 });
@@ -459,17 +457,16 @@ async function doVatResolveCase23(t, which, mode, stalls) {
   // }
   // return t.end();
 
-  // Now liveslots processes the callback ("notifySuccess", mapped to a
-  // function returned by "thenResolve") that got pushed when p0 was
-  // resolved, where p0 is the promise that was returned from rootA~.result()
-  // . This callback sends `syscall.fulfillToPresence(vpid1, stuff)` (or one
-  // of the other fulfill/reject variants) into the kernel, notifying any
-  // remote subscribers that p1 has been resolved. Since the vat is also a
-  // subscriber, thenResolve's callback must also invoke p1's resolver (which
-  // was stashed in importedPromisesByPromiseID), as if the kernel had call
-  // the vat's dispatch.notifyFulfillToPresence. This causes the p1.then
-  // callback to be pushed to the back of the promise queue, which will set
-  // resolutionOfP1 after all the syscalls have been made.
+  // Now liveslots processes the callback ("notifySuccess", mapped to a function
+  // returned by "thenResolve") that got pushed when p0 was resolved, where p0
+  // is the promise that was returned from rootA~.result() . This callback sends
+  // `syscall.resolve(vpid1, stuff)` into the kernel, notifying any remote
+  // subscribers that p1 has been resolved. Since the vat is also a subscriber,
+  // thenResolve's callback must also invoke p1's resolver (which was stashed in
+  // importedPromisesByPromiseID), as if the kernel had call the vat's
+  // dispatch.notify. This causes the p1.then callback to be pushed to the back
+  // of the promise queue, which will set resolutionOfP1 after all the syscalls
+  // have been made.
 
   // Resolving p1 changes the handler of p1, so subsequent messages sent to
   // p1 will instead be sent to its resolution (which will be target2, or a
@@ -484,20 +481,9 @@ async function doVatResolveCase23(t, which, mode, stalls) {
   const targets = { target2, localTarget, p1 };
   t.deepEqual(log.shift(), resolutionOf(p1, mode, targets));
 
-  // The VPIDs in the remaining messages will depend upon whether we retired
-  // p1 during that resolution.
-  const expectRetirement =
-    RETIRE_VPIDS && mode !== 'promise-data' && mode !== 'promise-reject';
-
-  let expectedVPIDInThree = p1;
-  let expectedResultOfThree = expectedP4;
-  let expectedResultOfFour = expectedP5;
-
-  if (expectRetirement) {
-    expectedVPIDInThree = expectedP4;
-    expectedResultOfThree = expectedP5;
-    expectedResultOfFour = expectedP6;
-  }
+  const expectedVPIDInThree = expectedP4;
+  const expectedResultOfThree = expectedP5;
+  const expectedResultOfFour = expectedP6;
 
   // three() references the old promise, which will use a new VPID if we
   // retired the old one as it was resolved
@@ -530,28 +516,25 @@ async function doVatResolveCase23(t, which, mode, stalls) {
       target: expectedResultOfFour,
     });
   }
-  if (expectRetirement) {
-    t.deepEqual(log.shift(), resolutionOf(expectedP4, mode, targets));
-  }
+  const targets2 = { target2, localTarget, p1: expectedP4 };
+  t.deepEqual(log.shift(), resolutionOf(expectedP4, mode, targets2));
 
   // that's all the syscalls we should see
   t.deepEqual(log, []);
 
   // assert that the vat saw the local promise being resolved too
   if (mode === 'presence') {
-    t.equal(resolutionOfP1.toString(), `[Presence ${target2}]`);
+    t.is(resolutionOfP1.toString(), `[Alleged: presence ${target2}]`);
   } else if (mode === 'data') {
-    t.equal(resolutionOfP1, 4);
+    t.is(resolutionOfP1, 4);
   } else if (mode === 'promise-data') {
-    t.equal(Array.isArray(resolutionOfP1), true);
-    t.equal(resolutionOfP1.length, 1);
+    t.is(Array.isArray(resolutionOfP1), true);
+    t.is(resolutionOfP1.length, 1);
     t.is(resolutionOfP1[0], Promise.resolve(resolutionOfP1[0]));
     t.is(resolutionOfP1[0], stashP1);
   } else if (mode === 'reject') {
-    t.equal(resolutionOfP1, 'rejected');
+    t.is(resolutionOfP1, 'rejected');
   }
-
-  t.end();
 }
 
 // uncomment this when debugging specific problems
@@ -562,9 +545,19 @@ async function doVatResolveCase23(t, which, mode, stalls) {
 for (const caseNum of [2, 3]) {
   for (const mode of modes) {
     for (let stalls = 0; stalls < 4; stalls += 1) {
-      test(`liveslots vpid handling case${caseNum} ${mode} stalls=${stalls}`, async t => {
-        await doVatResolveCase23(t, caseNum, mode, stalls);
-      });
+      if (stalls === 0) {
+        // FIGME: Need to resolve with solution to #1719
+        test.failing(
+          `liveslots vpid handling case${caseNum} ${mode} stalls=${stalls}`,
+          async t => {
+            await doVatResolveCase23(t, caseNum, mode, stalls);
+          },
+        );
+      } else {
+        test(`liveslots vpid handling case${caseNum} ${mode} stalls=${stalls}`, async t => {
+          await doVatResolveCase23(t, caseNum, mode, stalls);
+        });
+      }
     }
   }
 }
@@ -574,7 +567,7 @@ async function doVatResolveCase4(t, mode) {
 
   function build(_vatPowers) {
     let p1;
-    return harden({
+    return Far('local-object', {
       async get(p) {
         p1 = p;
         // if we don't add this, node will complain when the kernel notifies
@@ -599,7 +592,7 @@ async function doVatResolveCase4(t, mode) {
       four() {},
     });
   }
-  const dispatch = makeLiveSlots(syscall, {}, build, 'vatA');
+  const dispatch = makeDispatch(syscall, build);
   t.deepEqual(log, []);
 
   const rootA = 'o+0';
@@ -643,47 +636,38 @@ async function doVatResolveCase4(t, mode) {
   t.deepEqual(log, []);
 
   if (mode === 'presence') {
-    dispatch.notifyFulfillToPresence(p1, target2);
+    dispatch.notify(oneResolution(p1, false, capargs(slot0arg, [target2])));
   } else if (mode === 'local-object') {
-    dispatch.notifyFulfillToPresence(p1, rootA);
+    dispatch.notify(oneResolution(p1, false, capargs(slot0arg, [rootA])));
   } else if (mode === 'data') {
-    dispatch.notifyFulfillToData(p1, capargs(4, []));
+    dispatch.notify(oneResolution(p1, false, capargs(4, [])));
   } else if (mode === 'promise-data') {
-    dispatch.notifyFulfillToData(p1, capargs([slot0arg], [p1]));
+    dispatch.notify(oneResolution(p1, false, capargs([slot0arg], [p1])));
   } else if (mode === 'reject') {
-    dispatch.notifyReject(p1, capargs('error', []));
+    dispatch.notify(oneResolution(p1, true, capargs('error', [])));
   } else if (mode === 'promise-reject') {
-    dispatch.notifyReject(p1, capargs([slot0arg], [p1]));
+    dispatch.notify(oneResolution(p1, true, capargs([slot0arg], [p1])));
   } else {
-    throw Error(`unknown mode ${mode}`);
+    assert.fail(X`unknown mode ${mode}`);
   }
   await endOfCrank();
   t.deepEqual(log, []);
-
-  const expectRetirement =
-    RETIRE_VPIDS && mode !== 'promise-data' && mode !== 'promise-reject';
 
   dispatch.deliver(rootA, 'second', capargs([slot0arg], [target1]));
   await endOfCrank();
 
   const expectedP4 = nextP();
   const expectedP5 = nextP();
-  let expectedThreeArg = p1;
-  let expectedResultOfThree = expectedP4;
-  if (expectRetirement) {
-    expectedThreeArg = expectedP4;
-    expectedResultOfThree = expectedP5;
-  }
   t.deepEqual(log.shift(), {
     type: 'send',
     targetSlot: target1,
     method: 'three',
-    args: capargs([slot0arg], [expectedThreeArg]),
-    resultSlot: expectedResultOfThree,
+    args: capargs([slot0arg], [expectedP4]),
+    resultSlot: expectedP5,
   });
   t.deepEqual(log.shift(), {
     type: 'subscribe',
-    target: expectedResultOfThree,
+    target: expectedP5,
   });
 
   if (mode === 'presence') {
@@ -697,15 +681,12 @@ async function doVatResolveCase4(t, mode) {
     });
     t.deepEqual(log.shift(), { type: 'subscribe', target: expectedP6 });
   }
-  if (expectRetirement) {
-    const targets = { target2, localTarget: rootA, p1 };
-    t.deepEqual(log.shift(), resolutionOf(expectedP4, mode, targets));
-  }
+
+  const targets = { target2, localTarget: rootA, p1: expectedP4 };
+  t.deepEqual(log.shift(), resolutionOf(expectedP4, mode, targets));
 
   // if p1 rejects or resolves to data, the kernel never hears about four()
   t.deepEqual(log, []);
-
-  t.end();
 }
 
 for (const mode of modes) {
@@ -714,4 +695,67 @@ for (const mode of modes) {
   });
 }
 
+// TODO unimplemented
 // cases 5 and 6 are not implemented due to #886
+
+function makePR() {
+  let r;
+  const p = new Promise((resolve, _reject) => {
+    r = resolve;
+  });
+  return [p, r];
+}
+
+test('inter-vat circular promise references', async t => {
+  const { log, syscall } = buildSyscall();
+
+  function build(_vatPowers) {
+    let p;
+    let r;
+    return Far('root', {
+      genPromise() {
+        [p, r] = makePR();
+        return p;
+      },
+      usePromise(pa) {
+        r(pa);
+      },
+    });
+  }
+  const dispatchA = makeDispatch(syscall, build, 'vatA');
+  // const dispatchB = makeDispatch(syscall, build, 'vatB');
+  t.deepEqual(log, []);
+
+  const rootA = 'o+0';
+  // const rootB = 'o+0';
+  const paA = 'p-8';
+  const pbA = 'p-9';
+  // const pbB = 'p-18';
+  // const paB = 'p-19';
+
+  dispatchA.deliver(rootA, 'genPromise', capargs([], []), paA);
+  await endOfCrank();
+  t.deepEqual(log, []);
+
+  // dispatchB.deliver(rootB, 'genPromise', capargs([], []), pbB);
+  // await endOfCrank();
+  // t.deepEqual(log, []);
+
+  dispatchA.deliver(rootA, 'usePromise', capargs([[slot0arg]], [pbA]));
+  await endOfCrank();
+  t.deepEqual(log.shift(), { type: 'subscribe', target: pbA });
+  t.deepEqual(log.shift(), {
+    type: 'resolve',
+    resolutions: [[paA, false, capargs([slot0arg], [pbA])]],
+  });
+  t.deepEqual(log, []);
+
+  // dispatchB.deliver(rootB, 'usePromise', capargs([[slot0arg]], [paB]));
+  // await endOfCrank();
+  // t.deepEqual(log.shift(), { type: 'subscribe', target: paB });
+  // t.deepEqual(log.shift(), {
+  //   type: 'resolve',
+  //   resoutions: [[pbB, false, capargs([slot0arg], [paB])]],
+  // });
+  // t.deepEqual(log, []);
+});

@@ -1,13 +1,14 @@
-/* global harden */
-
 import { E } from '@agoric/eventual-send';
-import { producePromise } from '@agoric/produce-promise';
+import { makePromiseKit } from '@agoric/promise-kit';
+import { Far } from '@agoric/marshal';
 
-export function buildRootObject(vatPowers) {
+import { assert, details as X } from '@agoric/assert';
+
+export function buildRootObject(vatPowers, vatParameters) {
   const log = vatPowers.testLog;
-  return harden({
-    bootstrap(argv, vats) {
-      const mode = argv[0];
+  return Far('root', {
+    bootstrap(vats) {
+      const mode = vatParameters.argv[0];
       if (mode === 'flush') {
         Promise.resolve().then(log('then1'));
         Promise.resolve().then(log('then2'));
@@ -29,7 +30,7 @@ export function buildRootObject(vatPowers) {
         p2.then(x => log(`b.resolved ${x}`));
         log(`b.call2`);
       } else if (mode === 'local1') {
-        const t1 = harden({
+        const t1 = Far('t1', {
           foo(arg) {
             log(`local.foo ${arg}`);
             return 2;
@@ -39,7 +40,7 @@ export function buildRootObject(vatPowers) {
         p1.then(x => log(`b.resolved ${x}`));
         log(`b.local1.finish`);
       } else if (mode === 'local2') {
-        const t1 = harden({
+        const t1 = Far('t1', {
           foo(arg) {
             log(`local.foo ${arg}`);
             return 3;
@@ -50,13 +51,13 @@ export function buildRootObject(vatPowers) {
         p2.then(x => log(`b.resolved ${x}`));
         log(`b.local2.finish`);
       } else if (mode === 'send-promise1') {
-        const t1 = harden({
+        const t1 = Far('t1', {
           foo(arg) {
             log(`local.foo ${arg}`);
             return 3;
           },
         });
-        const { promise: p1, resolve: r1 } = producePromise();
+        const { promise: p1, resolve: r1 } = makePromiseKit();
         console.log(`here1`, Object.isFrozen(p1));
         const p2 = E(vats.left).takePromise(p1);
         console.log(`here2`);
@@ -76,7 +77,7 @@ export function buildRootObject(vatPowers) {
         p2.then(x => log(`b.resolved ${x}`));
         log(`b.call-promise1.finish`);
       } else {
-        throw Error(`unknown mode ${mode}`);
+        assert.fail(X`unknown mode ${mode}`);
       }
     },
   });

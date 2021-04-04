@@ -12,7 +12,7 @@ export function buildRootObject(vatPowers) {
   const { D } = vatPowers;
   console.log(`=> setup called`);
   return harden({
-    async bootstrap(argv, vats, devices) {
+    async bootstrap(vats, devices) {
       console.log('=> bootstrap() called');
 
       const BOT = 'bot';
@@ -43,9 +43,10 @@ export function buildRootObject(vatPowers) {
             console.log(
               `=> the promise given by the call to user.talkToBot resolved to '${r}'`,
             ),
-          err =>
+          reason =>
             console.log(
-              `=> the promise given by the call to user.talkToBot was rejected '${err}''`,
+              '=> the promise given by the call to user.talkToBot was rejected',
+              reason,
             ),
         );
     },

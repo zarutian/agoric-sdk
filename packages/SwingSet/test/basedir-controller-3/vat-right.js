@@ -1,4 +1,4 @@
-/* global harden */
+import { Far } from '@agoric/marshal';
 
 export function buildRootObject(vatPowers) {
   const obj0 = {
@@ -7,5 +7,5 @@ export function buildRootObject(vatPowers) {
       return 3;
     },
   };
-  return harden(obj0);
+  return Far('root', obj0);
 }

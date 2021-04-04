@@ -1,119 +1,182 @@
-import '@agoric/install-ses';
+/* global __dirname */
+// @ts-check
 // eslint-disable-next-line import/no-extraneous-dependencies
-import { test } from 'tape-promise/tape';
-// eslint-disable-next-line import/no-extraneous-dependencies
-import bundleSource from '@agoric/bundle-source';
+import { test } from '@agoric/zoe/tools/prepare-test-env-ava';
 
+import bundleSource from '@agoric/bundle-source';
 import { E } from '@agoric/eventual-send';
-import makeIssuerKit from '@agoric/ertp';
-import fakeVatAdmin from './fakeVatAdmin';
+import { makeIssuerKit, amountMath } from '@agoric/ertp';
+import fakeVatAdmin from '../../../src/contractFacet/fakeVatAdmin';
 
 // noinspection ES6PreferShortImport
-import { makeZoe } from '../../../src/zoe';
+import { makeZoe } from '../../../src/zoeService/zoe';
 
 const mintPaymentsRoot = `${__dirname}/../../../src/contracts/mintPayments`;
 
 test('zoe - mint payments', async t => {
   t.plan(2);
-  try {
-    const zoe = makeZoe(fakeVatAdmin);
-    // Pack the contract.
-    const bundle = await bundleSource(mintPaymentsRoot);
-    const installationHandle = await E(zoe).install(bundle);
-    const inviteIssuer = await E(zoe).getInviteIssuer();
+  const zoe = makeZoe(fakeVatAdmin);
 
-    // Alice creates a contract instance
-    const {
-      instanceRecord: { publicAPI },
-    } = await E(zoe).makeInstance(installationHandle);
+  const makeAlice = () => {
+    return {
+      installCode: async () => {
+        // pack the contract
+        const bundle = await bundleSource(mintPaymentsRoot);
+        // install the contract
+        const installationP = E(zoe).install(bundle);
+        return installationP;
+      },
+      startInstance: async installation => {
+        const adminP = zoe.startInstance(installation);
+        return adminP;
+      },
+    };
+  };
 
-    // Bob wants to get 1000 tokens so he gets an invite and makes an
-    // offer
-    const invite = await E(publicAPI).makeInvite();
-    t.ok(await E(inviteIssuer).isLive(invite), `valid invite`);
-    const { payout: payoutP } = await E(zoe).offer(invite);
+  const makeBob = installation => {
+    return {
+      offer: async untrustedInvitation => {
+        const invitationIssuer = E(zoe).getInvitationIssuer();
+        const invitation = E(invitationIssuer).claim(untrustedInvitation);
 
-    // Bob's payout promise resolves
-    const bobPayout = await payoutP;
-    const bobTokenPayout = await bobPayout.Token;
+        const {
+          value: [invitationValue],
+        } = await E(invitationIssuer).getAmountOf(invitation);
 
-    // Let's get the tokenIssuer from the contract so we can evaluate
-    // what we get as our payout
-    const tokenIssuer = await E(publicAPI).getTokenIssuer();
-    const amountMath = await E(tokenIssuer).getAmountMath();
+        t.is(
+          invitationValue.installation,
+          installation,
+          'installation is mintPayment',
+        );
 
-    const tokens1000 = await E(amountMath).make(1000);
-    const tokenPayoutAmount = await E(tokenIssuer).getAmountOf(bobTokenPayout);
+        const { instance } = invitationValue;
 
-    // Bob got 1000 tokens
-    t.deepEquals(tokenPayoutAmount, tokens1000);
-  } catch (e) {
-    t.assert(false, e);
-    console.log(e);
-  }
+        const seat = await E(zoe).offer(invitation);
+
+        const paymentP = E(seat).getPayout('Token');
+
+        // Let's get the tokenIssuer from the contract so we can evaluate
+        // what we get as our payout
+        const publicFacet = await E(zoe).getPublicFacet(instance);
+        const tokenIssuer = await E(publicFacet).getTokenIssuer();
+        const tokenBrand = await E(tokenIssuer).getBrand();
+
+        const tokens1000 = await amountMath.make(1000n, tokenBrand);
+        const tokenPayoutAmount = await E(tokenIssuer).getAmountOf(paymentP);
+
+        // Bob got 1000 tokens
+        t.deepEqual(tokenPayoutAmount, tokens1000);
+      },
+    };
+  };
+
+  // Setup Alice
+  const alice = await makeAlice();
+  const installation = await alice.installCode();
+  const { creatorFacet } = await E(alice).startInstance(installation);
+  const invitation = E(creatorFacet).makeInvitation(1000);
+
+  // Setup Bob
+  const bob = makeBob(installation);
+  await bob.offer(invitation);
 });
 
 test('zoe - mint payments with unrelated give and want', async t => {
   t.plan(3);
-  try {
-    const zoe = makeZoe(fakeVatAdmin);
-    // Pack the contract.
-    const bundle = await bundleSource(mintPaymentsRoot);
-    const installationHandle = await E(zoe).install(bundle);
-    const inviteIssuer = await E(zoe).getInviteIssuer();
+  const zoe = makeZoe(fakeVatAdmin);
+  const moolaKit = makeIssuerKit('moola');
+  const simoleanKit = makeIssuerKit('simolean');
 
-    const moolaBundle = makeIssuerKit('moola');
-    const simoleanBundle = makeIssuerKit('simolean');
+  const makeAlice = () => {
+    return {
+      installCode: async () => {
+        // pack the contract
+        const bundle = await bundleSource(mintPaymentsRoot);
+        // install the contract
+        const installationP = E(zoe).install(bundle);
+        return installationP;
+      },
+      startInstance: async installation => {
+        const issuerKeywordRecord = harden({
+          Asset: moolaKit.issuer,
+          Price: simoleanKit.issuer,
+        });
+        const adminP = await E(zoe).startInstance(
+          installation,
+          issuerKeywordRecord,
+        );
+        return adminP;
+      },
+    };
+  };
 
-    // Alice creates a contract instance
-    const issuerKeywordRecord = harden({
-      Asset: moolaBundle.issuer,
-      Price: simoleanBundle.issuer,
-    });
-    const {
-      instanceRecord: { publicAPI },
-    } = await E(zoe).makeInstance(installationHandle, issuerKeywordRecord);
+  const makeBob = (installation, moolaPayment) => {
+    return {
+      offer: async untrustedInvitation => {
+        const invitationIssuer = E(zoe).getInvitationIssuer();
+        const invitation = E(invitationIssuer).claim(untrustedInvitation);
 
-    // Bob wants to get 1000 tokens so he gets an invite and makes an
-    // offer
-    const invite = await E(publicAPI).makeInvite();
-    t.ok(await E(inviteIssuer).isLive(invite), `valid invite`);
-    const proposal = harden({
-      give: { Asset: moolaBundle.amountMath.make(10) },
-      want: { Price: simoleanBundle.amountMath.make(100) },
-    });
-    const paymentKeywordRecord = harden({
-      Asset: moolaBundle.mint.mintPayment(moolaBundle.amountMath.make(10)),
-    });
-    const { payout: payoutP } = await E(zoe).offer(
-      invite,
-      proposal,
-      paymentKeywordRecord,
-    );
+        const {
+          value: [invitationValue],
+        } = await E(invitationIssuer).getAmountOf(invitation);
 
-    // Bob's payout promise resolves
-    const bobPayout = await payoutP;
-    const bobTokenPayout = await bobPayout.Token;
-    const bobMoolaPayout = await bobPayout.Asset;
+        t.is(
+          invitationValue.installation,
+          installation,
+          'installation is mintPayment',
+        );
 
-    // Let's get the tokenIssuer from the contract so we can evaluate
-    // what we get as our payout
-    const tokenIssuer = await E(publicAPI).getTokenIssuer();
-    const tokenAmountMath = await E(tokenIssuer).getAmountMath();
+        const { instance } = invitationValue;
 
-    const tokens1000 = await E(tokenAmountMath).make(1000);
-    const tokenPayoutAmount = await E(tokenIssuer).getAmountOf(bobTokenPayout);
+        const proposal = harden({
+          give: { Asset: amountMath.make(10n, moolaKit.brand) },
+          want: { Price: amountMath.make(100n, simoleanKit.brand) },
+        });
+        const paymentKeywordRecord = harden({
+          Asset: moolaPayment,
+        });
+        const seat = await E(zoe).offer(
+          invitation,
+          proposal,
+          paymentKeywordRecord,
+        );
 
-    const moola10 = moolaBundle.amountMath.make(10);
-    const moolaPayoutAmount = await moolaBundle.issuer.getAmountOf(
-      bobMoolaPayout,
-    );
+        const tokenPaymentP = E(seat).getPayout('Token');
+        const moolaRefundP = E(seat).getPayout('Asset');
 
-    // Bob got 1000 tokens
-    t.deepEquals(tokenPayoutAmount, tokens1000, `bobTokenPayout`);
-    t.deepEquals(moolaPayoutAmount, moola10, `bobMoolaPayout`);
-  } catch (e) {
-    t.assert(false, e);
-    console.log(e);
-  }
+        // Let's get the tokenIssuer from the contract so we can evaluate
+        // what we get as our payout
+        const publicFacet = await E(zoe).getPublicFacet(instance);
+        const tokenIssuer = await E(publicFacet).getTokenIssuer();
+        const tokenBrand = await E(tokenIssuer).getBrand();
+
+        const tokens1000 = await amountMath.make(1000n, tokenBrand);
+        const tokenPayoutAmount = await E(tokenIssuer).getAmountOf(
+          tokenPaymentP,
+        );
+
+        // Bob got 1000 tokens
+        t.deepEqual(tokenPayoutAmount, tokens1000);
+
+        // Got refunded all the moola given
+        t.deepEqual(
+          await E(moolaKit.issuer).getAmountOf(moolaRefundP),
+          amountMath.make(10n, moolaKit.brand),
+        );
+      },
+    };
+  };
+
+  // Setup Alice
+  const alice = await makeAlice();
+  const installation = await alice.installCode();
+  const { creatorFacet } = await E(alice).startInstance(installation);
+  const invitation = E(creatorFacet).makeInvitation(1000);
+
+  // Setup Bob
+  const bob = makeBob(
+    installation,
+    moolaKit.mint.mintPayment(amountMath.make(10n, moolaKit.brand)),
+  );
+  await bob.offer(invitation);
 });

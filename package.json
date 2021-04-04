@@ -1,21 +1,23 @@
 {
   "name": "@agoric/sdk",
-  "version": "2.6.0",
+  "version": "2.15.1",
   "private": true,
   "useWorkspaces": true,
   "workspaces": [
+    "golang/cosmos",
+    "packages/eslint-plugin",
+    "packages/eslint-config",
     "packages/assert",
     "packages/install-ses",
     "packages/import-manager",
     "packages/sparse-ints",
     "packages/registrar",
     "packages/store",
-    "packages/weak-store",
     "packages/acorn-eventual-send",
     "packages/bundle-source",
     "packages/import-bundle",
     "packages/eventual-send",
-    "packages/produce-promise",
+    "packages/promise-kit",
     "packages/transform-eventual-send",
     "packages/tame-metering",
     "packages/transform-metering",
@@ -32,40 +34,55 @@
     "packages/spawner",
     "packages/sharing-service",
     "packages/zoe",
-    "packages/wallet-frontend",
+    "packages/dapp-svelte-wallet/ui",
+    "packages/dapp-svelte-wallet/api",
+    "packages/dapp-svelte-wallet",
+    "packages/treasury",
     "packages/cosmic-swingset",
     "packages/agoric-cli",
     "packages/deployment",
-    "packages/notifier"
+    "packages/notifier",
+    "packages/xsnap",
+    "packages/deploy-script-support",
+    "packages/ui-components"
   ],
   "devDependencies": {
+    "@typescript-eslint/parser": "^4.18.0",
+    "ava": "^3.12.1",
     "eslint": "^6.8.0",
-    "eslint-config-airbnb": "^18.0.1",
     "eslint-config-airbnb-base": "^14.0.0",
     "eslint-config-jessie": "^0.0.4",
     "eslint-config-prettier": "^6.9.0",
     "eslint-plugin-import": "^2.20.0",
+    "eslint-plugin-jsdoc": "^30.4.2",
     "eslint-plugin-jsx-a11y": "^6.2.3",
     "eslint-plugin-prettier": "^3.1.2",
     "lerna": "^3.20.2",
-    "prettier": "^1.18.2"
+    "nyc": "^15.1.0",
+    "prettier": "^1.18.2",
+    "typescript": "^4.2.3"
   },
   "engines": {
-    "node": ">=12.16.1"
+    "node": ">=12.14.1"
   },
   "scripts": {
     "OFF-clean": "yarn workspaces run clean",
     "check-dependencies": "node ./scripts/check-mismatched-dependencies.js",
     "prettier": "yarn workspaces run prettier",
     "lerna": "lerna",
-    "link-cli": "node ./scripts/link-cli.cjs",
+    "link-cli": "yarn run create-agoric-cli",
+    "create-agoric-cli": "node ./scripts/create-agoric-cli.cjs",
     "lint-fix": "yarn workspaces run lint-fix",
     "lint-check": "yarn workspaces run lint-check",
     "lint": "yarn workspaces run lint-check",
     "test": "yarn workspaces run test",
-    "build": "yarn workspaces run build"
+    "test:xs": "yarn workspaces run test:xs",
+    "build": "yarn workspaces run build",
+    "postinstall": "patch-package",
+    "patch-package": "patch-package",
+    "build-xs-worker": "cd packages/xs-vat-worker && yarn build:xs-lin"
   },
   "dependencies": {
-    "@agoric/store": "^0.2.0"
+    "patch-package": "^6.2.2"
   }
 }

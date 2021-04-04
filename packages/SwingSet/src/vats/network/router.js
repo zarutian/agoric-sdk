@@ -1,10 +1,12 @@
-/* global harden */
 // @ts-check
 
 import { E as defaultE } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
 import makeStore from '@agoric/store';
+import { assert, details as X } from '@agoric/assert';
 import { makeNetworkProtocol, ENDPOINT_SEPARATOR } from './network';
 
+import '@agoric/store/exported';
 import './types';
 import './internal-types';
 
@@ -25,7 +27,7 @@ export default function makeRouter() {
    * @type {Store<string, any>}
    */
   const prefixToRoute = makeStore('prefix');
-  return harden({
+  return Far('Router', {
     getRoutes(addr) {
       const parts = addr.split(ENDPOINT_SEPARATOR);
       /**
@@ -53,9 +55,11 @@ export default function makeRouter() {
       prefixToRoute.init(prefix, route);
     },
     unregister(prefix, route) {
-      if (prefixToRoute.get(prefix) !== route) {
-        throw TypeError(`Router is not registered at prefix ${prefix}`);
-      }
+      assert(
+        prefixToRoute.get(prefix) === route,
+        X`Router is not registered at prefix ${prefix}`,
+        TypeError,
+      );
       prefixToRoute.delete(prefix);
     },
   });
@@ -90,9 +94,11 @@ export function makeRouterProtocol(E = defaultE) {
   // Needs to account for multiple paths.
   function unregisterProtocolHandler(prefix, protocolHandler) {
     const ph = protocolHandlers.get(prefix);
-    if (ph !== protocolHandler) {
-      throw TypeError(`Protocol handler is not registered at prefix ${prefix}`);
-    }
+    assert(
+      ph === protocolHandler,
+      X`Protocol handler is not registered at prefix ${prefix}`,
+      TypeError,
+    );
     router.unregister(prefix, ph);
     protocols.delete(prefix);
     protocolHandlers.delete(prefix);
@@ -101,13 +107,15 @@ export function makeRouterProtocol(E = defaultE) {
   /** @type {Protocol['bind']} */
   async function bind(localAddr) {
     const [route] = router.getRoutes(localAddr);
-    if (route === undefined) {
-      throw TypeError(`No registered router for ${localAddr}`);
-    }
+    assert(
+      route !== undefined,
+      X`No registered router for ${localAddr}`,
+      TypeError,
+    );
     return E(route[1]).bind(localAddr);
   }
 
-  return harden({
+  return Far('RouterProtocol', {
     bind,
     registerProtocolHandler,
     unregisterProtocolHandler,

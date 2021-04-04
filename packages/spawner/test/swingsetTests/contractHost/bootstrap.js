@@ -1,14 +1,15 @@
 // Copyright (C) 2019 Agoric, under Apache License 2.0
 
-/* global harden */
 import { E } from '@agoric/eventual-send';
-import makeAmountMath from '@agoric/ertp/src/amountMath';
+import { makeLocalAmountMath } from '@agoric/ertp';
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
 import { bundleFunction } from '../../make-function-bundle';
 
 import { escrowExchangeSrcs } from '../../../src/escrow';
 import { coveredCallSrcs } from '../../../src/coveredCall';
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject(vatPowers, vatParameters) {
   const log = vatPowers.testLog;
 
   // TODO BUG: All callers should wait until settled before doing
@@ -34,15 +35,7 @@ export function buildRootObject(vatPowers) {
     ]);
   }
 
-  const getLocalAmountMath = issuer =>
-    Promise.all([
-      E(issuer).getBrand(),
-      E(issuer).getMathHelpersName(),
-    ]).then(([brand, mathHelpersName]) =>
-      makeAmountMath(brand, mathHelpersName),
-    );
-
-  const fakeNeverTimer = harden({
+  const fakeNeverTimer = Far('fakeNeverTimer', {
     setWakeup(deadline, _resolution = undefined) {
       log(`Pretend ${deadline} never happens`);
       return deadline;
@@ -78,7 +71,7 @@ export function buildRootObject(vatPowers) {
 
         const fooInviteP = E(installationP).spawn('foo terms');
 
-        const inviteIssuerP = E(host).getInviteIssuer();
+        const inviteIssuerP = E(host).getInvitationIssuer();
         return Promise.resolve(
           showPaymentBalance('foo', inviteIssuerP, fooInviteP),
         ).then(_ => {
@@ -86,9 +79,7 @@ export function buildRootObject(vatPowers) {
 
           eightP.then(res => {
             log('++ eightP resolved to ', res, ' (should be 8)');
-            if (res !== 8) {
-              throw new Error(`eightP resolved to ${res}, not 8`);
-            }
+            assert(res === 8, X`eightP resolved to ${res}, not 8`);
             log('++ DONE');
           });
           return eightP;
@@ -140,7 +131,7 @@ export function buildRootObject(vatPowers) {
     const { mint: moneyMint, issuer: moneyIssuer } = await E(
       mint,
     ).makeIssuerKit('moola');
-    const moolaAmountMath = await getLocalAmountMath(moneyIssuer);
+    const moolaAmountMath = await makeLocalAmountMath(moneyIssuer);
     const moola = moolaAmountMath.make;
     const aliceMoneyPaymentP = E(moneyMint).mintPayment(moola(1000));
     const bobMoneyPaymentP = E(moneyMint).mintPayment(moola(1001));
@@ -148,7 +139,7 @@ export function buildRootObject(vatPowers) {
     const { mint: stockMint, issuer: stockIssuer } = await E(
       mint,
     ).makeIssuerKit('Tyrell');
-    const stockAmountMath = await getLocalAmountMath(stockIssuer);
+    const stockAmountMath = await makeLocalAmountMath(stockIssuer);
     const stocks = stockAmountMath.make;
     const aliceStockPaymentP = E(stockMint).mintPayment(stocks(2002));
     const bobStockPaymentP = E(stockMint).mintPayment(stocks(2003));
@@ -191,7 +182,7 @@ export function buildRootObject(vatPowers) {
     const { mint: moneyMint, issuer: moneyIssuer } = await E(
       mint,
     ).makeIssuerKit('clams');
-    const moneyAmountMath = await getLocalAmountMath(moneyIssuer);
+    const moneyAmountMath = await makeLocalAmountMath(moneyIssuer);
     const money = moneyAmountMath.make;
     const aliceMoneyPayment = await E(moneyMint).mintPayment(money(1000));
     const bobMoneyPayment = await E(moneyMint).mintPayment(money(1001));
@@ -199,7 +190,7 @@ export function buildRootObject(vatPowers) {
     const { mint: stockMint, issuer: stockIssuer } = await E(
       mint,
     ).makeIssuerKit('fudco');
-    const stockAmountMath = await getLocalAmountMath(stockIssuer);
+    const stockAmountMath = await makeLocalAmountMath(stockIssuer);
     const stocks = stockAmountMath.make;
     const aliceStockPayment = await E(stockMint).mintPayment(stocks(2002));
     const bobStockPayment = await E(stockMint).mintPayment(stocks(2003));
@@ -364,9 +355,9 @@ export function buildRootObject(vatPowers) {
     });
   }
 
-  const obj0 = {
-    async bootstrap(argv, vats) {
-      switch (argv[0]) {
+  return Far('root', {
+    async bootstrap(vats) {
+      switch (vatParameters.argv[0]) {
         case 'trivial-oldformat': {
           const host = await E(vats.host).makeHost();
           return trivialContractTest(host, 'oldformat');
@@ -421,10 +412,9 @@ export function buildRootObject(vatPowers) {
           );
         }
         default: {
-          throw new Error(`unrecognized argument value ${argv[0]}`);
+          assert.fail(X`unrecognized argument value ${vatParameters.argv[0]}`);
         }
       }
     },
-  };
-  return harden(obj0);
+  });
 }

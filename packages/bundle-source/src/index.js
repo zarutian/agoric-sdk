@@ -1,3 +1,5 @@
+/* global process */
+import fs from 'fs';
 import { rollup as rollup0 } from 'rollup';
 import path from 'path';
 import resolve0 from '@rollup/plugin-node-resolve';
@@ -6,16 +8,22 @@ import * as babelParser from '@agoric/babel-parser';
 import babelGenerate from '@babel/generator';
 import babelTraverse from '@babel/traverse';
 import { makeTransform } from '@agoric/transform-eventual-send';
+import { makeArchive } from '@agoric/compartment-mapper';
+import { encodeBase64 } from '@endo/base64';
 
 import { SourceMapConsumer } from 'source-map';
 
+import './types';
+
 const DEFAULT_MODULE_FORMAT = 'nestedEvaluate';
-const DEFAULT_FILE_PREFIX = '/bundled-source';
-const SUPPORTED_FORMATS = ['getExport', 'nestedEvaluate'];
+const DEFAULT_FILE_PREFIX = '/bundled-source/...';
+const SUPPORTED_FORMATS = ['getExport', 'nestedEvaluate', 'endoZipBase64'];
 
 const IMPORT_RE = new RegExp('\\b(import)(\\s*(?:\\(|/[/*]))', 'sg');
 const HTML_COMMENT_START_RE = new RegExp(`${'<'}!--`, 'g');
 const HTML_COMMENT_END_RE = new RegExp(`--${'>'}`, 'g');
+
+const read = async location => fs.promises.readFile(new URL(location).pathname);
 
 export function tildotPlugin() {
   const transformer = makeTransform(babelParser, babelGenerate);
@@ -29,6 +37,102 @@ export function tildotPlugin() {
   };
 }
 
+function rewriteComment(node, unmapLoc) {
+  node.type = 'CommentBlock';
+  // Within comments...
+  node.value = node.value
+    // ...strip extraneous comment whitespace
+    .replace(/^\s+/gm, ' ')
+    // ...replace HTML comments with a defanged version to pass SES restrictions.
+    .replace(HTML_COMMENT_START_RE, '<!X-')
+    .replace(HTML_COMMENT_END_RE, '-X>')
+    // ...replace import expressions with a defanged version to pass SES restrictions.
+    .replace(IMPORT_RE, 'X$1$2')
+    // ...replace end-of-comment markers
+    .replace(/\*\//g, '*X/');
+  if (unmapLoc) {
+    unmapLoc(node.loc);
+  }
+  // console.log(JSON.stringify(node, undefined, 2));
+}
+
+async function makeLocationUnmapper({ sourceMap, ast }) {
+  // We rearrange the rolled-up chunk according to its sourcemap to move
+  // its source lines back to the right place.
+  // eslint-disable-next-line no-await-in-loop
+  const consumer = await new SourceMapConsumer(sourceMap);
+  try {
+    const unmapped = new WeakSet();
+    let lastPos = { ...ast.loc.start };
+    return loc => {
+      if (!loc || unmapped.has(loc)) {
+        return;
+      }
+      // Make sure things start at least at the right place.
+      loc.end = { ...loc.start };
+      for (const pos of ['start', 'end']) {
+        if (loc[pos]) {
+          const newPos = consumer.originalPositionFor(loc[pos]);
+          if (newPos.source !== null) {
+            lastPos = {
+              line: newPos.line,
+              column: newPos.column,
+            };
+          }
+          loc[pos] = lastPos;
+        }
+      }
+      unmapped.add(loc);
+    };
+  } finally {
+    consumer.destroy();
+  }
+}
+
+function transformAst(ast, unmapLoc) {
+  babelTraverse(ast, {
+    enter(p) {
+      const { loc, leadingComments, trailingComments } = p.node;
+      if (p.node.comments) {
+        p.node.comments = [];
+      }
+      // Rewrite all comments.
+      (leadingComments || []).forEach(node => rewriteComment(node, unmapLoc));
+      if (p.node.type.startsWith('Comment')) {
+        rewriteComment(p.node, unmapLoc);
+      }
+      // If not a comment, and we are unmapping the source maps,
+      // then do it for this location.
+      if (unmapLoc) {
+        unmapLoc(loc);
+      }
+      (trailingComments || []).forEach(node => rewriteComment(node, unmapLoc));
+    },
+  });
+}
+
+async function transformSource(code, { sourceMap, useLocationUnmap }) {
+  // Parse the rolled-up chunk with Babel.
+  // We are prepared for different module systems.
+  const ast = (babelParser.parse || babelParser)(code, {
+    plugins: ['bigInt'],
+  });
+
+  let unmapLoc;
+  if (useLocationUnmap) {
+    unmapLoc = await makeLocationUnmapper({
+      sourceMap,
+      ast,
+    });
+  }
+
+  transformAst(ast, unmapLoc);
+
+  // Now generate the sources with the new positions.
+  return babelGenerate(ast, { retainLines: true });
+}
+
+/** @type {BundleSource} */
 export default async function bundleSource(
   startFilename,
   moduleFormat = DEFAULT_MODULE_FORMAT,
@@ -37,6 +141,18 @@ export default async function bundleSource(
   if (!SUPPORTED_FORMATS.includes(moduleFormat)) {
     throw Error(`moduleFormat ${moduleFormat} is not implemented`);
   }
+  if (moduleFormat === 'endoZipBase64') {
+    // TODO endoZipBase64 format does not yet support the tildot transform, as
+    // Compartment Mapper does not yet reveal a pre-archive transform facility.
+    // Such a facility might be better served by a transform specified in
+    // individual package.jsons and driven by the compartment mapper.
+    const base = new URL(`file://${process.cwd()}`).toString();
+    const entry = new URL(startFilename, base).toString();
+    const bytes = await makeArchive(read, entry);
+    const endoZipBase64 = encodeBase64(bytes);
+    return { endoZipBase64, moduleFormat };
+  }
+
   const {
     commonjsPlugin = commonjs0,
     rollup = rollup0,
@@ -66,95 +182,28 @@ export default async function bundleSource(
   // Create a source bundle.
   const sourceBundle = {};
   let entrypoint;
-  for (const chunk of output) {
-    if (chunk.isAsset) {
-      throw Error(`unprepared for assets: ${chunk.fileName}`);
-    }
-    const { code, fileName, isEntry } = chunk;
-    if (isEntry) {
-      entrypoint = fileName;
-    }
-
-    // Parse the rolled-up chunk with Babel.
-    // We are prepared for different module systems.
-    const ast = (babelParser.parse || babelParser)(code);
-
-    let unmapLoc;
-    if (
-      moduleFormat === 'nestedEvaluate' &&
-      !fileName.startsWith('_virtual/')
-    ) {
-      // We rearrange the rolled-up chunk according to its sourcemap to move
-      // its source lines back to the right place.
-      // eslint-disable-next-line no-await-in-loop
-      const consumer = await new SourceMapConsumer(chunk.map);
-      const unmapped = new WeakSet();
-      let lastPos = { ...ast.loc.start };
-      unmapLoc = loc => {
-        if (!loc || unmapped.has(loc)) {
-          return;
-        }
-        // Make sure things start at least at the right place.
-        loc.end = { ...loc.start };
-        for (const pos of ['start', 'end']) {
-          if (loc[pos]) {
-            const newPos = consumer.originalPositionFor(loc[pos]);
-            if (newPos.source !== null) {
-              lastPos = {
-                line: newPos.line,
-                column: newPos.column,
-              };
-            }
-            loc[pos] = lastPos;
-          }
-        }
-        unmapped.add(loc);
-      };
-    }
-
-    const rewriteComment = node => {
-      node.type = 'CommentBlock';
-      // Within comments...
-      node.value = node.value
-        // ...strip extraneous comment whitespace
-        .replace(/^\s+/gm, ' ')
-        // ...replace HTML comments with a defanged version to pass SES restrictions.
-        .replace(HTML_COMMENT_START_RE, '<!X-')
-        .replace(HTML_COMMENT_END_RE, '-X>')
-        // ...replace import expressions with a defanged version to pass SES restrictions.
-        .replace(IMPORT_RE, 'X$1$2')
-        // ...replace end-of-comment markers
-        .replace(/\*\//g, '*X/');
-      if (unmapLoc) {
-        unmapLoc(node.loc);
+  await Promise.all(
+    output.map(async chunk => {
+      if (chunk.isAsset) {
+        throw Error(`unprepared for assets: ${chunk.fileName}`);
       }
-      // console.log(JSON.stringify(node, undefined, 2));
-    };
+      const { code, fileName, isEntry } = chunk;
+      if (isEntry) {
+        entrypoint = fileName;
+      }
 
-    babelTraverse(ast, {
-      enter(p) {
-        const { loc, leadingComments, trailingComments } = p.node;
-        if (p.node.comments) {
-          p.node.comments = [];
-        }
-        // Rewrite all comments.
-        (leadingComments || []).forEach(rewriteComment);
-        if (p.node.type.startsWith('Comment')) {
-          rewriteComment(p.node);
-        }
-        // If not a comment, and we are unmapping the source maps,
-        // then do it for this location.
-        if (unmapLoc) {
-          unmapLoc(loc);
-        }
-        (trailingComments || []).forEach(rewriteComment);
-      },
-    });
+      const useLocationUnmap =
+        moduleFormat === 'nestedEvaluate' && !fileName.startsWith('_virtual/');
 
-    // Now generate the sources with the new positions.
-    sourceBundle[fileName] = babelGenerate(ast, { retainLines: true }).code;
-    // console.log(`==== sourceBundle[${fileName}]\n${sourceBundle[fileName]}\n====`);
-  }
+      const { code: transformedCode } = await transformSource(code, {
+        sourceMap: chunk.map,
+        useLocationUnmap,
+      });
+      sourceBundle[fileName] = transformedCode;
+
+      // console.log(`==== sourceBundle[${fileName}]\n${sourceBundle[fileName]}\n====`);
+    }),
+  );
 
   if (!entrypoint) {
     throw Error('No entrypoint found in output bundle');

@@ -1,5 +1,7 @@
 // @ts-check
 
+import { Far } from '@agoric/marshal';
+
 import '../../exported';
 
 /**
@@ -14,28 +16,30 @@ import '../../exported';
  * anything in `give` and `want`. The amount in `give` will be returned, and
  * `want` will be ignored.
  *
+ * @type {ContractStartFn}
  * @param {ContractFacet} zcf
  */
-const makeContract = zcf => {
-  let offersCount = 0;
+const start = zcf => {
+  let offersCount = 0n;
 
-  const refundOfferHook = offerHandle => {
-    offersCount += 1;
-    zcf.complete(harden([offerHandle]));
+  /** @type {OfferHandler} */
+  const refund = seat => {
+    offersCount += 1n;
+    seat.exit();
     return `The offer was accepted`;
   };
-  const makeRefundInvite = () =>
-    zcf.makeInvitation(refundOfferHook, 'getRefund');
+  const makeRefundInvitation = () => zcf.makeInvitation(refund, 'getRefund');
 
-  zcf.initPublicAPI(
-    harden({
-      getOffersCount: () => offersCount,
-      makeInvite: makeRefundInvite,
-    }),
-  );
+  /** @type {AutomaticRefundPublicFacet} */
+  const publicFacet = Far('publicFacet', {
+    getOffersCount: () => offersCount,
+    makeInvitation: makeRefundInvitation,
+  });
 
-  return makeRefundInvite();
+  const creatorInvitation = makeRefundInvitation();
+
+  return harden({ creatorInvitation, publicFacet });
 };
 
-harden(makeContract);
-export { makeContract };
+harden(start);
+export { start };

@@ -1,17 +1,18 @@
-/* global harden */
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject(vatPowers, vatParameters) {
   const { D, testLog: log } = vatPowers;
-  return harden({
-    async bootstrap(argv, vats, devices) {
-      if (argv[0] === 'write+read') {
+  return Far('root', {
+    async bootstrap(vats, devices) {
+      if (vatParameters.argv[0] === 'write+read') {
         log(`w+r`);
         D(devices.d3).setState(harden({ s: 'new' }));
         log(`called`);
         const s = D(devices.d3).getState();
         log(`got ${JSON.stringify(s)}`);
       } else {
-        throw new Error(`unknown argv mode '${argv[0]}'`);
+        assert.fail(X`unknown argv mode '${vatParameters.argv[0]}'`);
       }
     },
   });

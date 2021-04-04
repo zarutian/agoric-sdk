@@ -1,81 +1,63 @@
-/* global harden */
-
+// @ts-nocheck
 import { allComparable } from '@agoric/same-structure';
 import {
   makeLoopbackProtocolHandler,
   makeEchoConnectionHandler,
 } from '@agoric/swingset-vat/src/vats/network';
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { makeStore } from '@agoric/store';
+import { installOnChain as installEconomyOnChain } from '@agoric/treasury/bundles/install-on-chain';
 
 // this will return { undefined } until `ag-solo set-gci-ingress`
 // has been run to update gci.js
+import { makePluginManager } from '@agoric/swingset-vat/src/vats/plugin-manager';
+import { assert, details as X } from '@agoric/assert';
+import { makeRatio } from '@agoric/zoe/src/contractSupport';
+import { amountMath } from '@agoric/ertp';
 import { GCI } from './gci';
 import { makeBridgeManager } from './bridge';
+import { makeNameHubKit } from './nameHub';
+import {
+  CENTRAL_ISSUER_NAME,
+  fakeIssuerEntries,
+  fromCosmosIssuerEntries,
+  fromPegasusIssuerEntries,
+} from './issuers';
 
 const NUM_IBC_PORTS = 3;
+const QUOTE_INTERVAL = 30;
 
-// The old way of provisioning used an environment variable that
-// was an account ACL.  The new way uses "provisionpass", a
-// "bearer token" that is checked in handler.go before a provision
-// transaction is even sent to the JS side.
-const FIXME_DEPRECATED_BOOT_ADDRESS = true;
+const BASIS_POINTS_DENOM = 10000n;
 
 console.debug(`loading bootstrap.js`);
 
-function parseArgs(argv) {
-  let ROLE;
-  let gotRoles = false;
-  let bootAddress;
-  const additionalAddresses = [];
-  argv.forEach(arg => {
-    const match = arg.match(/^--role=(.*)$/);
-    if (match) {
-      if (gotRoles) {
-        throw new Error(`must assign only one role, saw ${ROLE}, ${match[1]}`);
-      }
-      [, ROLE] = match;
-      gotRoles = true;
-    } else if (!arg.match(/^-/)) {
-      if (!bootAddress) {
-        bootAddress = arg;
-      } else {
-        additionalAddresses.push(arg);
-      }
-    }
-  });
-  if (!gotRoles) {
-    ROLE = 'three_client';
-  }
-
-  return [ROLE, bootAddress, additionalAddresses];
-}
-
-// Used in scenario 1 for coordinating on an index for registering public keys
-// while requesting provisioning.
-const KEY_REG_INDEX = 1;
 // Used for coordinating on an index in comms for the provisioning service
 const PROVISIONER_INDEX = 1;
 
-export function buildRootObject(vatPowers) {
+function makeVattpFrom(vats) {
+  const { vattp, comms } = vats;
+  return Far('vattp', {
+    makeNetworkHost(allegedName, console = undefined) {
+      return E(vattp).makeNetworkHost(allegedName, comms, console);
+    },
+  });
+}
+
+export function buildRootObject(vatPowers, vatParameters) {
   const { D } = vatPowers;
   async function setupCommandDevice(httpVat, cmdDevice, roles) {
     await E(httpVat).setCommandDevice(cmdDevice, roles);
     D(cmdDevice).registerInboundHandler(httpVat);
   }
 
-  async function setupWalletVat(httpObj, httpVat, walletVat) {
-    await E(httpVat).registerURLHandler(walletVat, '/private/wallet');
-    const bridgeURLHandler = await E(walletVat).getBridgeURLHandler();
-    await E(httpVat).registerURLHandler(
-      bridgeURLHandler,
-      '/private/wallet-bridge',
-    );
-    await E(walletVat).setHTTPObject(httpObj);
-    await E(walletVat).setPresences();
-  }
-
   // Make services that are provided on the real or virtual chain side
-  async function makeChainBundler(vats, timerDevice, vatAdminSvc) {
+  async function makeChainBundler(
+    vats,
+    timerDevice,
+    vatAdminSvc,
+    noFakeCurrencies,
+  ) {
     // Create singleton instances.
     const [
       sharingService,
@@ -84,35 +66,285 @@ export function buildRootObject(vatPowers) {
       chainTimerService,
       zoe,
       contractHost,
+      { priceAuthority, adminFacet: priceAuthorityAdmin },
     ] = await Promise.all([
       E(vats.sharing).getSharingService(),
       E(vats.registrar).getSharedRegistrar(),
       E(vats.board).getBoard(),
       E(vats.timer).createTimerService(timerDevice),
-      E(vats.zoe).buildZoe(vatAdminSvc),
+      /** @type {ZoeService} */ (E(vats.zoe).buildZoe(vatAdminSvc)),
       E(vats.host).makeHost(),
+      E(vats.priceAuthority).makePriceAuthority(),
     ]);
 
-    // Make the other demo mints
-    const issuerNames = ['moola', 'simolean'];
-    const issuers = await Promise.all(
-      issuerNames.map(issuerName =>
-        E(vats.mints).makeMintAndIssuer(issuerName),
+    const {
+      nameHub: agoricNames,
+      nameAdmin: agoricNamesAdmin,
+    } = makeNameHubKit();
+    const {
+      nameHub: namesByAddress,
+      nameAdmin: namesByAddressAdmin,
+    } = makeNameHubKit();
+
+    async function installEconomy() {
+      // Create a mapping from all the nameHubs we create to their corresponding
+      // nameAdmin.
+      /** @type {Store<NameHub, NameAdmin>} */
+      const nameAdmins = makeStore();
+      await Promise.all(
+        ['brand', 'installation', 'issuer', 'instance', 'uiConfig'].map(
+          async nm => {
+            const { nameHub, nameAdmin } = makeNameHubKit();
+            await E(agoricNamesAdmin).update(nm, nameHub);
+            nameAdmins.init(nameHub, nameAdmin);
+            if (nm === 'uiConfig') {
+              // Reserve the Treasury's config until we've populated it.
+              nameAdmin.reserve('Treasury');
+            }
+          },
+        ),
+      );
+
+      // Install the economy, giving it access to the name admins we made.
+      return installEconomyOnChain({
+        agoricNames,
+        board,
+        centralName: CENTRAL_ISSUER_NAME,
+        chainTimerService,
+        nameAdmins,
+        priceAuthority,
+        zoe,
+      });
+    }
+
+    // Now we can bootstrap the economy!
+    const treasuryCreator = await installEconomy();
+    const [centralIssuer, centralBrand, ammInstance] = await Promise.all([
+      ...['issuer', 'brand'].map(hub =>
+        E(agoricNames).lookup(hub, CENTRAL_ISSUER_NAME),
       ),
+      E(agoricNames).lookup('instance', 'autoswap'),
+    ]);
+
+    // [string, import('./issuers').IssuerInitializationRecord]
+    const CENTRAL_ISSUER_ENTRY = [
+      CENTRAL_ISSUER_NAME,
+      {
+        issuer: centralIssuer,
+        defaultPurses: [['Agoric RUN currency', 0]],
+        tradesGivenCentral: [[1, 1]],
+      },
+    ];
+
+    /** @type {Store<string, import('./issuers').IssuerInitializationRecord>} */
+    const issuerNameToRecord = makeStore();
+    /** @type {Array<[string, import('./issuers').IssuerInitializationRecord]>} */
+    const issuerEntries = [
+      CENTRAL_ISSUER_ENTRY,
+      ...fromCosmosIssuerEntries,
+      ...fromPegasusIssuerEntries,
+    ];
+    if (!noFakeCurrencies) {
+      issuerEntries.push(...fakeIssuerEntries);
+    }
+    issuerEntries.forEach(entry => issuerNameToRecord.init(...entry));
+
+    const issuerNames = [...issuerNameToRecord.keys()];
+    await Promise.all(
+      issuerNames.map(async issuerName => {
+        const record = issuerNameToRecord.get(issuerName);
+        if (record.issuer !== undefined) {
+          return record.issuer;
+        }
+        /** @type {Issuer} */
+        const issuer = await E(vats.mints).makeMintAndIssuer(
+          issuerName,
+          ...(record.issuerArgs || []),
+        );
+        const brand = await E(issuer).getBrand();
+        issuerNameToRecord.set(
+          issuerName,
+          harden({ ...record, brand, issuer }),
+        );
+        return issuer;
+      }),
     );
 
-    // Register the moola and simolean issuers
-    const issuerInfo = await Promise.all(
-      issuerNames.map(async (issuerName, i) =>
-        harden({
-          issuer: issuers[i],
-          petname: issuerName,
+    async function addAllCollateral() {
+      const govBrand = await E(agoricNames).lookup(
+        'brand',
+        'TreasuryGovernance',
+      );
+      return Promise.all(
+        issuerNames.map(async issuerName => {
+          const record = issuerNameToRecord.get(issuerName);
+          const config = record.collateralConfig;
+          if (!config) {
+            return undefined;
+          }
+          assert(record.tradesGivenCentral);
+          const initialPrice = record.tradesGivenCentral[0];
+          assert(initialPrice);
+          const rates = {
+            initialPrice: makeRatio(
+              initialPrice[0],
+              centralBrand,
+              initialPrice[1],
+              record.brand,
+            ),
+            initialMargin: makeRatio(config.initialMarginPercent, centralBrand),
+            liquidationMargin: makeRatio(
+              config.liquidationMarginPercent,
+              centralBrand,
+            ),
+            interestRate: makeRatio(
+              config.interestRateBasis,
+              centralBrand,
+              BASIS_POINTS_DENOM,
+            ),
+            loanFee: makeRatio(
+              config.loanFeeBasis,
+              centralBrand,
+              BASIS_POINTS_DENOM,
+            ),
+          };
+
+          const addTypeInvitation = E(treasuryCreator).makeAddTypeInvitation(
+            record.issuer,
+            config.keyword,
+            rates,
+          );
+
+          const payments = E(vats.mints).mintInitialPayments(
+            [issuerName],
+            [config.collateralValue],
+          );
+          const payment = E.get(payments)[0];
+
+          const amount = await E(record.issuer).getAmountOf(payment);
+          const proposal = harden({
+            give: {
+              Collateral: amount,
+            },
+            want: {
+              // We just throw away our governance tokens.
+              Governance: amountMath.make(0n, govBrand),
+            },
+          });
+          const paymentKeywords = harden({
+            Collateral: payment,
+          });
+          const seat = E(zoe).offer(
+            addTypeInvitation,
+            proposal,
+            paymentKeywords,
+          );
+          const vaultManager = E(seat).getOfferResult();
+          return vaultManager;
         }),
-      ),
+      );
+    }
+    // await addAllCollateral();
+
+    /**
+     * @param {ERef<Issuer>} issuerIn
+     * @param {ERef<Issuer>} issuerOut
+     * @param {ERef<Brand>} brandIn
+     * @param {ERef<Brand>} brandOut
+     * @param {Array<[number, number]>} tradeList
+     */
+    const makeFakePriceAuthority = (
+      issuerIn,
+      issuerOut,
+      brandIn,
+      brandOut,
+      tradeList,
+    ) =>
+      E(vats.priceAuthority).makeFakePriceAuthority({
+        issuerIn,
+        issuerOut,
+        actualBrandIn: brandIn,
+        actualBrandOut: brandOut,
+        tradeList,
+        timer: chainTimerService,
+        quoteInterval: QUOTE_INTERVAL,
+      });
+
+    const ammPublicFacet = E(zoe).getPublicFacet(ammInstance);
+    await addAllCollateral();
+
+    await Promise.all(
+      issuerNames.map(async issuerName => {
+        // Create priceAuthority pairs for centralIssuer based on the
+        // AMM or FakePriceAuthority.
+        console.debug(`Creating ${issuerName}-${CENTRAL_ISSUER_NAME}`);
+        const record = issuerNameToRecord.get(issuerName);
+        assert(record);
+        const { tradesGivenCentral, issuer } = record;
+
+        const brand = await E(issuer).getBrand();
+        let { toCentral, fromCentral } = await E(ammPublicFacet)
+          .getPriceAuthorities(brand)
+          .catch(_e => {
+            // console.warn('could not get AMM priceAuthorities', _e);
+            return {};
+          });
+
+        if (!fromCentral && tradesGivenCentral) {
+          // We have no amm from-central price authority, make one from trades.
+          if (issuerName !== CENTRAL_ISSUER_NAME) {
+            console.log(
+              `Making fake price authority for ${CENTRAL_ISSUER_NAME}-${issuerName}`,
+            );
+          }
+          fromCentral = makeFakePriceAuthority(
+            centralIssuer,
+            issuer,
+            centralBrand,
+            brand,
+            tradesGivenCentral,
+          );
+        }
+
+        if (!toCentral && centralIssuer !== issuer && tradesGivenCentral) {
+          // We have no amm to-central price authority, make one from trades.
+          console.log(
+            `Making fake price authority for ${issuerName}-${CENTRAL_ISSUER_NAME}`,
+          );
+          const tradesGivenOther = tradesGivenCentral.map(
+            ([valueCentral, valueOther]) => [valueOther, valueCentral],
+          );
+          toCentral = makeFakePriceAuthority(
+            issuer,
+            centralIssuer,
+            brand,
+            centralBrand,
+            tradesGivenOther,
+          );
+        }
+
+        // Register the price pairs.
+        await Promise.all(
+          [
+            [fromCentral, centralBrand, brand],
+            [toCentral, brand, centralBrand],
+          ].map(async ([pa, fromBrand, toBrand]) => {
+            const paPresence = await pa;
+            if (!paPresence) {
+              return;
+            }
+            await E(priceAuthorityAdmin).registerPriceAuthority(
+              paPresence,
+              fromBrand,
+              toBrand,
+            );
+          }),
+        );
+      }),
     );
 
-    return harden({
-      async createUserBundle(_nickname) {
+    return Far('chainBundler', {
+      async createUserBundle(_nickname, address, powerFlags = []) {
         // Bind to some fresh ports (unspecified name) on the IBC implementation
         // and provide them for the user to have.
         const ibcport = [];
@@ -120,26 +352,86 @@ export function buildRootObject(vatPowers) {
           // eslint-disable-next-line no-await-in-loop
           ibcport.push(await E(vats.network).bind('/ibc-port/'));
         }
+
+        const additionalPowers = {};
+        if (powerFlags && powerFlags.includes('agoric.vattp')) {
+          // Give the authority to create a new host for vattp to share objects with.
+          additionalPowers.vattp = makeVattpFrom(vats);
+        }
+        if (powerFlags && powerFlags.includes('agoric.priceAuthorityAdmin')) {
+          additionalPowers.priceAuthorityAdmin = priceAuthorityAdmin;
+        }
+        if (powerFlags && powerFlags.includes('agoric.agoricNamesAdmin')) {
+          additionalPowers.agoricNamesAdmin = agoricNamesAdmin;
+        }
+        if (powerFlags && powerFlags.includes('agoric.treasuryCreator')) {
+          additionalPowers.treasuryCreator = treasuryCreator;
+        }
+
+        const mintIssuerNames = [];
+        const mintPurseNames = [];
+        const mintValues = [];
+        issuerNames.forEach(issuerName => {
+          const record = issuerNameToRecord.get(issuerName);
+          if (!record.defaultPurses) {
+            return;
+          }
+          record.defaultPurses.forEach(([purseName, value]) => {
+            mintIssuerNames.push(issuerName);
+            mintPurseNames.push(purseName);
+            mintValues.push(value);
+          });
+        });
+        const payments = await E(vats.mints).mintInitialPayments(
+          mintIssuerNames,
+          mintValues,
+        );
+
+        const paymentInfo = mintIssuerNames.map((issuerName, i) => ({
+          issuer: issuerNameToRecord.get(issuerName).issuer,
+          issuerPetname: issuerName,
+          payment: payments[i],
+          pursePetname: mintPurseNames[i],
+        }));
+
+        const faucet = Far('faucet', {
+          // A method to reap the spoils of our on-chain provisioning.
+          async tapFaucet() {
+            return paymentInfo;
+          },
+        });
+
+        // Create a name hub for this address.
+        const {
+          nameHub: myAddressNameHub,
+          nameAdmin: myAddressNameAdmin,
+        } = makeNameHubKit();
+        // Register it with the namesByAddress hub.
+        namesByAddressAdmin.update(address, myAddressNameHub);
+
         const bundle = harden({
+          ...additionalPowers,
+          agoricNames,
           chainTimerService,
           sharingService,
           contractHost,
+          faucet,
           ibcport,
+          myAddressNameAdmin: {
+            ...myAddressNameAdmin,
+            getMyAddress() {
+              return address;
+            },
+          },
+          namesByAddress,
+          priceAuthority,
           registrar: registry,
           registry,
           board,
           zoe,
         });
 
-        const payments = await E(vats.mints).mintInitialPayments(
-          issuerNames,
-          harden([1900, 1900]),
-        );
-
-        // return payments and issuerInfo separately from the
-        // bundle so that they can be used to initialize a wallet
-        // per user
-        return harden({ payments, issuerInfo, bundle });
+        return bundle;
       },
     });
   }
@@ -155,7 +447,7 @@ export function buildRootObject(vatPowers) {
     );
     if (bridgeMgr) {
       // We have access to the bridge, and therefore IBC.
-      const callbacks = harden({
+      const callbacks = Far('callbacks', {
         downcall(method, obj) {
           return bridgeMgr.toBridge('dibc', {
             ...obj,
@@ -184,7 +476,7 @@ export function buildRootObject(vatPowers) {
       // Add an echo listener on our ibc-port network.
       const port = await E(vats.network).bind('/ibc-port/echo');
       E(port).addListener(
-        harden({
+        Far('listener', {
           async onAccept(_port, _localAddr, _remoteAddr, _listenHandler) {
             return harden(makeEchoConnectionHandler());
           },
@@ -194,13 +486,13 @@ export function buildRootObject(vatPowers) {
 
     if (bridgeMgr) {
       // Register a provisioning handler over the bridge.
-      const handler = harden({
+      const handler = Far('provisioningHandler', {
         async fromBridge(_srcID, obj) {
           switch (obj.type) {
             case 'PLEASE_PROVISION': {
-              const { nickname, address } = obj;
+              const { nickname, address, powerFlags } = obj;
               return E(vats.provisioning)
-                .pleaseProvision(nickname, address, PROVISIONER_INDEX)
+                .pleaseProvision(nickname, address, powerFlags)
                 .catch(e =>
                   console.error(
                     `Error provisioning ${nickname} ${address}:`,
@@ -209,7 +501,7 @@ export function buildRootObject(vatPowers) {
                 );
             }
             default:
-              throw Error(`Unrecognized request ${obj.type}`);
+              assert.fail(X`Unrecognized request ${obj.type}`);
           }
         },
       });
@@ -220,8 +512,7 @@ export function buildRootObject(vatPowers) {
   // objects that live in the client's solo vat. Some services should only
   // be in the DApp environment (or only in end-user), but we're not yet
   // making a distinction, so the user also gets them.
-  async function createLocalBundle(vats, userBundle, payments, issuerInfo) {
-    const { zoe, board } = userBundle;
+  async function createLocalBundle(vats, devices) {
     // This will eventually be a vat spawning service. Only needed by dev
     // environments.
     const spawner = E(vats.host).makeHost();
@@ -229,63 +520,63 @@ export function buildRootObject(vatPowers) {
     // Needed for DApps, maybe for user clients.
     const uploads = E(vats.uploads).getUploads();
 
-    // Wallet for both end-user client and dapp dev client
-    await E(vats.wallet).startup({ zoe, board });
-    const wallet = E(vats.wallet).getWallet();
-    await Promise.all(
-      issuerInfo.map(({ petname, issuer }) =>
-        E(wallet).addIssuer(petname, issuer),
-      ),
-    );
-
-    // Make empty purses. Have some petnames for them.
-    const pursePetnames = {
-      moola: 'Fun budget',
-      simolean: 'Nest egg',
-    };
-    await Promise.all(
-      issuerInfo.map(({ petname: issuerPetname }) => {
-        let pursePetname = pursePetnames[issuerPetname];
-        if (!pursePetname) {
-          pursePetname = `${issuerPetname} purse`;
-          pursePetnames[issuerPetname] = pursePetname;
-        }
-        return E(wallet).makeEmptyPurse(issuerPetname, pursePetname);
-      }),
-    );
-
-    // deposit payments
-    const [moolaPayment, simoleanPayment] = await Promise.all(payments);
-
-    await E(wallet).deposit(pursePetnames.moola, moolaPayment);
-    await E(wallet).deposit(pursePetnames.simolean, simoleanPayment);
+    // Only create the plugin manager if the device exists.
+    let plugin;
+    if (devices.plugin) {
+      plugin = makePluginManager(devices.plugin, vatPowers);
+    }
 
     // This will allow dApp developers to register in their api/deploy.js
-    const httpRegCallback = {
+    const httpRegCallback = Far('httpRegCallback', {
+      doneLoading(subsystems) {
+        return E(vats.http).doneLoading(subsystems);
+      },
       send(obj, connectionHandles) {
         return E(vats.http).send(obj, connectionHandles);
+      },
+      registerURLHandler(handler, path) {
+        return E(vats.http).registerURLHandler(handler, path);
       },
       registerAPIHandler(handler) {
         return E(vats.http).registerURLHandler(handler, '/api');
       },
-    };
+      async registerWallet(wallet, privateWallet, privateWalletBridge) {
+        await Promise.all([
+          E(vats.http).registerURLHandler(privateWallet, '/private/wallet'),
+          E(vats.http).registerURLHandler(
+            privateWalletBridge,
+            '/private/wallet-bridge',
+          ),
+          E(vats.http).setWallet(wallet),
+        ]);
+      },
+    });
 
     return allComparable(
       harden({
+        ...(plugin ? { plugin } : {}),
+        // TODO: Our preferred name is "scratch", but there are many Dapps
+        // that use "uploads".
+        scratch: uploads,
         uploads,
         spawner,
-        wallet,
         network: vats.network,
         http: httpRegCallback,
+        vattp: makeVattpFrom(vats),
       }),
     );
   }
 
-  return harden({
-    async bootstrap(argv, vats, devices) {
+  return Far('root', {
+    async bootstrap(vats, devices) {
       const bridgeManager =
         devices.bridge && makeBridgeManager(E, D, devices.bridge);
-      const [ROLE, bootAddress, additionalAddresses] = parseArgs(argv);
+      const {
+        ROLE,
+        giveMeAllTheAgoricPowers,
+        noFakeCurrencies,
+        hardcodedClientAddresses,
+      } = vatParameters.argv;
 
       async function addRemote(addr) {
         const { transmitter, setReceiver } = await E(vats.vattp).addRemote(
@@ -296,12 +587,6 @@ export function buildRootObject(vatPowers) {
 
       D(devices.mailbox).registerInboundHandler(vats.vattp);
       await E(vats.vattp).registerMailboxDevice(devices.mailbox);
-      if (FIXME_DEPRECATED_BOOT_ADDRESS && bootAddress) {
-        // FIXME: The old way: register egresses for the addresses.
-        await Promise.all(
-          [bootAddress, ...additionalAddresses].map(addr => addRemote(addr)),
-        );
-      }
 
       const vatAdminSvc = await E(vats.vatAdmin).createVatAdminService(
         devices.vatAdmin,
@@ -313,73 +598,29 @@ export function buildRootObject(vatPowers) {
       // client (python) on localhost, which creates client solo node on
       // localhost, with HTML frontend. Multi-player mode.
       switch (ROLE) {
-        case 'chain':
-        case 'one_chain': {
+        // REAL VALIDATORS run this.
+        case 'chain': {
           // provisioning vat can ask the demo server for bundles, and can
           // register client pubkeys with comms
           await E(vats.provisioning).register(
-            await makeChainBundler(vats, devices.timer, vatAdminSvc),
+            await makeChainBundler(
+              vats,
+              devices.timer,
+              vatAdminSvc,
+              noFakeCurrencies,
+            ),
             vats.comms,
             vats.vattp,
           );
 
           // Must occur after makeChainBundler.
           await registerNetworkProtocols(vats, bridgeManager);
-
-          if (FIXME_DEPRECATED_BOOT_ADDRESS && bootAddress) {
-            // accept provisioning requests from the controller
-            const provisioner = harden({
-              pleaseProvision(nickname, pubkey) {
-                console.debug('Provisioning', nickname, pubkey);
-                return E(vats.provisioning).pleaseProvision(
-                  nickname,
-                  pubkey,
-                  PROVISIONER_INDEX,
-                );
-              },
-            });
-            // bootAddress holds the pubkey of controller
-            await E(vats.comms).addEgress(
-              bootAddress,
-              KEY_REG_INDEX,
-              provisioner,
-            );
-          }
           break;
         }
-        case 'controller':
-        case 'one_controller': {
-          if (!GCI) {
-            throw new Error(`controller must be given GCI`);
-          }
 
-          await registerNetworkProtocols(vats, bridgeManager);
-
-          // Wire up the http server.
-          await setupCommandDevice(vats.http, devices.command, {
-            controller: true,
-          });
-          // Create a presence for the on-chain provisioner.
-          await addRemote(GCI);
-          const chainProvisioner = await E(vats.comms).addIngress(
-            GCI,
-            KEY_REG_INDEX,
-          );
-          // Allow web requests from the provisioning server to call our
-          // provisioner object.
-          const provisioner = harden({
-            pleaseProvision(nickname, pubkey) {
-              return E(chainProvisioner).pleaseProvision(nickname, pubkey);
-            },
-          });
-          await E(vats.http).setProvisioner(provisioner);
-          break;
-        }
-        case 'client':
-        case 'one_client': {
-          if (!GCI) {
-            throw new Error(`client must be given GCI`);
-          }
+        // ag-setup-solo runs this.
+        case 'client': {
+          assert(GCI, X`client must be given GCI`);
 
           const localTimerService = await E(vats.timer).createTimerService(
             devices.timer,
@@ -395,30 +636,22 @@ export function buildRootObject(vatPowers) {
             GCI,
             PROVISIONER_INDEX,
           );
-          const { payments, bundle, issuerInfo } = await E(
-            demoProvider,
-          ).getDemoBundle();
-          const localBundle = await createLocalBundle(
-            vats,
-            bundle,
-            payments,
-            issuerInfo,
-          );
+          const localBundle = await createLocalBundle(vats, devices);
+          await E(vats.http).setPresences(localBundle);
+          const bundle = await E(demoProvider).getDemoBundle();
           await E(vats.http).setPresences(localBundle, bundle, {
             localTimerService,
           });
-          await setupWalletVat(localBundle.http, vats.http, vats.wallet);
           break;
         }
-        case 'two_chain': {
-          // scenario #2: one-node chain running on localhost, solo node on
-          // localhost, HTML frontend on localhost. Single-player mode.
 
-          // bootAddress holds the pubkey of localclient
+        // fake-chain runs this
+        case 'sim-chain': {
           const chainBundler = await makeChainBundler(
             vats,
             devices.timer,
             vatAdminSvc,
+            noFakeCurrencies,
           );
 
           // Allow manual provisioning requests via `agoric cosmos`.
@@ -429,86 +662,45 @@ export function buildRootObject(vatPowers) {
           );
 
           await registerNetworkProtocols(vats, bridgeManager);
-          if (FIXME_DEPRECATED_BOOT_ADDRESS && bootAddress) {
-            const demoProvider = harden({
-              // build a chain-side bundle for a client.
-              async getDemoBundle(nickname) {
-                return chainBundler.createUserBundle(nickname);
-              },
-            });
-            await Promise.all(
-              [bootAddress, ...additionalAddresses].map(addr =>
-                E(vats.comms).addEgress(addr, PROVISIONER_INDEX, demoProvider),
-              ),
-            );
-          }
-          break;
-        }
-        case 'two_client': {
-          if (!GCI) {
-            throw new Error(`client must be given GCI`);
-          }
-          await setupCommandDevice(vats.http, devices.command, {
-            client: true,
-          });
-          const localTimerService = await E(vats.timer).createTimerService(
-            devices.timer,
-          );
-          await registerNetworkProtocols(vats, bridgeManager);
-          await addRemote(GCI);
-          // addEgress(..., PROVISIONER_INDEX) is called in case two_chain
-          const demoProvider = E(vats.comms).addIngress(GCI, PROVISIONER_INDEX);
-          // Get the demo bundle from the chain-side provider
-          const b = await E(demoProvider).getDemoBundle('client');
-          const { payments, bundle, issuerInfo } = b;
-          const localBundle = await createLocalBundle(
-            vats,
-            bundle,
-            payments,
-            issuerInfo,
-          );
-          await E(vats.http).setPresences(localBundle, bundle, {
-            localTimerService,
-          });
-          await setupWalletVat(localBundle.http, vats.http, vats.wallet);
-          break;
-        }
-        case 'three_client': {
-          // scenario #3: no chain. solo node on localhost with HTML
-          // frontend. Limited subset of demo runs inside the solo node.
 
-          // We pretend we're on-chain.
-          const chainBundler = makeChainBundler(
-            vats,
-            devices.timer,
-            vatAdminSvc,
-          );
-          await registerNetworkProtocols(vats, bridgeManager);
-
-          // Shared Setup (virtual chain side) ///////////////////////////
-          await setupCommandDevice(vats.http, devices.command, {
-            client: true,
+          // Allow some hardcoded client address connections into the chain.
+          // This is necessary for fake-chain, which does not have Cosmos SDK
+          // transactions to provision its client.
+          const demoProvider = Far('demoProvider', {
+            // build a chain-side bundle for a client.
+            async getDemoBundle(nickname) {
+              if (giveMeAllTheAgoricPowers) {
+                // NOTE: This is a special exception to the security model,
+                // to give capabilities to all clients (since we are running
+                // locally with the `--give-me-all-the-agoric-powers` flag).
+                return chainBundler.createUserBundle(nickname, 'demo', [
+                  'agoric.agoricNamesAdmin',
+                  'agoric.priceAuthorityAdmin',
+                  'agoric.treasuryCreator',
+                  'agoric.vattp',
+                ]);
+              }
+              return chainBundler.createUserBundle(nickname, 'demo');
+            },
           });
-          const { payments, bundle, issuerInfo } = await E(
-            chainBundler,
-          ).createUserBundle('localuser');
-
-          // Setup of the Local part /////////////////////////////////////
-          const localBundle = await createLocalBundle(
-            vats,
-            bundle,
-            payments,
-            issuerInfo,
+          await Promise.all(
+            hardcodedClientAddresses.map(async addr => {
+              const { transmitter, setReceiver } = await E(
+                vats.vattp,
+              ).addRemote(addr);
+              await E(vats.comms).addRemote(addr, transmitter, setReceiver);
+              await E(vats.comms).addEgress(
+                addr,
+                PROVISIONER_INDEX,
+                demoProvider,
+              );
+            }),
           );
-          await E(vats.http).setPresences(localBundle, bundle, {
-            localTimerService: bundle.chainTimerService,
-          });
 
-          setupWalletVat(localBundle.http, vats.http, vats.wallet);
           break;
         }
         default:
-          throw new Error(`ROLE was not recognized: ${ROLE}`);
+          assert.fail(X`ROLE was not recognized: ${ROLE}`);
       }
 
       console.debug(`all vats initialized for ${ROLE}`);

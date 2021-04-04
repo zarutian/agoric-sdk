@@ -1,3 +1,4 @@
+/* global require */
 import * as c from './constants';
 
 // We'd like to import this, but RE2 is cjs
@@ -18,7 +19,7 @@ export function makeMeteringTransformer(
 ) {
   const parser = overrideParser
     ? overrideParser.parse || overrideParser
-    : babelCore.parseSync;
+    : (source, opts) => babelCore.parseSync(source, { parserOpts: opts });
   const meterId = overrideMeterId;
   const replaceGlobalMeterId = overrideSetMeterId;
   const regexpIdPrefix = overrideRegExpIdPrefix;
@@ -178,11 +179,17 @@ const ${reid}=RegExp(${JSON.stringify(pattern)},${JSON.stringify(flags)});`);
       meter && meter[c.METER_COMPUTE](source.length);
 
       // Do the actual transform.
-      const ast = parser(source);
+      const ast = parser(source, {
+        plugins: ['bigInt'],
+      });
       const regexpList = [];
       const output = babelCore.transformFromAstSync(ast, source, {
         generatorOpts: {
           retainLines: true,
+          // Specify `compact: false` to silence:
+          // [BABEL] Note: The code generator has deoptimised the styling of
+          // undefined as it exceeds the max of 500KB.
+          compact: false,
         },
         plugins: [meteringPlugin(regexpList)],
         ast: true,

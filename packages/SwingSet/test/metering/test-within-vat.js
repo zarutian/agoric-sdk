@@ -1,8 +1,7 @@
-/* global harden */
-
+/* global require */
 import '@agoric/install-metering-and-ses';
 import bundleSource from '@agoric/bundle-source';
-import tap from 'tap';
+import test from 'ava';
 import { buildVatController } from '../../src/index';
 import makeNextLog from '../make-nextlog';
 
@@ -14,13 +13,19 @@ function capargs(args, slots = []) {
   return capdata(JSON.stringify(args), slots);
 }
 
-tap.test('metering within a vat', async t => {
+const localOnlyForNow = { defaultManagerType: 'local' };
+
+test('metering within a vat', async t => {
   // we'll give this bundle to the vat, which will import it under metering
   const bundle = await bundleSource(require.resolve('./metered-code.js'));
   const config = {
-    vats: new Map(),
+    ...localOnlyForNow,
+    vats: {
+      within: {
+        sourceSpec: require.resolve('./vat-within.js'),
+      },
+    },
   };
-  config.vats.set('within', { sourcepath: require.resolve('./vat-within.js') });
   const c = await buildVatController(config, []);
   const nextLog = makeNextLog(c);
 
@@ -140,6 +145,4 @@ tap.test('metering within a vat', async t => {
     ['run no', 'log2: started done', 'no exception'],
     'compute meter refilled',
   );
-
-  t.end();
 });

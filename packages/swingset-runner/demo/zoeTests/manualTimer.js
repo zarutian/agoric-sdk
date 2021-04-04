@@ -1,4 +1,5 @@
-/* global harden */
+import { assert } from '@agoric/assert';
+import { E } from '@agoric/eventual-send';
 
 // A fake clock that also logs progress in tests.
 export default function buildManualTimer(log, startValue = 0) {
@@ -6,6 +7,7 @@ export default function buildManualTimer(log, startValue = 0) {
   const schedule = new Map();
   return harden({
     setWakeup(deadline, handler) {
+      assert.typeof(deadline, 'bigint');
       if (deadline <= ticks) {
         log(`&& task was past its deadline when scheduled: ${deadline} &&`);
         handler.wake(ticks);
@@ -25,7 +27,7 @@ export default function buildManualTimer(log, startValue = 0) {
       if (schedule.has(ticks)) {
         for (const h of schedule.get(ticks)) {
           log(`&& running a task scheduled for ${ticks}. &&`);
-          h.wake(ticks);
+          E(h).wake(ticks);
         }
       }
     },

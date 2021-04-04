@@ -1,28 +1,34 @@
-import { E } from '@agoric/eventual-send';
-import makeIssuerKit from '../../../src/issuer';
+// @ts-check
 
-export function buildRootObject(vatPowers) {
+import { E } from '@agoric/eventual-send';
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
+import { makeIssuerKit, amountMath } from '../../../src';
+
+export function buildRootObject(vatPowers, vatParameters) {
+  const arg0 = vatParameters.argv[0];
+
   function testSplitPayments(aliceMaker) {
     vatPowers.testLog('start test splitPayments');
-    const { mint: moolaMint, issuer, amountMath } = makeIssuerKit('moola');
-    const moolaPayment = moolaMint.mintPayment(amountMath.make(1000));
+    const { mint: moolaMint, issuer, brand } = makeIssuerKit('moola');
+    const moolaPayment = moolaMint.mintPayment(amountMath.make(1000n, brand));
 
-    const aliceP = E(aliceMaker).make(issuer, amountMath, moolaPayment);
+    const aliceP = E(aliceMaker).make(issuer, brand, moolaPayment);
     return E(aliceP).testSplitPayments();
   }
 
   const obj0 = {
-    async bootstrap(argv, vats) {
-      switch (argv[0]) {
+    async bootstrap(vats) {
+      switch (arg0) {
         case 'splitPayments': {
           const aliceMaker = await E(vats.alice).makeAliceMaker();
           return testSplitPayments(aliceMaker);
         }
         default: {
-          throw new Error(`unrecognized argument value ${argv[0]}`);
+          assert.fail(X`unrecognized argument value ${arg0}`);
         }
       }
     },
   };
-  return harden(obj0);
+  return Far('root', obj0);
 }

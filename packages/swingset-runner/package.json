@@ -1,86 +1,68 @@
 {
   "name": "@agoric/swingset-runner",
-  "version": "0.5.0",
+  "version": "0.12.6",
   "private": true,
   "description": "Application to launch SwingSet instances for development and testing",
+  "parsers": {
+    "js": "mjs"
+  },
   "main": "src/main.js",
   "repository": "https://github.com/Agoric/agoric-sdk",
   "author": "Agoric",
   "license": "Apache-2.0",
   "scripts": {
     "build": "exit 0",
-    "test": "tape -r esm 'test/**/test*.js' | tap-spec",
+    "test": "ava",
+    "test:nyc": "nyc ava",
+    "test:xs": "exit 0",
     "lint-fix": "eslint --fix '**/*.js'",
-    "lint-check": "eslint '**/*.js'"
+    "lint-check": "eslint '**/*.js'",
+    "ci:autobench": "./autobench"
   },
   "dependencies": {
-    "@agoric/assert": "^0.0.8",
-    "@agoric/bundle-source": "^1.1.6",
-    "@agoric/ertp": "^0.6.0",
-    "@agoric/eventual-send": "^0.9.3",
-    "@agoric/same-structure": "^0.0.8",
-    "@agoric/stat-logger": "^0.3.0",
-    "@agoric/swing-store-lmdb": "^0.3.3",
-    "@agoric/swing-store-simple": "^0.2.3",
-    "@agoric/swingset-vat": "^0.6.0",
-    "@agoric/zoe": "^0.7.0"
+    "@agoric/assert": "^0.2.4",
+    "@agoric/bundle-source": "^1.2.4",
+    "@agoric/ertp": "^0.10.1",
+    "@agoric/eventual-send": "^0.13.4",
+    "@agoric/install-ses": "^0.5.4",
+    "@agoric/marshal": "^0.4.1",
+    "@agoric/same-structure": "^0.1.4",
+    "@agoric/stat-logger": "^0.4.4",
+    "@agoric/swing-store-lmdb": "^0.4.4",
+    "@agoric/swing-store-simple": "^0.3.4",
+    "@agoric/swingset-vat": "^0.14.0",
+    "@agoric/tame-metering": "^1.3.4",
+    "@agoric/zoe": "^0.13.1",
+    "n-readlines": "^1.0.1",
+    "yargs": "^16.1.0"
+  },
+  "devDependencies": {
+    "ava": "^3.12.1",
+    "esm": "^3.2.25",
+    "nyc": "^15.1.0"
   },
   "eslintConfig": {
     "extends": [
-      "airbnb-base",
-      "plugin:prettier/recommended"
-    ],
-    "env": {
-      "es6": true
-    },
-    "rules": {
-      "implicit-arrow-linebreak": "off",
-      "function-paren-newline": "off",
-      "arrow-parens": "off",
-      "strict": "off",
-      "no-lonely-if": "off",
-      "prefer-destructuring": "off",
-      "no-else-return": "off",
-      "no-console": "off",
-      "no-unused-vars": [
-        "error",
-        {
-          "argsIgnorePattern": "^_",
-          "varsIgnorePattern": "^_"
-        }
-      ],
-      "no-return-assign": "off",
-      "no-param-reassign": "off",
-      "no-restricted-syntax": [
-        "off",
-        "ForOfStatement"
-      ],
-      "no-unused-expressions": "off",
-      "no-loop-func": "off",
-      "no-inner-declarations": "off",
-      "yoda": [
-        "error",
-        "never",
-        {
-          "exceptRange": true
-        }
-      ],
-      "import/prefer-default-export": "off"
-    },
-    "globals": {
-      "BigInt": "readonly"
-    }
+      "@agoric"
+    ]
+  },
+  "prettier": {
+    "trailingComma": "all",
+    "singleQuote": true
   },
   "eslintIgnore": [
     "bundle-*.js"
   ],
-  "devDependencies": {
-    "esm": "^3.2.25",
-    "tap-spec": "^5.0.0",
-    "tape": "^4.10.2",
-    "tape-promise": "^4.0.0"
-  },
   "publishConfig": {
     "access": "public"
+  },
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ],
+    "timeout": "2m"
   }
 }

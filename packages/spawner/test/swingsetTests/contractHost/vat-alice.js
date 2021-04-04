@@ -1,9 +1,9 @@
 // Copyright (C) 2018 Agoric, under Apache License 2.0
 
-/* global harden */
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
 import { allComparable } from '@agoric/same-structure';
-import makeAmountMath from '@agoric/ertp/src/amountMath';
+import { makeLocalAmountMath } from '@agoric/ertp';
 
 import { makeCollect } from '../../../src/makeCollect';
 
@@ -22,15 +22,7 @@ function makeAliceMaker(host, log) {
     });
   }
 
-  const getLocalAmountMath = issuer =>
-    Promise.all([
-      E(issuer).getBrand(),
-      E(issuer).getMathHelpersName(),
-    ]).then(([brand, mathHelpersName]) =>
-      makeAmountMath(brand, mathHelpersName),
-    );
-
-  return harden({
+  return Far('aliceMaker', {
     async make(
       escrowExchangeInstallationP,
       coveredCallInstallationP,
@@ -42,12 +34,12 @@ function makeAliceMaker(host, log) {
       myOptFinPurseP = undefined,
       optFredP = undefined,
     ) {
-      const inviteIssuerP = E(host).getInviteIssuer();
+      const inviteIssuerP = E(host).getInvitationIssuer();
 
-      const moneyMath = await getLocalAmountMath(moneyIssuerP);
-      const stockMath = await getLocalAmountMath(stockIssuerP);
+      const moneyMath = await makeLocalAmountMath(moneyIssuerP);
+      const stockMath = await makeLocalAmountMath(stockIssuerP);
 
-      const alice = harden({
+      const alice = Far('alice', {
         payBobWell(bob) {
           log('++ alice.payBobWell starting');
           const paymentP = E(myMoneyPurseP).withdraw(moneyMath.make(10));
@@ -197,9 +189,9 @@ function makeAliceMaker(host, log) {
 }
 
 export function buildRootObject(vatPowers) {
-  return harden({
+  return Far('root', {
     makeAliceMaker(host) {
-      return harden(makeAliceMaker(host, vatPowers.log));
+      return makeAliceMaker(host, vatPowers.log);
     },
   });
 }

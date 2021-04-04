@@ -1,8 +1,7 @@
 // Copyright (C) 2019 Agoric, under Apache License 2.0
 
-/* global harden */
-
-import { assert, details } from '@agoric/assert';
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
 import { makeSharedMap } from './sharedMap';
 
 function makeSharingService() {
@@ -11,24 +10,26 @@ function makeSharingService() {
   const brand = new WeakSet();
   const tombstone = [];
 
-  const sharingService = harden({
+  const sharingService = Far('sharingService', {
     // retrieve and remove from the map.
     grabSharedMap(key) {
       if (!sharedMaps.has(key)) {
         return undefined;
       }
-      if (sharedMaps.get(key) === tombstone) {
-        throw new Error(`Entry for ${key} has already been collected.`);
-      }
+      assert(
+        sharedMaps.get(key) !== tombstone,
+        X`Entry for ${key} has already been collected.`,
+      );
       const result = sharedMaps.get(key);
       // these are single-use entries. Leave a tombstone to prevent MITM.
       sharedMaps.set(key, tombstone);
       return result;
     },
     createSharedMap(preferredName) {
-      if (sharedMaps.has(preferredName)) {
-        throw new Error(`Entry already exists: ${preferredName}`);
-      }
+      assert(
+        !sharedMaps.has(preferredName),
+        X`Entry already exists: ${preferredName}`,
+      );
       const sharedMap = makeSharedMap(preferredName);
       sharedMaps.set(preferredName, sharedMap);
       brand.add(sharedMap);
@@ -37,7 +38,7 @@ function makeSharingService() {
     validate(allegedSharedMap) {
       assert(
         brand.has(allegedSharedMap),
-        details`Unrecognized sharedMap: ${allegedSharedMap}`,
+        X`Unrecognized sharedMap: ${allegedSharedMap}`,
       );
       return allegedSharedMap;
     },

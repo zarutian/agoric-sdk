@@ -1,8 +1,72 @@
-/* global WebSocket fetch document window walletFrame */
+/* global setTimeout */
+// NOTE: Runs outside SES
+
+/* global WebSocket fetch document window walletFrame localStorage */
 const RECONNECT_BACKOFF_SECONDS = 3;
 // Functions to run to reset the HTML state to what it was.
 const resetFns = [];
 let inpBackground;
+
+let accessTokenParams;
+let hasAccessToken;
+
+function getAccessToken() {
+  // Fetch the access token from the window's URL.
+  accessTokenParams = `?${window.location.hash.slice(1)}`;
+  hasAccessToken = new URLSearchParams(accessTokenParams).get('accessToken');
+
+  try {
+    if (hasAccessToken) {
+      // Store the access token for later use.
+      localStorage.setItem('accessTokenParams', accessTokenParams);
+    } else {
+      // Try reviving it from localStorage.
+      accessTokenParams = localStorage.getItem('accessTokenParams') || '?';
+      hasAccessToken = new URLSearchParams(accessTokenParams).get(
+        'accessToken',
+      );
+    }
+  } catch (e) {
+    console.log('Error fetching accessTokenParams', e);
+  }
+
+  // Now that we've captured it, clear out the access token from the URL bar.
+  window.location.hash = '';
+  window.addEventListener('hashchange', _ev => {
+    // See if we should update the access token params.
+    const atp = `?${window.location.hash.slice(1)}`;
+    const hat = new URLSearchParams(atp).get('accessToken');
+
+    if (hat) {
+      // We have new params, so replace them.
+      accessTokenParams = atp;
+      hasAccessToken = hat;
+      localStorage.setItem('accessTokenParams', accessTokenParams);
+    }
+
+    // Keep it clear.
+    window.location.hash = '';
+  });
+}
+getAccessToken();
+
+if (!hasAccessToken) {
+  // This is friendly advice to the user who doesn't know.
+  if (
+    // eslint-disable-next-line no-alert
+    window.confirm(
+      `\
+You must open the Agoric Wallet+REPL with the
+    agoric open --repl
+command line executable.
+
+See the documentation?`,
+    )
+  ) {
+    window.location.href =
+      'https://agoric.com/documentation/getting-started/agoric-cli-guide.html#agoric-open';
+  }
+}
 
 function run() {
   const disableFns = []; // Functions to run when the input should be disabled.
@@ -12,7 +76,7 @@ function run() {
   let inputHistoryNum = 0;
 
   async function call(req) {
-    const res = await fetch('/private/repl', {
+    const res = await fetch(`/private/repl${accessTokenParams}`, {
       method: 'POST',
       body: JSON.stringify(req),
       headers: { 'Content-Type': 'application/json' },
@@ -24,9 +88,8 @@ function run() {
     throw new Error(`server error: ${JSON.stringify(j.rej)}`);
   }
 
-  const loc = window.location;
-  const protocol = loc.protocol.replace(/^http/, 'ws');
-  const socketEndpoint = `${protocol}//${loc.host}/private/repl`;
+  const protocol = window.location.protocol.replace(/^http/, 'ws');
+  const socketEndpoint = `${protocol}//${window.location.host}/private/repl${accessTokenParams}`;
   const ws = new WebSocket(socketEndpoint);
 
   ws.addEventListener('error', ev => {
@@ -50,8 +113,16 @@ function run() {
       .map(
         l =>
           l
-            .replace('&', '&amp;') // quote ampersands
-            .replace('<', '&lt;') // quote html
+            // These replacements are for securely inserting into .innerHTML, from
+            // https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html#rule-1-html-encode-before-inserting-untrusted-data-into-html-element-content
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#x27;')
+            .replace(/\//g, '&#x2F;')
+
+            // These two replacements are just for word wrapping, not security.
             .replace(/\t/g, '  ') // expand tabs
             .replace(/ {2}/g, ' &nbsp;'), // try preserving whitespace
       )
@@ -274,14 +345,17 @@ const fpj = fetch('/package.json')
 fetches.push(fpj);
 
 // an optional `w=0` GET argument will suppress showing the wallet
-if (new URLSearchParams(window.location.search).get('w') !== '0') {
-  fetch('wallet/')
+if (
+  hasAccessToken &&
+  new URLSearchParams(window.location.search).get('w') !== '0'
+) {
+  fetch(`wallet/${accessTokenParams}`)
     .then(resp => {
       if (resp.status < 200 || resp.status >= 300) {
         throw Error(`status ${resp.status}`);
       }
       walletFrame.style.display = 'block';
-      walletFrame.src = 'wallet/';
+      walletFrame.src = `wallet/#${accessTokenParams.slice(1)}`;
     })
     .catch(e => {
       console.log('Cannot fetch wallet/', e);

@@ -1,5 +1,4 @@
-/* global harden */
-
+/* global require */
 /*
   The 'mailbox' device helps manage bidirectional communication with a number
   of 'peers'. Each peer is identified with a string. We exchange ordered
@@ -66,18 +65,44 @@
 
 */
 
-import Nat from '@agoric/nat';
+import { Nat } from '@agoric/nat';
+
+import { assert, details as X } from '@agoric/assert';
 
 // This Map-based mailboxState object is a good starting point, but we may
 // replace it with one that tracks which parts of the state have been
 // modified, to build more efficient Merkle proofs.
 
-export function buildMailboxStateMap() {
-  const state = harden(new Map());
+export function importMailbox(data, inout = {}) {
+  const outbox = new Map();
+  data.outbox.forEach(m => {
+    outbox.set(Nat(m[0]), m[1]);
+  });
+  inout.ack = Nat(data.ack);
+  inout.outbox = outbox;
+  return inout;
+}
 
+export function exportMailbox(inout) {
+  const messages = [];
+  inout.outbox.forEach((body, msgnum) => {
+    messages.push([Number(msgnum), body]);
+  });
+  messages.sort((a, b) => a[0] - b[0]);
+  return {
+    ack: Number(inout.ack),
+    outbox: messages,
+  };
+}
+
+export function buildMailboxStateMap(state = harden(new Map())) {
   function getOrCreatePeer(peer) {
     if (!state.has(peer)) {
-      state.set(peer, { outbox: harden(new Map()), inboundAck: 0 });
+      const inout = {
+        outbox: harden(new Map()),
+        ack: 0n,
+      };
+      state.set(peer, inout);
     }
     return state.get(peer);
   }
@@ -92,33 +117,33 @@ export function buildMailboxStateMap() {
   }
 
   function setAcknum(peer, msgnum) {
-    getOrCreatePeer(`${peer}`).inboundAck = Nat(msgnum);
+    getOrCreatePeer(`${peer}`).ack = Nat(msgnum);
   }
 
   function exportToData() {
     const data = {};
     state.forEach((inout, peer) => {
-      const messages = [];
-      inout.outbox.forEach((body, msgnum) => {
-        messages.push([msgnum, body]);
-      });
-      messages.sort((a, b) => a[0] - b[0]);
-      data[peer] = { outbox: messages, inboundAck: inout.inboundAck };
+      const exported = exportMailbox(inout);
+      data[peer] = {
+        inboundAck: exported.ack,
+        outbox: exported.outbox,
+      };
     });
     return harden(data);
   }
 
   function populateFromData(data) {
-    if (state.size) {
-      throw new Error(`cannot populateFromData: outbox is not empty`);
-    }
+    assert(!state.size, X`cannot populateFromData: outbox is not empty`);
     for (const peer of Object.getOwnPropertyNames(data)) {
       const inout = getOrCreatePeer(peer);
       const d = data[peer];
-      d.outbox.forEach(m => {
-        inout.outbox.set(Nat(m[0]), m[1]);
-      });
-      inout.inboundAck = d.inboundAck;
+      importMailbox(
+        {
+          ack: d.inboundAck,
+          outbox: d.outbox,
+        },
+        inout,
+      );
     }
   }
 
@@ -161,7 +186,7 @@ export function buildMailbox(state) {
     try {
       return Boolean(inboundCallback(peer, messages, ack));
     } catch (e) {
-      throw new Error(`error in inboundCallback: ${e}`);
+      assert.fail(X`error in inboundCallback: ${e}`);
     }
   }
 

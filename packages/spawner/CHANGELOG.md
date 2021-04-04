@@ -3,6 +3,136 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.4.4](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.4.3...@agoric/spawner@0.4.4) (2021-03-24)
+
+**Note:** Version bump only for package @agoric/spawner
+
+
+
+
+
+## [0.4.3](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.4.2...@agoric/spawner@0.4.3) (2021-03-16)
+
+
+### Bug Fixes
+
+* make separate 'test:xs' target, remove XS from 'test' target ([b9c1a69](https://github.com/Agoric/agoric-sdk/commit/b9c1a6987093fc8e09e8aba7acd2a1618413bac8)), closes [#2647](https://github.com/Agoric/agoric-sdk/issues/2647)
+* **spawner:** add enough Far/Data to pass tests ([73e06cc](https://github.com/Agoric/agoric-sdk/commit/73e06cc83b8058bd4bd7f532020226613f1bb183)), closes [#2018](https://github.com/Agoric/agoric-sdk/issues/2018)
+
+
+
+
+
+## [0.4.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.4.1...@agoric/spawner@0.4.2) (2021-02-22)
+
+**Note:** Version bump only for package @agoric/spawner
+
+
+
+
+
+## [0.4.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.4.0...@agoric/spawner@0.4.1) (2021-02-16)
+
+
+### Bug Fixes
+
+* review comments ([7db7e5c](https://github.com/Agoric/agoric-sdk/commit/7db7e5c4c569dfedff8d748dd58893218b0a2458))
+* use assert rather than FooError constructors ([f860c5b](https://github.com/Agoric/agoric-sdk/commit/f860c5bf5add165a08cb5bd543502857c3f57998))
+
+
+
+
+
+# [0.4.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.3.0...@agoric/spawner@0.4.0) (2020-12-10)
+
+
+### Features
+
+* **import-bundle:** Preliminary support Endo zip hex bundle format ([#1983](https://github.com/Agoric/agoric-sdk/issues/1983)) ([983681b](https://github.com/Agoric/agoric-sdk/commit/983681bfc4bf512b6bd90806ed9220cd4fefc13c))
+
+
+
+
+
+# [0.3.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.2.3-dev.0...@agoric/spawner@0.3.0) (2020-11-07)
+
+
+### Features
+
+* **assert:** Thread stack traces to console, add entangled assert ([#1884](https://github.com/Agoric/agoric-sdk/issues/1884)) ([5d4f35f](https://github.com/Agoric/agoric-sdk/commit/5d4f35f901f2ca40a2a4d66dab980a5fe8e575f4))
+
+
+
+
+
+## [0.2.3-dev.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.2.2...@agoric/spawner@0.2.3-dev.0) (2020-10-19)
+
+**Note:** Version bump only for package @agoric/spawner
+
+
+
+
+
+## [0.2.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.2.2-dev.2...@agoric/spawner@0.2.2) (2020-10-11)
+
+**Note:** Version bump only for package @agoric/spawner
+
+
+
+
+
+## [0.2.2-dev.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.2.2-dev.1...@agoric/spawner@0.2.2-dev.2) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/spawner
+
+
+
+
+
+## [0.2.2-dev.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.2.2-dev.0...@agoric/spawner@0.2.2-dev.1) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/spawner
+
+
+
+
+
+## [0.2.2-dev.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.2.1...@agoric/spawner@0.2.2-dev.0) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/spawner
+
+
+
+
+
+## [0.2.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.2.0...@agoric/spawner@0.2.1) (2020-09-16)
+
+**Note:** Version bump only for package @agoric/spawner
+
+
+
+
+
+# [0.2.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.1.6...@agoric/spawner@0.2.0) (2020-08-31)
+
+
+### Bug Fixes
+
+* deprecate getMathHelpersName for getMathHelperName ([#1409](https://github.com/Agoric/agoric-sdk/issues/1409)) ([2375b28](https://github.com/Agoric/agoric-sdk/commit/2375b28c1aadf8116c3665cec0ef0397e6a91102))
+* excise @agoric/harden from the codebase ([eee6fe1](https://github.com/Agoric/agoric-sdk/commit/eee6fe1153730dec52841c9eb4c056a8c5438b0f))
+* reduce inconsistency among our linting rules ([#1492](https://github.com/Agoric/agoric-sdk/issues/1492)) ([b6b675e](https://github.com/Agoric/agoric-sdk/commit/b6b675e2de110e2af19cad784a66220cab21dacf))
+* rename producePromise to makePromiseKit ([#1329](https://github.com/Agoric/agoric-sdk/issues/1329)) ([1d2925a](https://github.com/Agoric/agoric-sdk/commit/1d2925ad640cce7b419751027b44737bd46a6d59))
+* skip another failing test discovered by AVA ([8103c83](https://github.com/Agoric/agoric-sdk/commit/8103c8340540b8d6f83b38b2e912a22ec66a75b2))
+
+
+### Features
+
+* ERTP v0.7.0 ([#1317](https://github.com/Agoric/agoric-sdk/issues/1317)) ([2d66b5a](https://github.com/Agoric/agoric-sdk/commit/2d66b5ae1feaeef1024fc6bfac7066a385ed5207)), closes [#1306](https://github.com/Agoric/agoric-sdk/issues/1306) [#1305](https://github.com/Agoric/agoric-sdk/issues/1305)
+
+
+
+
+
 ## [0.1.6](https://github.com/Agoric/agoric-sdk/compare/@agoric/spawner@0.1.5...@agoric/spawner@0.1.6) (2020-06-30)
 
 

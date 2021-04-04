@@ -1,16 +1,78 @@
-/* global harden */
+// @ts-check
+
+// Your app may need to `import '@agoric/eventual-send/shim'` to get HandledPromise
 
 // This logic was mostly lifted from @agoric/swingset-vat liveSlots.js
 // Defects in it are mfig's fault.
-import { Remotable, makeMarshal, QCLASS } from '@agoric/marshal';
-import Nat from '@agoric/nat';
-import { HandledPromise, E } from '@agoric/eventual-send';
-import { isPromise } from '@agoric/produce-promise';
+import {
+  Remotable as defaultRemotable,
+  Far as defaultFar,
+  makeMarshal as defaultMakeMarshal,
+  QCLASS,
+} from '@agoric/marshal';
+import { E, HandledPromise } from '@agoric/eventual-send';
+import { isPromise } from '@agoric/promise-kit';
 
-export { E, HandledPromise, Nat };
+export { E };
 
-export function makeCapTP(ourId, send, bootstrapObj = undefined) {
+/**
+ * @template T
+ * @typedef {import('@agoric/eventual-send').ERef<T>} ERef
+ */
+
+/**
+ * @typedef {Object} CapTPOptions the options to makeCapTP
+ * @property {(err: any) => void} onReject
+ * @property {typeof defaultRemotable} Remotable
+ * @property {typeof defaultFar} Far
+ * @property {typeof defaultMakeMarshal} makeMarshal
+ * @property {number} epoch
+ */
+/**
+ * Create a CapTP connection.
+ *
+ * @param {string} ourId our name for the current side
+ * @param {(obj: Record<string, any>) => void} rawSend send a JSONable packet
+ * @param {any} bootstrapObj the object to export to the other side
+ * @param {Partial<CapTPOptions>} opts options to the connection
+ */
+export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
+  const {
+    onReject = err => console.error('CapTP', ourId, 'exception:', err),
+    Remotable = defaultRemotable,
+    makeMarshal = defaultMakeMarshal,
+    epoch = 0,
+  } = opts;
+
+  const disconnectReason = id =>
+    Error(`${JSON.stringify(id)} connection closed`);
+
+  /** @type {any} */
   let unplug = false;
+  async function quietReject(reason = undefined, returnIt = true) {
+    if ((unplug === false || reason !== unplug) && reason !== undefined) {
+      onReject(reason);
+    }
+    if (!returnIt) {
+      return Promise.resolve();
+    }
+
+    // Silence the unhandled rejection warning, but don't affect
+    // the user's handlers.
+    const p = Promise.reject(reason);
+    p.catch(_ => {});
+    return p;
+  }
+
+  /**
+   * @param {Record<string, any>} obj
+   */
+  function send(obj) {
+    // Don't throw here if unplugged, just don't send.
+    if (unplug === false) {
+      rawSend(obj);
+    }
+  }
 
   // convertValToSlot and convertSlotToVal both perform side effects,
   // populating the c-lists (imports/exports/questions/answers) upon
@@ -22,7 +84,16 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
     convertValToSlot,
     // eslint-disable-next-line no-use-before-define
     convertSlotToVal,
+    {
+      marshalName: `captp:${ourId}`,
+      // TODO Temporary hack.
+      // See https://github.com/Agoric/agoric-sdk/issues/2780
+      errorIdNum: 20000,
+    },
   );
+
+  const valToSlot = new WeakMap(); // exports looked up by val
+  const slotToVal = new Map(); // reverse
 
   // Used to construct slot names for promises/non-promises.
   // In this verison of CapTP we use strings for export/import slot names.
@@ -33,8 +104,6 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
   // the question key
   let lastQuestionID = 0;
 
-  const valToSlot = new WeakMap(); // exports looked up by val
-  const slotToVal = new Map(); // exports looked up by slot
   const questions = new Map(); // chosen by us
   const answers = new Map(); // chosen by our peer
   const imports = new Map(); // chosen by our peer
@@ -88,29 +157,35 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
     return valToSlot.get(val);
   }
 
-  // Generate a new question in the questions table and set up a new
-  // remote handled promise.
-  // Returns: [questionId, pr]
-  //   where `pr` is the HandledPromise for this question.
+  /**
+   * Generate a new question in the questions table and set up a new
+   * remote handled promise.
+   *
+   * @returns {[number, ReturnType<typeof makeRemoteKit>]}
+   */
   function makeQuestion() {
     lastQuestionID += 1;
     const questionID = lastQuestionID;
     // eslint-disable-next-line no-use-before-define
-    const pr = makeRemote(questionID);
+    const pr = makeRemoteKit(questionID);
     questions.set(questionID, pr);
     return [questionID, pr];
   }
 
   // Make a remote promise for `target` (an id in the questions table)
-  function makeRemote(target) {
+  function makeRemoteKit(target) {
     // This handler is set up such that it will transform both
     // attribute access and method invocation of this remote promise
     // as also being questions / remote handled promises
     const handler = {
       get(_o, prop) {
+        if (unplug !== false) {
+          return quietReject(unplug);
+        }
         const [questionID, pr] = makeQuestion();
         send({
           type: 'CTP_CALL',
+          epoch,
           questionID,
           target,
           method: serialize(harden([prop])),
@@ -118,10 +193,14 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
         return harden(pr.p);
       },
       applyMethod(_o, prop, args) {
+        if (unplug !== false) {
+          return quietReject(unplug);
+        }
         // Support: o~.[prop](...args) remote method invocation
         const [questionID, pr] = makeQuestion();
         send({
           type: 'CTP_CALL',
+          epoch,
           questionID,
           target,
           method: serialize(harden([prop, args])),
@@ -136,11 +215,16 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
       pr.resPres = () => resolveWithPresence(handler);
       pr.res = res;
     }, handler);
+
+    // Silence the unhandled rejection warning, but don't affect
+    // the user's handlers.
+    pr.p.catch(e => quietReject(e, false));
+
     return harden(pr);
   }
 
   // Set up import
-  function convertSlotToVal(theirSlot) {
+  function convertSlotToVal(theirSlot, iface = undefined) {
     let val;
     // Invert slot direction from other side.
 
@@ -153,11 +237,14 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
     const slot = `${theirSlot[0]}${otherDir}${theirSlot.slice(2)}`;
     if (!slotToVal.has(slot)) {
       // Make a new handled promise for the slot.
-      const pr = makeRemote(slot);
+      const pr = makeRemoteKit(slot);
       if (slot[0] === 'o') {
         // A new remote presence
         const pres = pr.resPres();
-        val = Remotable(`Presence ${ourId} ${slot}`, undefined, pres);
+        if (iface === undefined) {
+          iface = `Alleged: Presence ${ourId} ${slot}`;
+        }
+        val = Remotable(iface, undefined, pres);
       } else {
         // A new promise
         imports.set(Number(slot.slice(2)), pr);
@@ -172,20 +259,23 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
   // Message handler used for CapTP dispatcher
   const handler = {
     // Remote is asking for bootstrap object
-    CTP_BOOTSTRAP(obj) {
+    async CTP_BOOTSTRAP(obj) {
       const { questionID } = obj;
       const bootstrap =
-        typeof bootstrapObj === 'function' ? bootstrapObj() : bootstrapObj;
-      // console.log('sending bootstrap', bootstrap);
-      answers.set(questionID, bootstrap);
-      send({
-        type: 'CTP_RETURN',
-        answerID: questionID,
-        result: serialize(bootstrap),
+        typeof bootstrapObj === 'function' ? bootstrapObj(obj) : bootstrapObj;
+      E.when(bootstrap, bs => {
+        // console.log('sending bootstrap', bootstrap);
+        answers.set(questionID, bs);
+        return send({
+          type: 'CTP_RETURN',
+          epoch,
+          answerID: questionID,
+          result: serialize(bs),
+        });
       });
     },
     // Remote is invoking a method or retrieving a property.
-    CTP_CALL(obj) {
+    async CTP_CALL(obj) {
       // questionId: Remote promise (for promise pipelining) this call is
       //   to fulfill
       // target: Slot id of the target to be invoked.  Checks against
@@ -213,22 +303,27 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
       answers.set(questionID, hp);
       // Set up promise resolver for this handled promise to send
       // message to other vat when fulfilled/broken.
-      hp.then(res =>
-        send({
-          type: 'CTP_RETURN',
-          answerID: questionID,
-          result: serialize(harden(res)),
-        }),
-      ).catch(rej =>
-        send({
-          type: 'CTP_RETURN',
-          answerID: questionID,
-          exception: serialize(harden(rej)),
-        }),
-      );
+      return hp
+        .then(res =>
+          send({
+            type: 'CTP_RETURN',
+            epoch,
+            answerID: questionID,
+            result: serialize(harden(res)),
+          }),
+        )
+        .catch(rej =>
+          send({
+            type: 'CTP_RETURN',
+            epoch,
+            answerID: questionID,
+            exception: serialize(harden(rej)),
+          }),
+        )
+        .catch(rej => quietReject(rej, false));
     },
     // Answer to one of our questions.
-    CTP_RETURN(obj) {
+    async CTP_RETURN(obj) {
       const { result, exception, answerID } = obj;
       const pr = questions.get(answerID);
       if ('exception' in obj) {
@@ -236,10 +331,9 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
       } else {
         pr.res(unserialize(result));
       }
-      questions.delete(answerID);
     },
     // Resolution to an imported promise
-    CTP_RESOLVE(obj) {
+    async CTP_RESOLVE(obj) {
       const { promiseID, res, rej } = obj;
       const pr = imports.get(promiseID);
       if ('rej' in obj) {
@@ -251,24 +345,33 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
     },
     // The other side has signaled something has gone wrong.
     // Pull the plug!
-    CTP_ABORT(obj) {
-      const { exception } = obj;
-      unplug = true;
+    async CTP_DISCONNECT(obj) {
+      const { reason = disconnectReason(ourId) } = obj;
+      if (unplug === false) {
+        // Reject with the original reason.
+        quietReject(obj.reason, false);
+        unplug = reason;
+        // Deliver the object, even though we're unplugged.
+        rawSend(obj);
+      }
       for (const pr of questions.values()) {
-        pr.rej(exception);
+        pr.rej(reason);
       }
       for (const pr of imports.values()) {
-        pr.rej(exception);
+        pr.rej(reason);
       }
-      send(obj);
     },
   };
 
   // Get a reference to the other side's bootstrap object.
-  const getBootstrap = () => {
+  const getBootstrap = async () => {
+    if (unplug !== false) {
+      return quietReject(unplug);
+    }
     const [questionID, pr] = makeQuestion();
     send({
       type: 'CTP_BOOTSTRAP',
+      epoch,
       questionID,
     });
     return harden(pr.p);
@@ -277,19 +380,85 @@ export function makeCapTP(ourId, send, bootstrapObj = undefined) {
 
   // Return a dispatch function.
   const dispatch = obj => {
-    if (unplug) {
+    try {
+      if (unplug !== false) {
+        return false;
+      }
+      const fn = handler[obj.type];
+      if (fn) {
+        fn(obj).catch(e => quietReject(e, false));
+        return true;
+      }
+      return false;
+    } catch (e) {
+      quietReject(e, false);
       return false;
     }
-    const fn = handler[obj.type];
-    if (fn) {
-      fn(obj);
-      return true;
-    }
-    return false;
   };
 
   // Abort a connection.
-  const abort = exception => dispatch({ type: 'CTP_ABORT', exception });
+  const abort = (reason = undefined) => {
+    dispatch({ type: 'CTP_DISCONNECT', epoch, reason });
+  };
 
-  return harden({ abort, dispatch, getBootstrap });
+  return harden({ abort, dispatch, getBootstrap, serialize, unserialize });
+}
+
+/**
+ * Create an async-isolated channel to an object.
+ *
+ * @param {string} ourId
+ * @returns {{ makeFar<T>(x: T): ERef<T>, makeNear<T>(x: T): ERef<T>  }}
+ */
+export function makeLoopback(ourId) {
+  let nextNonce = 0;
+  const nonceToRef = new Map();
+
+  // TODO use the correct Far, which is not currently in scope here.
+  const bootstrap = harden({
+    refGetter: defaultFar('captp bootstrap', {
+      getRef(nonce) {
+        // Find the local ref for the specified nonce.
+        const xFar = nonceToRef.get(nonce);
+        nonceToRef.delete(nonce);
+        return xFar;
+      },
+    }),
+  });
+
+  // Create the tunnel.
+  let farDispatch;
+  const { dispatch: nearDispatch, getBootstrap: getFarBootstrap } = makeCapTP(
+    `near-${ourId}`,
+    o => farDispatch(o),
+    bootstrap,
+  );
+  const { dispatch, getBootstrap: getNearBootstrap } = makeCapTP(
+    `far-${ourId}`,
+    nearDispatch,
+    bootstrap,
+  );
+  farDispatch = dispatch;
+
+  const farGetter = E.get(getFarBootstrap()).refGetter;
+  const nearGetter = E.get(getNearBootstrap()).refGetter;
+
+  /**
+   * @param {ERef<{ getRef(nonce: number): any }>} refGetter
+   */
+  const makeRefMaker = refGetter =>
+    /**
+     * @param {any} x
+     */
+    async x => {
+      const myNonce = nextNonce;
+      nextNonce += 1;
+      nonceToRef.set(myNonce, harden(x));
+      return E(refGetter).getRef(myNonce);
+    };
+
+  return {
+    makeFar: makeRefMaker(farGetter),
+    makeNear: makeRefMaker(nearGetter),
+  };
 }

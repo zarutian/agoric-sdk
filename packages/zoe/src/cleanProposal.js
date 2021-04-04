@@ -1,7 +1,21 @@
-import { assert, details, q } from '@agoric/assert';
+// @ts-check
+
+import { assert, details as X, q } from '@agoric/assert';
 import { mustBeComparable } from '@agoric/same-structure';
+import { isNat } from '@agoric/nat';
+import { amountMath, getMathKind, MathKind } from '@agoric/ertp';
+import {
+  isOnDemandExitRule,
+  isWaivedExitRule,
+  isAfterDeadlineExitRule,
+} from './typeGuards';
+
+import '../exported';
+import './internal-types';
 
 import { arrayToObj, assertSubset } from './objArrayConversion';
+
+const firstCapASCII = /^[A-Z][a-zA-Z0-9_$]*$/;
 
 // We adopt simple requirements on keywords so that they do not accidentally
 // conflict with existing property names.
@@ -14,16 +28,15 @@ import { arrayToObj, assertSubset } from './objArrayConversion';
 // lookup a keyword-named property no matter what `i` is.
 export const assertKeywordName = keyword => {
   assert.typeof(keyword, 'string');
-  const firstCapASCII = /^[A-Z][a-zA-Z0-9_$]*$/;
   assert(
     firstCapASCII.test(keyword),
-    details`keyword ${q(
+    X`keyword ${q(
       keyword,
     )} must be ascii and must start with a capital letter.`,
   );
   assert(
     keyword !== 'NaN' && keyword !== 'Infinity',
-    details`keyword ${q(keyword)} must not be a number's name`,
+    X`keyword ${q(keyword)} must not be a number's name`,
   );
 };
 
@@ -36,21 +49,21 @@ const assertKeysAllowed = (allowedKeys, record) => {
   // assert that there are no symbol properties.
   assert(
     Object.getOwnPropertySymbols(record).length === 0,
-    details`no symbol properties allowed`,
+    X`no symbol properties allowed`,
   );
 };
 
 const cleanKeys = (allowedKeys, record) => {
   assertKeysAllowed(allowedKeys, record);
-  return Object.getOwnPropertyNames(record);
+  return harden(Object.getOwnPropertyNames(record));
 };
 
 export const getKeywords = keywordRecord =>
   harden(Object.getOwnPropertyNames(keywordRecord));
 
-export const coerceAmountKeywordRecord = (
-  getAmountMath,
+const coerceAmountKeywordRecord = (
   allegedAmountKeywordRecord,
+  getMathKindByBrand,
 ) => {
   const keywords = getKeywords(allegedAmountKeywordRecord);
   keywords.forEach(assertKeywordName);
@@ -58,9 +71,20 @@ export const coerceAmountKeywordRecord = (
   const amounts = Object.values(allegedAmountKeywordRecord);
   // Check that each value can be coerced using the amountMath
   // indicated by brand. `AmountMath.coerce` throws if coercion fails.
-  const coercedAmounts = amounts.map(amount =>
-    getAmountMath(amount.brand).coerce(amount),
-  );
+  const coercedAmounts = amounts.map(amount => {
+    const brandMathKind = getMathKindByBrand(amount.brand);
+    const amountMathKind = getMathKind(amount);
+    // TODO: replace this assertion with a check of the mathKind
+    // property on the brand, when that exists. Additionally, remove
+    // the deprecated STRING_SET
+    assert(
+      amountMathKind === brandMathKind ||
+        (brandMathKind === MathKind.STRING_SET &&
+          amountMathKind === MathKind.SET),
+      X`The amount ${amount} did not have the mathKind of the brand ${brandMathKind}`,
+    );
+    return amountMath.coerce(amount, amount.brand);
+  });
 
   // Recreate the amountKeywordRecord with coercedAmounts.
   return arrayToObj(coercedAmounts, keywords);
@@ -74,7 +98,7 @@ export const cleanKeywords = keywordRecord => {
   // Insist that there are no symbol properties.
   assert(
     Object.getOwnPropertySymbols(keywordRecord).length === 0,
-    details`no symbol properties allowed`,
+    X`no symbol properties allowed`,
   );
 
   // Assert all key characters are ascii and keys start with a
@@ -83,6 +107,59 @@ export const cleanKeywords = keywordRecord => {
 
   return keywords;
 };
+
+const expectedAfterDeadlineKeys = harden(['timer', 'deadline']);
+
+const assertAfterDeadlineExitRule = exit => {
+  assertKeysAllowed(expectedAfterDeadlineKeys, exit.afterDeadline);
+  assert(exit.afterDeadline.timer !== undefined, X`timer must be defined`);
+  assert(
+    typeof exit.afterDeadline.deadline === 'bigint' &&
+      isNat(exit.afterDeadline.deadline),
+    X`deadline must be a Nat BigInt`,
+  );
+};
+
+const assertExitValueNull = (exit, exitKey) =>
+  assert(exit[exitKey] === null, `exit value must be null for key ${exitKey}`);
+
+// We expect the single exit key to be one of the following:
+const allowedExitKeys = harden(['onDemand', 'afterDeadline', 'waived']);
+
+const assertExit = exit => {
+  assert(
+    Object.getOwnPropertyNames(exit).length === 1,
+    X`exit ${exit} should only have one key`,
+  );
+
+  const [exitKey] = cleanKeys(allowedExitKeys, exit);
+  if (isOnDemandExitRule(exit) || isWaivedExitRule(exit)) {
+    assertExitValueNull(exit, exitKey);
+  }
+  if (isAfterDeadlineExitRule(exit)) {
+    assertAfterDeadlineExitRule(exit);
+  }
+};
+
+/**
+ * check that keyword is not in both 'want' and 'give'.
+ *
+ * @param {Proposal["want"]} want
+ * @param {Proposal["give"]} give
+ */
+const assertKeywordNotInBoth = (want, give) => {
+  const wantKeywordSet = new Set(Object.getOwnPropertyNames(want));
+  const giveKeywords = Object.getOwnPropertyNames(give);
+
+  giveKeywords.forEach(keyword => {
+    assert(
+      !wantKeywordSet.has(keyword),
+      X`a keyword cannot be in both 'want' and 'give'`,
+    );
+  });
+};
+
+const rootKeysAllowed = harden(['want', 'give', 'exit']);
 
 /**
  * cleanProposal checks the keys and values of the proposal, including
@@ -94,65 +171,29 @@ export const cleanKeywords = keywordRecord => {
  * must be keywords and the values must be amounts. The value of
  * `exit`, if present, must be a record of one of the following forms:
  * `{ waived: null }` `{ onDemand: null }` `{ afterDeadline: { timer
- * :Timer, deadline :Number } }
- * @param {(brand: Brand) => AmountMath} getAmountMath
+ * :Timer, deadline :bigint } }
+ *
  * @param {Proposal} proposal
+ * @param {GetMathKindByBrand} getMathKindByBrand
  * @returns {ProposalRecord}
  */
-export const cleanProposal = (getAmountMath, proposal) => {
-  const rootKeysAllowed = ['want', 'give', 'exit'];
+export const cleanProposal = (proposal, getMathKindByBrand) => {
   mustBeComparable(proposal);
   assertKeysAllowed(rootKeysAllowed, proposal);
 
   // We fill in the default values if the keys are undefined.
   let { want = harden({}), give = harden({}) } = proposal;
-  const { exit = harden({ onDemand: null }) } = proposal;
 
-  want = coerceAmountKeywordRecord(getAmountMath, want);
-  give = coerceAmountKeywordRecord(getAmountMath, give);
+  const {
+    /** @type {ExitRule} */ exit = harden({ onDemand: null }),
+  } = proposal;
 
-  // Check exit
-  assert(
-    Object.getOwnPropertyNames(exit).length === 1,
-    details`exit ${proposal.exit} should only have one key`,
-  );
-  // We expect the single exit key to be one of the following:
-  const allowedExitKeys = ['onDemand', 'afterDeadline', 'waived'];
-  const [exitKey] = cleanKeys(allowedExitKeys, exit);
-  if (exitKey === 'onDemand' || exitKey === 'waived') {
-    assert(
-      exit[exitKey] === null,
-      `exit value must be null for key ${exitKey}`,
-    );
-  }
-  if (exitKey === 'afterDeadline') {
-    const expectedAfterDeadlineKeys = ['timer', 'deadline'];
-    assertKeysAllowed(expectedAfterDeadlineKeys, exit.afterDeadline);
-    assert(
-      exit.afterDeadline.timer !== undefined,
-      details`timer must be defined`,
-    );
-    assert(
-      exit.afterDeadline.deadline !== undefined,
-      details`deadline must be defined`,
-    );
-    // timers must have a 'setWakeup' function which takes a deadline
-    // and an object as arguments.
-    // TODO: document timer interface
-    // https://github.com/Agoric/agoric-sdk/issues/751
-    // TODO: how to check methods on presences?
-  }
+  want = coerceAmountKeywordRecord(want, getMathKindByBrand);
+  give = coerceAmountKeywordRecord(give, getMathKindByBrand);
 
-  // check that keyword is not in both 'want' and 'give'.
-  const wantKeywordSet = new Set(Object.getOwnPropertyNames(want));
-  const giveKeywords = Object.getOwnPropertyNames(give);
+  assertExit(exit);
 
-  giveKeywords.forEach(keyword => {
-    assert(
-      !wantKeywordSet.has(keyword),
-      details`a keyword cannot be in both 'want' and 'give'`,
-    );
-  });
+  assertKeywordNotInBoth(want, give);
 
   return harden({ want, give, exit });
 };

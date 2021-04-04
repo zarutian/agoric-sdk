@@ -1,11 +1,13 @@
-/* global harden */
 // @ts-check
 
 import makeStore from '@agoric/store';
 import { E } from '@agoric/eventual-send';
-import { producePromise } from '@agoric/produce-promise';
+import { Far } from '@agoric/marshal';
+import { makePromiseKit } from '@agoric/promise-kit';
+import { assert, details as X } from '@agoric/assert';
 import { toBytes } from './bytes';
 
+import '@agoric/store/exported';
 import './types';
 import './internal-types';
 
@@ -20,7 +22,7 @@ export const rethrowUnlessMissing = err => {
   // exists.
   if (
     !(err instanceof TypeError) ||
-    !err.message.match(/target\[.*\] does not exist|is not a function$/)
+    !err.message.match(/target has no method|is not a function$/)
   ) {
     throw err;
   }
@@ -50,7 +52,7 @@ export const makeConnection = (
   /**
    * @type {Connection}
    */
-  const connection = harden({
+  const connection = Far('Connection', {
     getLocalAddress() {
       return localAddr;
     },
@@ -77,11 +79,14 @@ export const makeConnection = (
         throw closed;
       }
       const bytes = toBytes(data);
-      const ackDeferred = producePromise();
+      const ackDeferred = makePromiseKit();
       pendingAcks.add(ackDeferred);
       E(handler)
         .onReceive(connection, bytes, handler)
-        .catch(err => rethrowUnlessMissing(err) || '')
+        .catch(err => {
+          rethrowUnlessMissing(err);
+          return '';
+        })
         .then(
           ack => {
             pendingAcks.delete(ackDeferred);
@@ -134,7 +139,7 @@ export function crossoverConnection(
 
   function makeHalfConnection(l, r) {
     let closed;
-    conns[l] = harden({
+    conns[l] = Far('Connection', {
       getLocalAddress() {
         return addrs[l];
       },
@@ -188,6 +193,7 @@ export function crossoverConnection(
 
 /**
  * Get the list of prefixes from longest to shortest.
+ *
  * @param {string} addr
  */
 export function getPrefixes(addr) {
@@ -218,6 +224,7 @@ export function makeNetworkProtocol(protocolHandler) {
   /**
    * Currently must be a single listenHandler.
    * TODO: Do something sensible with multiple handlers?
+   *
    * @type {Store<Endpoint, [Port, ListenHandler]>}
    */
   const listening = makeStore('localAddr');
@@ -265,18 +272,14 @@ export function makeNetworkProtocol(protocolHandler) {
     /**
      * @type {Port}
      */
-    const port = harden({
+    const port = Far('Port', {
       getLocalAddress() {
         // Works even after revoke().
         return localAddr;
       },
       async addListener(listenHandler) {
-        if (revoked) {
-          throw Error(`Port ${localAddr} is revoked`);
-        }
-        if (!listenHandler) {
-          throw TypeError(`listenHandler is not defined`);
-        }
+        assert(!revoked, X`Port ${localAddr} is revoked`);
+        assert(listenHandler, X`listenHandler is not defined`, TypeError);
         if (listening.has(localAddr)) {
           // Last one wins.
           const [lport, lhandler] = listening.get(localAddr);
@@ -304,12 +307,11 @@ export function makeNetworkProtocol(protocolHandler) {
           .catch(rethrowUnlessMissing);
       },
       async removeListener(listenHandler) {
-        if (!listening.has(localAddr)) {
-          throw Error(`Port ${localAddr} is not listening`);
-        }
-        if (listening.get(localAddr)[1] !== listenHandler) {
-          throw Error(`Port ${localAddr} handler to remove is not listening`);
-        }
+        assert(listening.has(localAddr), X`Port ${localAddr} is not listening`);
+        assert(
+          listening.get(localAddr)[1] === listenHandler,
+          X`Port ${localAddr} handler to remove is not listening`,
+        );
         listening.delete(localAddr);
         await E(protocolHandler).onListenRemove(
           port,
@@ -322,9 +324,7 @@ export function makeNetworkProtocol(protocolHandler) {
           .catch(rethrowUnlessMissing);
       },
       async connect(remotePort, connectionHandler = {}) {
-        if (revoked) {
-          throw Error(`Port ${localAddr} is revoked`);
-        }
+        assert(!revoked, X`Port ${localAddr} is revoked`);
         /**
          * @type {Endpoint}
          */
@@ -339,9 +339,10 @@ export function makeNetworkProtocol(protocolHandler) {
         return conn;
       },
       async revoke() {
-        if (revoked === RevokeState.REVOKED) {
-          throw Error(`Port ${localAddr} is already revoked`);
-        }
+        assert(
+          revoked !== RevokeState.REVOKED,
+          X`Port ${localAddr} is already revoked`,
+        );
         revoked = RevokeState.REVOKING;
         await E(protocolHandler).onRevoke(port, localAddr, protocolHandler);
         revoked = RevokeState.REVOKED;
@@ -372,7 +373,7 @@ export function makeNetworkProtocol(protocolHandler) {
   /**
    * @type {ProtocolImpl}
    */
-  const protocolImpl = harden({
+  const protocolImpl = Far('ProtocolImpl', {
     bind,
     async inbound(listenAddr, remoteAddr) {
       let lastFailure = Error(`No listeners for ${listenAddr}`);
@@ -400,7 +401,7 @@ export function makeNetworkProtocol(protocolHandler) {
         // We have a legitimate inbound attempt.
         let consummated;
         const current = currentConnections.get(port);
-        const inboundAttempt = harden({
+        const inboundAttempt = Far('InboundAttempt', {
           getLocalAddress() {
             // Return address metadata.
             return localAddr;
@@ -500,7 +501,7 @@ export function makeEchoConnectionHandler() {
   /**
    * @type {Connection}
    */
-  return harden({
+  return Far('ConnectionHandler', {
     async onReceive(_connection, bytes, _connectionHandler) {
       if (closed) {
         throw closed;
@@ -529,7 +530,7 @@ export function makeLoopbackProtocolHandler() {
 
   let nonce = 0;
 
-  return harden({
+  return Far('ProtocolHandler', {
     // eslint-disable-next-line no-empty-function
     async onCreate(_impl, _protocolHandler) {
       // TODO
@@ -574,12 +575,11 @@ export function makeLoopbackProtocolHandler() {
     },
     async onListenRemove(port, localAddr, listenHandler, _protocolHandler) {
       const [lport, lhandler] = listeners.get(localAddr);
-      if (lport !== port) {
-        throw Error(`Port does not match listener on ${localAddr}`);
-      }
-      if (lhandler !== listenHandler) {
-        throw Error(`Listen handler does not match listener on ${localAddr}`);
-      }
+      assert(lport === port, X`Port does not match listener on ${localAddr}`);
+      assert(
+        lhandler === listenHandler,
+        X`Listen handler does not match listener on ${localAddr}`,
+      );
       listeners.delete(localAddr);
     },
     async onRevoke(_port, _localAddr, _protocolHandler) {

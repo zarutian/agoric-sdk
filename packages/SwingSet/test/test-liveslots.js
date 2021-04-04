@@ -1,12 +1,11 @@
-/* global harden */
+// eslint-disable-next-line import/order
+import { test } from '../tools/prepare-test-env-ava';
 
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
 import { E } from '@agoric/eventual-send';
-import { initSwingStore } from '@agoric/swing-store-simple';
+import { Far } from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
+import { WeakRef, FinalizationRegistry } from '../src/weakref';
 import { waitUntilQuiescent } from '../src/waitUntilQuiescent';
-
-import buildKernel from '../src/kernel/index';
 import { makeLiveSlots } from '../src/kernel/liveSlots';
 
 function capdata(body, slots = []) {
@@ -17,160 +16,22 @@ function capargs(args, slots = []) {
   return capdata(JSON.stringify(args), slots);
 }
 
-function makeEndowments() {
-  return {
-    waitUntilQuiescent,
-    hostStorage: initSwingStore().storage,
-    runEndOfCrank: () => {},
-  };
+function capdataOneSlot(slot) {
+  return capargs({ '@qclass': 'slot', iface: 'Alleged: export', index: 0 }, [
+    slot,
+  ]);
 }
 
-test('calls', async t => {
-  const kernel = buildKernel(makeEndowments());
-  const log = [];
-  let syscall;
-
-  function setupBootstrap(syscallBootstrap, _state, _helpers) {
-    syscall = syscallBootstrap;
-    function deliver(facetID, method, args, result) {
-      log.push(['deliver', facetID, method, args, result]);
-    }
-    return { deliver };
-  }
-  kernel.addGenesisVat('bootstrap', setupBootstrap);
-
-  function setup(syscallVat, state, helpers) {
-    function build(_vatPowers) {
-      return harden({
-        one() {
-          log.push('one');
-        },
-        two(p) {
-          log.push(`two ${E.resolve(p) === p}`);
-          p.then(
-            res => log.push(['res', res]),
-            rej => log.push(['rej', rej]),
-          );
-        },
-      });
-    }
-    return makeLiveSlots(syscallVat, state, build, helpers.vatID);
-  }
-  kernel.addGenesisVat('vat', setup);
-
-  await kernel.start('bootstrap', `[]`);
-  const bootstrapVatID = kernel.vatNameToID('bootstrap');
-  const vatID = kernel.vatNameToID('vat');
-
-  // cycle past the bootstrap() call
-  await kernel.step();
-  log.shift();
-  t.deepEqual(kernel.dump().runQueue, []);
-
-  const root = kernel.addImport(bootstrapVatID, kernel.addExport(vatID, 'o+0'));
-
-  // root!one() // sendOnly
-  syscall.send(root, 'one', capargs(['args']), undefined);
-
-  await kernel.step();
-  t.deepEqual(log.shift(), 'one');
-  t.deepEqual(kernel.dump().runQueue, []);
-  // console.log(kernel.dump().runQueue);
-
-  // pr = makePromise()
-  // root!two(pr.promise)
-  // pr.resolve('result')
-  syscall.send(
-    root,
-    'two',
-    capargs([{ '@qclass': 'slot', index: 0 }], ['p+1']),
-    undefined,
+function capargsOneSlot(slot) {
+  return capargs(
+    [{ '@qclass': 'slot', iface: 'Alleged: export', index: 0 }],
+    [slot],
   );
-  await kernel.step();
-  t.deepEqual(log.shift(), 'two true');
+}
 
-  syscall.fulfillToData('p+1', capargs('result'));
-  await kernel.step();
-  t.deepEqual(log.shift(), ['res', 'result']);
-
-  // pr = makePromise()a
-  // root!two(pr.promise)
-  // pr.reject('rejection')
-
-  syscall.send(
-    root,
-    'two',
-    capargs([{ '@qclass': 'slot', index: 0 }], ['p+2']),
-    undefined,
-  );
-  await kernel.step();
-  t.deepEqual(log.shift(), 'two true');
-
-  syscall.reject('p+2', capargs('rejection'));
-  await kernel.step();
-  t.deepEqual(log.shift(), ['rej', 'rejection']);
-
-  // TODO: more calls, more slot types
-
-  t.end();
-});
-
-test('liveslots pipelines to syscall.send', async t => {
-  const kernel = buildKernel(makeEndowments());
-  const log = [];
-
-  function setupA(syscallA, state, helpers) {
-    function build(_vatPowers) {
-      return harden({
-        one(x) {
-          const p1 = E(x).pipe1();
-          const p2 = E(p1).pipe2();
-          E(p2).pipe3();
-          log.push('sent p1p2p3');
-        },
-      });
-    }
-    return makeLiveSlots(syscallA, state, build, helpers.vatID);
-  }
-  kernel.addGenesisVat('a', setupA);
-
-  let syscall;
-  function setupB(syscallB, _state, _helpers) {
-    syscall = syscallB;
-    function deliver() {}
-    return { deliver };
-  }
-  kernel.addGenesisVat('b', setupB);
-
-  await kernel.start(); // no bootstrap
-  const a = kernel.vatNameToID('a');
-  const b = kernel.vatNameToID('b');
-
-  t.deepEqual(kernel.dump().runQueue, []);
-
-  const root = kernel.addImport(b, kernel.addExport(a, 'o+0'));
-
-  // root!one(x) // sendOnly
-  syscall.send(
-    root,
-    'one',
-    capargs([{ '@qclass': 'slot', index: 0 }], ['o+5']),
-    undefined,
-  );
-
-  await kernel.step();
-  // console.log(kernel.dump().runQueue);
-
-  // calling one() should cause three syscall.send() calls to be made: one
-  // for x!pipe1(), a second pipelined to the result promise of it, and a
-  // third pipelined to the result of the second.
-
-  // in the new design, three sends() mean three items on the runqueue, and
-  // they'll be appended to kernel promise queues after they get to the front
-  t.deepEqual(kernel.dump().runQueue.length, 3);
-
-  t.end();
-});
+function oneResolution(promiseID, rejected, data) {
+  return [[promiseID, rejected, data]];
+}
 
 function buildSyscall() {
   const log = [];
@@ -182,26 +43,166 @@ function buildSyscall() {
     subscribe(target) {
       log.push({ type: 'subscribe', target });
     },
-    fulfillToPresence(promiseID, slot) {
-      log.push({ type: 'fulfillToPresence', promiseID, slot });
+    resolve(resolutions) {
+      log.push({ type: 'resolve', resolutions });
     },
-    fulfillToData(promiseID, data) {
-      log.push({ type: 'fulfillToData', promiseID, data });
+    dropImports(slots) {
+      log.push({ type: 'dropImports', slots });
     },
-    reject(promiseID, data) {
-      log.push({ type: 'reject', promiseID, data });
+    exit(isFailure, info) {
+      log.push({ type: 'exit', isFailure, info });
     },
   };
 
   return { log, syscall };
 }
 
+function makeDispatch(syscall, build, enableDisavow = false) {
+  const gcTools = harden({ WeakRef, FinalizationRegistry });
+  const { setBuildRootObject, dispatch } = makeLiveSlots(
+    syscall,
+    'vatA',
+    {},
+    {},
+    undefined,
+    enableDisavow,
+    gcTools,
+  );
+  setBuildRootObject(build);
+  return dispatch;
+}
+
+test('calls', async t => {
+  const { log, syscall } = buildSyscall();
+
+  function build(_vatPowers) {
+    return Far('root', {
+      one() {
+        log.push('one');
+      },
+      two(p) {
+        log.push(`two ${E.resolve(p) === p}`);
+        p.then(
+          res => log.push(['res', res]),
+          rej => log.push(['rej', rej]),
+        );
+      },
+    });
+  }
+  const dispatch = makeDispatch(syscall, build);
+  t.deepEqual(log, []);
+  const rootA = 'o+0';
+
+  // root!one() // sendOnly
+  dispatch.deliver(rootA, 'one', capargs(['args']), undefined);
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), 'one');
+
+  // pr = makePromise()
+  // root!two(pr.promise)
+  // pr.resolve('result')
+  dispatch.deliver(
+    rootA,
+    'two',
+    capargs([{ '@qclass': 'slot', index: 0 }], ['p-1']),
+    undefined,
+  );
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), { type: 'subscribe', target: 'p-1' });
+  t.deepEqual(log.shift(), 'two true');
+
+  dispatch.notify(oneResolution('p-1', false, capargs('result')));
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), ['res', 'result']);
+
+  // pr = makePromise()
+  // root!two(pr.promise)
+  // pr.reject('rejection')
+
+  dispatch.deliver(
+    rootA,
+    'two',
+    capargs([{ '@qclass': 'slot', index: 0 }], ['p-2']),
+    undefined,
+  );
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), { type: 'subscribe', target: 'p-2' });
+  t.deepEqual(log.shift(), 'two true');
+
+  dispatch.notify(oneResolution('p-2', true, capargs('rejection')));
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), ['rej', 'rejection']);
+
+  // TODO: more calls, more slot types
+});
+
+test('liveslots pipelines to syscall.send', async t => {
+  const { log, syscall } = buildSyscall();
+
+  function build(_vatPowers) {
+    return Far('root', {
+      one(x) {
+        const p1 = E(x).pipe1();
+        const p2 = E(p1).pipe2();
+        E(p2).pipe3();
+        log.push('sent p1p2p3');
+      },
+    });
+  }
+  const dispatch = makeDispatch(syscall, build);
+  t.deepEqual(log, []);
+  const rootA = 'o+0';
+  const x = 'o-5';
+  const p1 = 'p+5';
+  const p2 = 'p+6';
+  const p3 = 'p+7';
+
+  // root!one(x) // sendOnly
+  dispatch.deliver(
+    rootA,
+    'one',
+    capargs([{ '@qclass': 'slot', index: 0 }], [x]),
+    undefined,
+  );
+  await waitUntilQuiescent();
+
+  // calling one() should cause three syscall.send() calls to be made: one
+  // for x!pipe1(), a second pipelined to the result promise of it, and a
+  // third pipelined to the result of the second.
+
+  t.deepEqual(log.shift(), 'sent p1p2p3');
+  t.deepEqual(log.shift(), {
+    type: 'send',
+    targetSlot: x,
+    method: 'pipe1',
+    args: capargs([], []),
+    resultSlot: p1,
+  });
+  t.deepEqual(log.shift(), { type: 'subscribe', target: p1 });
+  t.deepEqual(log.shift(), {
+    type: 'send',
+    targetSlot: p1,
+    method: 'pipe2',
+    args: capargs([], []),
+    resultSlot: p2,
+  });
+  t.deepEqual(log.shift(), { type: 'subscribe', target: p2 });
+  t.deepEqual(log.shift(), {
+    type: 'send',
+    targetSlot: p2,
+    method: 'pipe3',
+    args: capargs([], []),
+    resultSlot: p3,
+  });
+  t.deepEqual(log.shift(), { type: 'subscribe', target: p3 });
+});
+
 test('liveslots pipeline/non-pipeline calls', async t => {
   const { log, syscall } = buildSyscall();
 
   function build(_vatPowers) {
     let p1;
-    return harden({
+    return Far('onetwo', {
       one(p) {
         p1 = p;
         E(p1).pipe1();
@@ -212,7 +213,7 @@ test('liveslots pipeline/non-pipeline calls', async t => {
       },
     });
   }
-  const dispatch = makeLiveSlots(syscall, {}, build, 'vatA');
+  const dispatch = makeDispatch(syscall, build);
 
   t.deepEqual(log, []);
 
@@ -239,8 +240,7 @@ test('liveslots pipeline/non-pipeline calls', async t => {
   t.deepEqual(log, []);
 
   // now we tell it the promise has resolved, to object 'o2'
-  // function notifyFulfillToPresence(promiseID, slot) {
-  dispatch.notifyFulfillToPresence(p1, o2);
+  dispatch.notify(oneResolution(p1, false, capargs(slot0arg, [o2])));
   await waitUntilQuiescent();
   // this allows E(o2).nonpipe2() to go out, which was not pipelined
   t.deepEqual(log.shift(), {
@@ -268,15 +268,13 @@ test('liveslots pipeline/non-pipeline calls', async t => {
   // and nonpipe3() wants a result
   t.deepEqual(log.shift(), { type: 'subscribe', target: 'p+7' });
   t.deepEqual(log, []);
-
-  t.end();
 });
 
 async function doOutboundPromise(t, mode) {
   const { log, syscall } = buildSyscall();
 
   function build(_vatPowers) {
-    return harden({
+    return Far('root', {
       run(target, resolution) {
         let p; // vat creates the promise
         if (resolution === 'reject') {
@@ -295,7 +293,7 @@ async function doOutboundPromise(t, mode) {
       },
     });
   }
-  const dispatch = makeLiveSlots(syscall, {}, build, 'vatA');
+  const dispatch = makeDispatch(syscall, build);
 
   t.deepEqual(log, []);
 
@@ -308,30 +306,30 @@ async function doOutboundPromise(t, mode) {
   const slot0arg = { '@qclass': 'slot', index: 0 };
 
   let resolution;
-  let fulfillmentSyscall;
+  const resolveSyscall = {
+    type: 'resolve',
+    resolutions: [[expectedP1, false]],
+  };
   if (mode === 'to presence') {
-    resolution = slot0arg;
-    fulfillmentSyscall = {
-      type: 'fulfillToPresence',
-      promiseID: expectedP1,
-      slot: target,
+    // n.b.: because the `body` object gets stringified and THEN compared to the
+    // `body` string generated by liveslots, the order of the properties here is
+    // significant.
+    const body = {
+      '@qclass': 'slot',
+      iface: `Alleged: presence ${target}`,
+      index: 0,
     };
+    resolution = slot0arg;
+    resolveSyscall.resolutions[0][2] = capargs(body, [target]);
   } else if (mode === 'to data') {
     resolution = 4;
-    fulfillmentSyscall = {
-      type: 'fulfillToData',
-      promiseID: expectedP1,
-      data: capargs(4, []),
-    };
+    resolveSyscall.resolutions[0][2] = capargs(4, []);
   } else if (mode === 'reject') {
     resolution = 'reject';
-    fulfillmentSyscall = {
-      type: 'reject',
-      promiseID: expectedP1,
-      data: capargs('reject', []),
-    };
+    resolveSyscall.resolutions[0][1] = true;
+    resolveSyscall.resolutions[0][2] = capargs('reject', []);
   } else {
-    throw Error(`unknown mode ${mode}`);
+    assert.fail(X`unknown mode ${mode}`);
   }
 
   // function deliver(target, method, argsdata, result) {
@@ -352,7 +350,7 @@ async function doOutboundPromise(t, mode) {
 
   // on the next turn, the promise is resolved/rejected, and the vat notifies the
   // kernel
-  t.deepEqual(log.shift(), fulfillmentSyscall);
+  t.deepEqual(log.shift(), resolveSyscall);
 
   // On the next turn, 'two' is sent, with the previously-resolved promise.
   t.deepEqual(log.shift(), {
@@ -362,26 +360,24 @@ async function doOutboundPromise(t, mode) {
     args: capargs([slot0arg], [expectedP2]),
     resultSlot: expectedResultP2,
   });
+  resolveSyscall.resolutions[0][0] = expectedP2;
+  t.deepEqual(log.shift(), resolveSyscall);
+
   // and again it subscribes to the result promise
   t.deepEqual(log.shift(), { type: 'subscribe', target: expectedResultP2 });
 
-  fulfillmentSyscall.promiseID = expectedP2;
-  t.deepEqual(log.shift(), fulfillmentSyscall);
-
   t.deepEqual(log, []);
-
-  t.end();
 }
 
-test('liveslots does not retire outbound promise IDs after fulfillToPresence', async t => {
+test('liveslots retires outbound promise IDs after resolve to presence', async t => {
   await doOutboundPromise(t, 'to presence');
 });
 
-test('liveslots does not retire outbound promise IDs after fulfillToData', async t => {
+test('liveslots retires outbound promise IDs after resolve to data', async t => {
   await doOutboundPromise(t, 'to data');
 });
 
-test('liveslots does not retire outbound promise IDs after reject', async t => {
+test('liveslots retires outbound promise IDs after reject', async t => {
   await doOutboundPromise(t, 'reject');
 });
 
@@ -396,7 +392,7 @@ async function doResultPromise(t, mode) {
   const { log, syscall } = buildSyscall();
 
   function build(_vatPowers) {
-    return harden({
+    return Far('root', {
       async run(target1) {
         const p1 = E(target1).getTarget2();
         hush(p1);
@@ -410,7 +406,7 @@ async function doResultPromise(t, mode) {
       },
     });
   }
-  const dispatch = makeLiveSlots(syscall, {}, build, 'vatA');
+  const dispatch = makeDispatch(syscall, build);
   t.deepEqual(log, []);
 
   const slot0arg = { '@qclass': 'slot', index: 0 };
@@ -452,19 +448,21 @@ async function doResultPromise(t, mode) {
   // resolve p1 first. The one() call was already pipelined, so this
   // should not trigger any new syscalls.
   if (mode === 'to presence') {
-    dispatch.notifyFulfillToPresence(expectedP1, target2);
+    dispatch.notify(
+      oneResolution(expectedP1, false, capargs(slot0arg, [target2])),
+    );
   } else if (mode === 'to data') {
-    dispatch.notifyFulfillToData(expectedP1, capargs(4, []));
+    dispatch.notify(oneResolution(expectedP1, false, capargs(4, [])));
   } else if (mode === 'reject') {
-    dispatch.notifyReject(expectedP1, capargs('error', []));
+    dispatch.notify(oneResolution(expectedP1, true, capargs('error', [])));
   } else {
-    throw Error(`unknown mode ${mode}`);
+    assert.fail(X`unknown mode ${mode}`);
   }
   await waitUntilQuiescent();
   t.deepEqual(log, []);
 
   // Now we resolve p2, allowing the second two() to proceed
-  dispatch.notifyFulfillToData(expectedP2, capargs(4, []));
+  dispatch.notify(oneResolution(expectedP2, false, capargs(4, [])));
   await waitUntilQuiescent();
 
   if (mode === 'to presence') {
@@ -482,23 +480,239 @@ async function doResultPromise(t, mode) {
     // Resolving to a non-target means a locally-generated error, and no
     // send() call
   } else {
-    throw Error(`unknown mode ${mode}`);
+    assert.fail(X`unknown mode ${mode}`);
   }
   // #823 fails here for the non-presence cases: we expect no syscalls, but
   // instead we get a send to p+5
   t.deepEqual(log, []);
-
-  t.end();
 }
 
-test('liveslots does not retire result promise IDs after fulfillToPresence', async t => {
+test('liveslots retires result promise IDs after resolve to presence', async t => {
   await doResultPromise(t, 'to presence');
 });
 
-test('liveslots does not retire result promise IDs after fulfillToData', async t => {
+test('liveslots retires result promise IDs after resolve to data', async t => {
   await doResultPromise(t, 'to data');
 });
 
-test('liveslots does not retire result promise IDs after reject', async t => {
+test('liveslots retires result promise IDs after reject', async t => {
   await doResultPromise(t, 'reject');
+});
+
+test('liveslots vs symbols', async t => {
+  const { log, syscall } = buildSyscall();
+
+  function build(_vatPowers) {
+    return Far('root', {
+      [Symbol.asyncIterator](arg) {
+        return ['ok', 'asyncIterator', arg];
+      },
+      good(target) {
+        E(target)[Symbol.asyncIterator]('arg');
+      },
+      bad(target) {
+        return E(target)
+          [Symbol.for('nope')]('arg')
+          .then(
+            _ok => 'oops no error',
+            err => ['caught', err],
+          );
+      },
+    });
+  }
+  const dispatch = makeDispatch(syscall, build);
+  t.deepEqual(log, []);
+  const rootA = 'o+0';
+  const target = 'o-1';
+
+  // E(root)[Symbol.asyncIterator]('one')
+  const rp1 = 'p-1';
+  dispatch.deliver(rootA, 'Symbol.asyncIterator', capargs(['one']), 'p-1');
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), {
+    type: 'resolve',
+    resolutions: [[rp1, false, capargs(['ok', 'asyncIterator', 'one'])]],
+  });
+  t.deepEqual(log, []);
+
+  // root~.good(target) -> send(methodname=Symbol.asyncIterator)
+  dispatch.deliver(
+    rootA,
+    'good',
+    capargs([{ '@qclass': 'slot', index: 0 }], [target]),
+    undefined,
+  );
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), {
+    type: 'send',
+    targetSlot: target,
+    method: 'Symbol.asyncIterator',
+    args: capargs(['arg']),
+    resultSlot: 'p+5',
+  });
+  t.deepEqual(log.shift(), { type: 'subscribe', target: 'p+5' });
+  t.deepEqual(log, []);
+
+  // root~.bad(target) -> error because other Symbols are rejected
+  const rp2 = 'p-2';
+  const expErr = {
+    '@qclass': 'error',
+    errorId: 'error:liveSlots:vatA#70001',
+    message: 'arbitrary Symbols cannot be used as method names',
+    name: 'Error',
+  };
+  dispatch.deliver(
+    rootA,
+    'bad',
+    capargs([{ '@qclass': 'slot', index: 0 }], [target]),
+    rp2,
+  );
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), {
+    type: 'resolve',
+    resolutions: [[rp2, false, capargs(['caught', expErr])]],
+  });
+  t.deepEqual(log, []);
+});
+
+test('disable disavow', async t => {
+  const { log, syscall } = buildSyscall();
+
+  function build(vatPowers) {
+    return Far('root', {
+      one() {
+        log.push(!!vatPowers.disavow);
+      },
+    });
+  }
+  const dispatch = makeDispatch(syscall, build, false);
+  t.deepEqual(log, []);
+  const rootA = 'o+0';
+
+  // root~.one() // sendOnly
+  dispatch.deliver(rootA, 'one', capargs([]), undefined);
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), false);
+  t.deepEqual(log, []);
+});
+
+test('disavow', async t => {
+  const { log, syscall } = buildSyscall();
+
+  function build(vatPowers) {
+    const root = Far('root', {
+      async one(pres1) {
+        vatPowers.disavow(pres1);
+        log.push('disavowed pres1');
+
+        try {
+          vatPowers.disavow(pres1);
+          log.push('oops duplicate disavow worked');
+        } catch (err) {
+          log.push(err); // forbidden to disavow twice
+        }
+        log.push('tried duplicate disavow');
+
+        try {
+          const pr = Promise.resolve();
+          vatPowers.disavow(pr);
+          log.push('oops disavow Promise worked');
+        } catch (err) {
+          log.push(err); // forbidden to disavow promises
+        }
+        log.push('tried to disavow Promise');
+
+        try {
+          vatPowers.disavow(root);
+          log.push('oops disavow export worked');
+        } catch (err) {
+          log.push(err); // forbidden to disavow exports
+        }
+        log.push('tried to disavow export');
+
+        const p1 = E(pres1).foo();
+        // this does a syscall.exit on a subsequent turn
+        try {
+          await p1;
+          log.push('oops send to disavowed worked');
+        } catch (err) {
+          log.push(err); // fatal to send to disavowed
+        }
+        log.push('tried to send to disavowed');
+      },
+    });
+    return root;
+  }
+  const dispatch = makeDispatch(syscall, build, true);
+  t.deepEqual(log, []);
+  const rootA = 'o+0';
+  const import1 = 'o-1';
+
+  // root~.one(import1) // sendOnly
+  dispatch.deliver(rootA, 'one', capargsOneSlot(import1), undefined);
+  await waitUntilQuiescent();
+  t.deepEqual(log.shift(), { type: 'dropImports', slots: [import1] });
+  t.deepEqual(log.shift(), 'disavowed pres1');
+
+  function loggedError(re) {
+    const l = log.shift();
+    t.truthy(l instanceof Error);
+    t.truthy(re.test(l.message));
+  }
+  loggedError(/attempt to disavow unknown/);
+  t.deepEqual(log.shift(), 'tried duplicate disavow');
+  loggedError(/attempt to disavow unknown/);
+  t.deepEqual(log.shift(), 'tried to disavow Promise');
+  loggedError(/attempt to disavow an export/);
+  t.deepEqual(log.shift(), 'tried to disavow export');
+  t.deepEqual(log.shift(), {
+    type: 'exit',
+    isFailure: true,
+    info: {
+      body: JSON.stringify({
+        '@qclass': 'error',
+        errorId: 'error:liveSlots:vatA#70001',
+        message: 'this Presence has been disavowed',
+        name: 'Error',
+      }),
+      slots: [],
+    },
+  });
+  t.deepEqual(log.shift(), Error('this Presence has been disavowed'));
+  t.deepEqual(log.shift(), 'tried to send to disavowed');
+  t.deepEqual(log, []);
+});
+
+test('dropExports', async t => {
+  const { log, syscall } = buildSyscall();
+
+  function build(_vatPowers) {
+    const ex1 = Far('export', {});
+    const root = Far('root', {
+      one() {
+        return ex1;
+      },
+    });
+    return root;
+  }
+  const dispatch = makeDispatch(syscall, build, true);
+  t.deepEqual(log, []);
+  const rootA = 'o+0';
+
+  // rp1 = root~.one()
+  // ex1 = await rp1
+  const rp1 = 'p-1';
+  dispatch.deliver(rootA, 'one', capargs([]), rp1);
+  await waitUntilQuiescent();
+  const l1 = log.shift();
+  const ex1 = l1.resolutions[0][2].slots[0];
+  t.deepEqual(l1, {
+    type: 'resolve',
+    resolutions: [[rp1, false, capdataOneSlot(ex1)]],
+  });
+  t.deepEqual(log, []);
+
+  // now tell the vat to drop that export
+  dispatch.dropExports([ex1]);
+  // for now, all that we care about is that liveslots doesn't crash
 });

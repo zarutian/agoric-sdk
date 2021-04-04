@@ -1,16 +1,14 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+/* global __dirname */
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { test } from '@agoric/swingset-vat/tools/prepare-test-env-ava';
+
+// eslint-disable-next-line import/no-extraneous-dependencies
 import { buildVatController, loadBasedir } from '@agoric/swingset-vat';
 import path from 'path';
 
 async function main(basedir, argv) {
   const dir = path.resolve(`${__dirname}/..`, basedir);
   const config = await loadBasedir(dir);
-  const ldSrcPath = require.resolve(
-    '@agoric/swingset-vat/src/devices/loopbox-src',
-  );
-  config.devices = [['loopbox', ldSrcPath, {}]];
-
   const controller = await buildVatController(config, argv);
   await controller.run();
   return controller.dump();
@@ -18,52 +16,47 @@ async function main(basedir, argv) {
 
 const escrowGolden = ['starting testEscrowServiceSuccess'];
 
-test('escrow checkUnits w/SES', async t => {
+test.skip('escrow checkUnits w/SES', async t => {
   const dump = await main('escrow', ['escrow matches']);
-  t.deepEquals(dump.log, escrowGolden);
-  t.end();
+  t.deepEqual(dump.log, escrowGolden);
 });
 
 const escrowMismatchGolden = [
   'starting testEscrowServiceCheckMismatches',
-  'expected unsuccessful check Error: Escrow checkUnits: different at top.right.value: ((a string)) vs ((a string))\nSee console for error data.',
+  /expected unsuccessful check Error: Escrow checkUnits: different at top.right.value: (.*) vs (.*)/,
 ];
 
 test.skip('escrow check misMatches w/SES', async t => {
   const dump = await main('escrow', ['escrow misMatches']);
-  t.deepEquals(dump.log, escrowMismatchGolden);
-  t.end();
+  t.deepEqual(dump.log, escrowMismatchGolden);
 });
 
 const escrowCheckPartialWrongPriceGolden = [
   'starting testEscrowServiceCheckPartial wrong price',
-  'expected wrong price Error: Escrow checkPartialUnits seat: different at top.value: ((a number)) vs ((a number))\nSee console for error data.',
+  /expected wrong price Error: Escrow checkPartialUnits seat: different at top.value: (.*) vs (.*)/,
 ];
 
-test.skip('escrow check partial misMatches w/SES', async t => {
+test.skip('escrow check partial price misMatches w/SES', async t => {
   const dump = await main('escrow', ['escrow partial price']);
-  t.deepEquals(dump.log, escrowCheckPartialWrongPriceGolden);
-  t.end();
+  t.deepEqual(dump.log, escrowCheckPartialWrongPriceGolden);
 });
 
 const escrowCheckPartialWrongStockGolden = [
   'starting testEscrowServiceCheckPartial wrong stock',
-  'expected wrong stock Error: Escrow checkPartialUnits seat: different at top.value: ((a string)) vs ((a string))\nSee console for error data.',
+  /expected wrong stock Error: Escrow checkPartialUnits seat: different at top.value: (.*) vs (.*)/,
 ];
 
-test.skip('escrow check partial misMatches w/SES', async t => {
+test.skip('escrow check partial stock misMatches w/SES', async t => {
   const dump = await main('escrow', ['escrow partial stock']);
-  t.deepEquals(dump.log, escrowCheckPartialWrongStockGolden);
-  t.end();
+  t.deepEqual(dump.log, escrowCheckPartialWrongStockGolden);
 });
 
 const escrowCheckPartialWrongSeatGolden = [
   'starting testEscrowServiceCheckPartial wrong seat',
-  'expected wrong side Error: Escrow checkPartialUnits seat: label not found on right at top: ((an object)) vs ((an object))\nSee console for error data.',
+  /expected wrong side Error: Escrow checkPartialUnits seat: label not found on right at top: (.*) vs (.*)/,
 ];
 
 test.skip('escrow check partial wrong seat w/SES', async t => {
   const dump = await main('escrow', ['escrow partial seat']);
-  t.deepEquals(dump.log, escrowCheckPartialWrongSeatGolden);
-  t.end();
+  t.deepEqual(dump.log, escrowCheckPartialWrongSeatGolden);
 });

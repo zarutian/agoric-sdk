@@ -1,19 +1,15 @@
 // Copyright (C) 2019 Agoric, under Apache License 2.0
 
-/* global harden */
-
-import Nat from '@agoric/nat';
 import { importBundle } from '@agoric/import-bundle';
-import makeStore from '@agoric/weak-store';
-import { assert, details } from '@agoric/assert';
+import { makeWeakStore } from '@agoric/store';
+import { assert, details as X } from '@agoric/assert';
 import { allComparable } from '@agoric/same-structure';
-import makeIssuerKit from '@agoric/ertp';
-import { producePromise } from '@agoric/produce-promise';
-import { E, HandledPromise } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { makeIssuerKit } from '@agoric/ertp';
 
 export { makeCollect } from './makeCollect';
 
-/**
+/*
  * Make a reusable host that can reliably install and execute contracts.
  *
  * @param E eventual-send method proxy
@@ -26,11 +22,11 @@ function makeContractHost(vatPowers, additionalEndowments = {}) {
   // buildRoot function.
 
   // Maps from seat identity to seats
-  const seats = makeStore('seatIdentity');
+  const seats = makeWeakStore('seatIdentity');
   // from seat identity to invite description.
-  const seatDescriptions = makeStore('seatIdentity');
+  const seatDescriptions = makeWeakStore('seatIdentity');
   // from installation to source code bundle
-  const installationSourceBundles = makeStore('installation');
+  const installationSourceBundles = makeWeakStore('installation');
 
   const {
     mint: inviteMint,
@@ -40,7 +36,7 @@ function makeContractHost(vatPowers, additionalEndowments = {}) {
 
   function redeem(allegedInvitePayment) {
     return inviteIssuer.getAmountOf(allegedInvitePayment).then(inviteAmount => {
-      assert(!inviteAmountMath.isEmpty(inviteAmount), details`No invites left`);
+      assert(!inviteAmountMath.isEmpty(inviteAmount), X`No invites left`);
       const [{ seatIdentity }] = inviteAmountMath.getValue(inviteAmount);
       return Promise.resolve(
         inviteIssuer.burn(allegedInvitePayment, inviteAmount),
@@ -48,28 +44,9 @@ function makeContractHost(vatPowers, additionalEndowments = {}) {
     });
   }
 
-  function myRequire(what) {
-    if (what === '@agoric/harden') {
-      return harden;
-    }
-    throw Error(`require(${what}) not implemented`);
-  }
-  harden(myRequire);
-
-  // TODO: this should really have console and HandledPromise. We need
-  // 'require' until we change the environment definition (and
-  // bundle-source's "externals" list) to get 'harden' from a global, not an
-  // import, and then change the nestedEvaluate format to stop needing
-  // 'require' even though nobody calls it. The bundles we install here
-  // should be standalone, with no remaining require() calls. Probably.
   const defaultEndowments = {
     console,
-    E,
-    harden,
-    Nat,
-    producePromise,
-    require: myRequire,
-    HandledPromise,
+    assert,
   };
 
   // note: support for check functions was removed during warner's
@@ -83,8 +60,8 @@ function makeContractHost(vatPowers, additionalEndowments = {}) {
   // installation, which may die forever.
 
   /** The contract host is designed to have a long-lived credible identity. */
-  const contractHost = harden({
-    getInviteIssuer() {
+  const contractHost = Far('contractHost', {
+    getInvitationIssuer() {
       return inviteIssuer;
     },
     // contractBundle is a record containing source code for the functions
@@ -106,7 +83,6 @@ function makeContractHost(vatPowers, additionalEndowments = {}) {
     // removing this backwards-compatibility feature.
 
     install(contractBundle, oldModuleFormat = undefined) {
-      console.log(`-- install ${oldModuleFormat}`);
       if (
         oldModuleFormat === 'nestedEvaluate' ||
         oldModuleFormat === 'getExport'
@@ -161,7 +137,7 @@ function makeContractHost(vatPowers, additionalEndowments = {}) {
         const startFn = ns.default;
 
         return Promise.resolve(allComparable(termsP)).then(terms => {
-          const inviteMaker = harden({
+          const inviteMaker = Far('inviteMaker', {
             // Used by the contract to make invites for credibly
             // participating in the contract. The returned invite
             // can be redeemed for this seat. The inviteMaker
@@ -171,7 +147,7 @@ function makeContractHost(vatPowers, additionalEndowments = {}) {
             // accurate. The seatDesc is according to that
             // contractSrc code.
             make(seatDesc, seat) {
-              const seatIdentity = harden({});
+              const seatIdentity = Far('seat', {});
               const seatDescription = harden([
                 {
                   installation,
@@ -195,7 +171,7 @@ function makeContractHost(vatPowers, additionalEndowments = {}) {
       }
 
       installation.spawn = spawn;
-      harden(installation);
+      Far('installation', installation);
       installationSourceBundles.init(installation, contractBundle);
       return installation;
     },

@@ -1,5 +1,6 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { test } from '@agoric/swingset-vat/tools/prepare-test-env-ava';
+
 import { importBundle } from '@agoric/import-bundle';
 import { bundleFunction } from './make-function-bundle';
 
@@ -17,6 +18,5 @@ test('bundleFunction', async t => {
       return 'yes';
     },
   };
-  t.equal(ns.default('terms', inviteMaker), 'yes');
-  t.end();
+  t.is(ns.default('terms', inviteMaker), 'yes');
 });

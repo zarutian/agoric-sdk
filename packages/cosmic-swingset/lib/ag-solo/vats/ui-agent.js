@@ -1,4 +1,3 @@
-/* global harden */
 // @ts-check
 
 /**
@@ -21,6 +20,9 @@ export default function makeAgentMakers({ console: agentConsole }) {
   return harden({
     /**
      * Create an agent that prints to the console with a petname.
+     *
+     * @param {string} petname
+     * @param {Record<string, any>} [ext={}]
      */
     text(petname, ext = {}) {
       if (petname === undefined) {
@@ -37,6 +39,9 @@ export default function makeAgentMakers({ console: agentConsole }) {
     },
     /**
      * Create a silent agent.
+     *
+     * @param {string} _petname
+     * @param {Record<string, any>} [ext={}]
      */
     silent(_petname, ext = {}) {
       return harden({

@@ -1,15 +1,10 @@
-import fetch from 'node-fetch';
-import inquirer from 'inquirer';
-import { SETUP_HOME, PLAYBOOK_WRAPPER, SETUP_DIR, SSH_TYPE } from './setup';
-import {
-  basename,
-  chmod,
-  createFile,
-  mkdir,
-  needNotExists,
-  resolve,
-} from './files';
-import { chdir, needDoRun, shellEscape } from './run';
+// @ts-check
+
+import { assert, details as X } from '@agoric/assert';
+import { PLAYBOOK_WRAPPER, SSH_TYPE } from './setup';
+import { shellEscape } from './run';
+
+export const AVAILABLE_ROLES = ['validator', 'peer', 'seed'];
 
 const calculateTotal = placement =>
   (placement ? Object.values(placement) : []).reduce(
@@ -49,13 +44,13 @@ const tfStringify = obj => {
   return ret;
 };
 
-const genericAskApiKey = async (provider, myDetails) => {
+const genericAskApiKey = ({ env, inquirer }) => async (provider, myDetails) => {
   const questions = [
     {
       name: 'API_KEYS',
       type: 'input',
       message: `API Key for ${provider.name}?`,
-      default: myDetails.API_KEYS || process.env.DO_API_TOKEN,
+      default: myDetails.API_KEYS || env.DO_API_TOKEN,
       filter: key => key.trim(),
     },
   ];
@@ -66,7 +61,12 @@ const genericAskApiKey = async (provider, myDetails) => {
   return ret;
 };
 
-const genericAskDatacenter = async (provider, PLACEMENT, dcs, placement) => {
+const genericAskDatacenter = ({ inquirer }) => async (
+  provider,
+  PLACEMENT,
+  dcs,
+  placement,
+) => {
   const questions = [];
   const count = nodeCount(calculateTotal(placement), true);
   const DONE = { name: `Done with ${PLACEMENT} placement${count}`, value: '' };
@@ -105,14 +105,14 @@ const genericAskDatacenter = async (provider, PLACEMENT, dcs, placement) => {
 
 const DOCKER_DATACENTER = 'default';
 
-const PROVIDERS = {
+const makeProviders = ({ env, inquirer, wr, setup, fetch }) => ({
   docker: {
     name: 'Docker instances',
     value: 'docker',
     askDetails: async (_provider, _myDetails) => {
       let vspec = '/sys/fs/cgroup:/sys/fs/cgroup';
-      if (process.env.DOCKER_VOLUMES) {
-        vspec += `,${process.env.DOCKER_VOLUMES}`;
+      if (env.DOCKER_VOLUMES) {
+        vspec += `,${env.DOCKER_VOLUMES}`;
       }
       return {
         VOLUMES: vspec
@@ -142,14 +142,15 @@ const PROVIDERS = {
       };
     },
     createPlacementFiles: (provider, PLACEMENT, PREFIX) =>
-      createFile(
+      wr.createFile(
         `placement-${PLACEMENT}.tf`,
         `\
 module "${PLACEMENT}" {
-    source           = "${SETUP_DIR}/terraform/${provider.value}"
+    source           = "${setup.SETUP_DIR}/terraform/${provider.value}"
     CLUSTER_NAME     = "${PREFIX}\${var.NETWORK_NAME}-${PLACEMENT}"
     OFFSET           = "\${var.OFFSETS["${PLACEMENT}"]}"
     SSH_KEY_FILE     = "\${var.SSH_KEY_FILE}"
+    ROLE             = "\${var.ROLES["${PLACEMENT}"]}"
     SERVERS          = "\${length(var.DATACENTERS["${PLACEMENT}"])}"
     VOLUMES          = "\${var.VOLUMES["${PLACEMENT}"]}"
 }
@@ -159,8 +160,8 @@ module "${PLACEMENT}" {
   digitalocean: {
     name: 'DigitalOcean https://cloud.digitalocean.com/',
     value: 'digitalocean',
-    askDetails: genericAskApiKey,
-    askDatacenter: genericAskDatacenter,
+    askDetails: genericAskApiKey({ env, inquirer }),
+    askDatacenter: genericAskDatacenter({ inquirer }),
     datacenters: async (provider, PLACEMENT, DETAILS) => {
       const { API_KEYS: apikey } = DETAILS;
       const res = await fetch('https://api.digitalocean.com/v2/regions', {
@@ -177,14 +178,15 @@ module "${PLACEMENT}" {
       }));
     },
     createPlacementFiles: (provider, PLACEMENT, PREFIX) =>
-      createFile(
+      wr.createFile(
         `placement-${PLACEMENT}.tf`,
         `\
 module "${PLACEMENT}" {
-    source           = "${SETUP_DIR}/terraform/${provider.value}"
+    source           = "${setup.SETUP_DIR}/terraform/${provider.value}"
     CLUSTER_NAME     = "${PREFIX}\${var.NETWORK_NAME}-${PLACEMENT}"
     OFFSET           = "\${var.OFFSETS["${PLACEMENT}"]}"
     REGIONS          = "\${var.DATACENTERS["${PLACEMENT}"]}"
+    ROLE             = "\${var.ROLES["${PLACEMENT}"]}"
     SSH_KEY_FILE     = "\${var.SSH_KEY_FILE}"
     DO_API_TOKEN     = "\${var.API_KEYS["${PLACEMENT}"]}"
     SERVERS          = "\${length(var.DATACENTERS["${PLACEMENT}"])}"
@@ -192,13 +194,13 @@ module "${PLACEMENT}" {
 `,
       ),
   },
-};
+});
 
-const askPlacement = PLACEMENTS => {
+const askPlacement = ({ inquirer }) => async (PLACEMENTS, ROLES) => {
   let total = 0;
-  for (const placement of Object.values(PLACEMENTS)) {
-    total += calculateTotal(placement);
-  }
+  PLACEMENTS.forEach(
+    ([_PLACEMENT, placement]) => (total += calculateTotal(placement)),
+  );
   const count = nodeCount(total, true);
   const DONE = { name: `Done with allocation${count}`, value: '' };
   const NEW = { name: `Initialize new placement`, value: 'NEW' };
@@ -211,19 +213,32 @@ const askPlacement = PLACEMENTS => {
       choices: [
         DONE,
         NEW,
-        ...Object.keys(PLACEMENTS)
-          .sort()
-          .map(place => ({
-            name: `${place}${nodeCount(calculateTotal(PLACEMENTS[place]))}`,
-            value: place,
-          })),
+        ...PLACEMENTS.map(([place, placement]) => ({
+          name: `${ROLES[place]} - ${place}${nodeCount(
+            calculateTotal(placement),
+          )}`,
+          value: place,
+        })),
       ],
     },
   ];
-  return inquirer.prompt(questions);
+
+  const first = await inquirer.prompt(questions);
+
+  const roleQuestions = [
+    {
+      name: 'ROLE',
+      type: 'list',
+      message: `Role for the ${first.PLACEMENT} placement?`,
+      choices: AVAILABLE_ROLES,
+    },
+  ];
+  const second = first.PLACEMENT ? await inquirer.prompt(roleQuestions) : {};
+
+  return { ...first, ...second };
 };
 
-const askProvider = () => {
+const askProvider = ({ inquirer }) => PROVIDERS => {
   const DONE = { name: `Return to allocation menu`, value: '' };
   const questions = [
     {
@@ -247,53 +262,68 @@ const askProvider = () => {
   return inquirer.prompt(questions);
 };
 
-const doInit = async (progname, args) => {
-  let [dir, NETWORK_NAME] = args.slice(1);
+const doInit = ({ env, rd, wr, running, setup, inquirer, fetch }) => async (
+  progname,
+  args,
+) => {
+  const { needDoRun, cwd, chdir } = running;
+  const PROVIDERS = makeProviders({ env, inquirer, wr, setup, fetch });
+  let [dir, overrideNetworkName] = args.slice(1);
   if (!dir) {
-    dir = SETUP_HOME;
+    dir = setup.SETUP_HOME;
   }
-  if (!dir) {
-    throw Error(`Need: [dir] [[network name]]`);
-  }
-  await needNotExists(`${dir}/network.txt`);
-
-  const adir = resolve(process.cwd(), dir);
-  const SSH_PRIVATE_KEY_FILE = resolve(adir, `id_${SSH_TYPE}`);
-  if (!NETWORK_NAME) {
-    NETWORK_NAME = process.env.NETWORK_NAME;
-  }
-  if (!NETWORK_NAME) {
-    NETWORK_NAME = basename(dir);
-  }
-
-  // TODO: Gather information and persist so they can change it before commit.
-  let instance = 0;
-  const PLACEMENTS = {};
-  const PLACEMENT_PROVIDER = {};
-  const lastPlacement = {};
-  const DETAILS = {};
-  try {
-    await mkdir(dir);
-  } catch (e) {
-    // ignore
-  }
+  assert(dir, X`Need: [dir] [[network name]]`);
+  await wr.mkdir(dir, { recursive: true });
   await chdir(dir);
+
+  const networkTxt = `network.txt`;
+  if (await rd.exists(networkTxt)) {
+    overrideNetworkName = (await rd.readFile(networkTxt, 'utf-8')).trimEnd();
+  }
+
+  if (!overrideNetworkName) {
+    overrideNetworkName = env.NETWORK_NAME;
+  }
+  if (!overrideNetworkName) {
+    overrideNetworkName = rd.basename(dir);
+  }
+
+  // Gather saved information.
+  const deploymentJson = `deployment.json`;
+  const config = (await rd.exists(deploymentJson))
+    ? JSON.parse(await rd.readFile(deploymentJson, 'utf-8'))
+    : {
+        PLACEMENTS: [],
+        PLACEMENT_PROVIDER: {},
+        SSH_PRIVATE_KEY_FILE: `id_${SSH_TYPE}`,
+        DETAILS: {},
+        OFFSETS: {},
+        ROLES: {},
+        DATACENTERS: {},
+        PROVIDER_NEXT_INDEX: {},
+      };
+  config.NETWORK_NAME = overrideNetworkName;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
     // eslint-disable-next-line no-await-in-loop
-    let { PLACEMENT } = await askPlacement(PLACEMENTS);
+    const { ROLE, ...rest } = await askPlacement({ inquirer })(
+      config.PLACEMENTS,
+      config.ROLES,
+    );
+    let { PLACEMENT } = rest;
     if (!PLACEMENT) {
       break;
     }
     let provider;
     let myDetails = {};
     if (PLACEMENT !== 'NEW') {
-      const PROVIDER = PLACEMENT_PROVIDER[PLACEMENT];
+      config.ROLES[PLACEMENT] = ROLE;
+      const PROVIDER = config.PLACEMENT_PROVIDER[PLACEMENT];
       provider = PROVIDERS[PROVIDER];
     } else {
       // eslint-disable-next-line no-await-in-loop
-      const { PROVIDER } = await askProvider();
+      const { PROVIDER } = await askProvider({ inquirer })(PROVIDERS);
       if (!PROVIDER) {
         // eslint-disable-next-line no-continue
         continue;
@@ -301,12 +331,19 @@ const doInit = async (progname, args) => {
       provider = PROVIDERS[PROVIDER];
 
       const setPlacement = () => {
-        if (!lastPlacement[PROVIDER]) {
-          lastPlacement[PROVIDER] = 0;
+        if (config.PLACEMENT_PROVIDER[PLACEMENT]) {
+          // Already present.
+          return;
         }
-        lastPlacement[PROVIDER] += 1;
-        PLACEMENT = `${PROVIDER}${lastPlacement[PROVIDER]}`;
-        PLACEMENT_PROVIDER[PLACEMENT] = PROVIDER;
+
+        const idx = config.PROVIDER_NEXT_INDEX;
+        if (!idx[PROVIDER]) {
+          idx[PROVIDER] = 0;
+        }
+        idx[PROVIDER] += 1;
+        PLACEMENT = `${PROVIDER}${idx[PROVIDER]}`;
+        config.ROLES[PLACEMENT] = ROLE;
+        config.PLACEMENT_PROVIDER[PLACEMENT] = PROVIDER;
       };
 
       if (provider.askDetails) {
@@ -322,14 +359,14 @@ const doInit = async (progname, args) => {
         // Out with the old, in with the new.
         setPlacement();
         for (const vname of Object.keys(myDetails)) {
-          delete DETAILS[vname][PLACEMENT];
+          delete config.DETAILS[vname][PLACEMENT];
         }
         myDetails = PLACEMENT_DETAILS;
         for (const vname of Object.keys(myDetails)) {
-          if (!DETAILS[vname]) {
-            DETAILS[vname] = {};
+          if (!config.DETAILS[vname]) {
+            config.DETAILS[vname] = {};
           }
-          DETAILS[vname][PLACEMENT] = PLACEMENT_DETAILS[vname];
+          config.DETAILS[vname][PLACEMENT] = PLACEMENT_DETAILS[vname];
         }
       } else {
         setPlacement();
@@ -340,7 +377,10 @@ const doInit = async (progname, args) => {
       provider.datacenters &&
       // eslint-disable-next-line no-await-in-loop
       (await provider.datacenters(provider, PLACEMENT, myDetails));
-    const placement = PLACEMENTS[PLACEMENT] || {};
+    config.ROLES;
+    const [_p, placement] = config.PLACEMENTS.find(
+      ([p]) => p === PLACEMENT,
+    ) || [PLACEMENT, {}];
     if (dcs) {
       // Add our choices to the list.
       const already = { ...placement };
@@ -390,15 +430,20 @@ const doInit = async (progname, args) => {
         break;
       }
     }
-    PLACEMENTS[PLACEMENT] = placement;
+    if (!config.PLACEMENTS.find(([place]) => place === PLACEMENT)) {
+      config.PLACEMENTS.push([PLACEMENT, placement]);
+    }
   }
 
   // Collate the placement information.
-  const OFFSETS = {};
-  const DATACENTERS = {};
-  for (const [PLACEMENT, placement] of Object.entries(PLACEMENTS)) {
+  const ROLE_INSTANCE = {};
+  Object.values(config.ROLES).forEach(role => {
+    ROLE_INSTANCE[role] = 0;
+  });
+  for (const [PLACEMENT, placement] of config.PLACEMENTS) {
+    let instance = ROLE_INSTANCE[config.ROLES[PLACEMENT]];
     const offset = instance;
-    DATACENTERS[PLACEMENT] = [];
+    config.DATACENTERS[PLACEMENT] = [];
     for (const dc of Object.keys(placement).sort()) {
       const nodes = [];
       for (let i = 0; i < placement[dc]; i += 1) {
@@ -406,7 +451,7 @@ const doInit = async (progname, args) => {
         nodes.push(dc);
       }
       if (nodes.length !== 0) {
-        DATACENTERS[PLACEMENT].push(...nodes);
+        config.DATACENTERS[PLACEMENT].push(...nodes);
       }
     }
 
@@ -417,40 +462,46 @@ const doInit = async (progname, args) => {
     }
 
     // Commit the final details.
-    OFFSETS[PLACEMENT] = offset;
+    ROLE_INSTANCE[config.ROLES[PLACEMENT]] = instance;
+    config.OFFSETS[PLACEMENT] = offset;
   }
 
-  if (instance === 0) {
-    throw Error(`Aborting due to no nodes configured!`);
-  }
+  assert(
+    Object.values(ROLE_INSTANCE).some(i => i > 0),
+    X`Aborting due to no nodes configured!`,
+  );
 
-  await createFile(
+  await wr.createFile(
     `vars.tf`,
     `\
 # Terraform configuration generated by "${progname} init"
 
 variable "NETWORK_NAME" {
-  default = "${NETWORK_NAME}"
+  default = "${config.NETWORK_NAME}"
 }
 
 variable "SSH_KEY_FILE" {
-  default = "${SSH_PRIVATE_KEY_FILE}.pub"
+  default = "${config.SSH_PRIVATE_KEY_FILE}.pub"
 }
 
 variable "DATACENTERS" {
-  default = ${tfStringify(DATACENTERS)}
+  default = ${tfStringify(config.DATACENTERS)}
 }
 
 variable "OFFSETS" {
-  default = ${tfStringify(OFFSETS)}
+  default = ${tfStringify(config.OFFSETS)}
 }
 
-${Object.keys(DETAILS)
+variable "ROLES" {
+  default = ${tfStringify(config.ROLES)}
+}
+
+${Object.keys(config.DETAILS)
   .sort()
   .map(
     vname => `\
 variable ${JSON.stringify(vname)} {
-  default = ${tfStringify(DETAILS[vname])}
+  default = ${tfStringify(config.DETAILS[vname])}
 }
 `,
   )
@@ -459,24 +510,28 @@ variable ${JSON.stringify(vname)} {
   );
 
   // Go and create the specific files.
-  const clusterPrefix = 'ag-chain-cosmos-';
-  for (const PLACEMENT of Object.keys(PLACEMENT_PROVIDER).sort()) {
-    const PROVIDER = PLACEMENT_PROVIDER[PLACEMENT];
+  const clusterPrefix = 'ag-';
+  for (const PLACEMENT of Object.keys(config.PLACEMENT_PROVIDER).sort()) {
+    const PROVIDER = config.PLACEMENT_PROVIDER[PLACEMENT];
     const provider = PROVIDERS[PROVIDER];
     // eslint-disable-next-line no-await-in-loop
     await provider.createPlacementFiles(provider, PLACEMENT, clusterPrefix);
   }
 
-  await createFile(
+  await wr.createFile(
     `outputs.tf`,
     `\
 output "public_ips" {
   value = {
-${Object.keys(DATACENTERS)
+${Object.keys(config.DATACENTERS)
   .sort()
   .map(p => `    ${p} = "\${module.${p}.public_ips}"`)
   .join('\n')}
   }
+}
+
+output "roles" {
+  value = "\${var.ROLES}"
 }
 
 output "offsets" {
@@ -485,30 +540,25 @@ output "offsets" {
 `,
   );
 
-  // Set empty password.
-  await needDoRun([
-    'ssh-keygen',
-    '-N',
-    '',
-    '-t',
-    SSH_TYPE,
-    '-f',
-    SSH_PRIVATE_KEY_FILE,
-  ]);
+  const keyFile = config.SSH_PRIVATE_KEY_FILE;
+  if (!(await rd.exists(keyFile))) {
+    // Set empty password.
+    await needDoRun(['ssh-keygen', '-N', '', '-t', SSH_TYPE, '-f', keyFile]);
+  }
 
-  await createFile(
+  await wr.createFile(
     PLAYBOOK_WRAPPER,
     `\
 #! /bin/sh
 exec ansible-playbook -f10 \\
-  -eSETUP_HOME=${shellEscape(process.cwd())} \\
-  -eNETWORK_NAME=\`cat ${shellEscape(resolve('network.txt'))}\` \\
+  -eSETUP_HOME=${shellEscape(cwd())} \\
+  -eNETWORK_NAME=\`cat ${shellEscape(rd.resolve('network.txt'))}\` \\
   \${1+"$@"}
 `,
   );
-  await chmod(PLAYBOOK_WRAPPER, '0755');
+  await wr.chmod(PLAYBOOK_WRAPPER, '0755');
 
-  await createFile(
+  await wr.createFile(
     `ansible.cfg`,
     `\
 [defaults]
@@ -521,7 +571,9 @@ pipelining = True
 `,
   );
 
-  await createFile(`network.txt`, NETWORK_NAME);
+  // Persist data for later.
+  await wr.createFile(deploymentJson, JSON.stringify(config, undefined, 2));
+  await wr.createFile(networkTxt, config.NETWORK_NAME);
 };
 
-export default doInit;
+export { doInit };

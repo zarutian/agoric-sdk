@@ -3,6 +3,125 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.3.4](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.3.3...@agoric/tame-metering@1.3.4) (2021-03-24)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.3.3](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.3.2...@agoric/tame-metering@1.3.3) (2021-03-16)
+
+
+### Bug Fixes
+
+* make separate 'test:xs' target, remove XS from 'test' target ([b9c1a69](https://github.com/Agoric/agoric-sdk/commit/b9c1a6987093fc8e09e8aba7acd2a1618413bac8)), closes [#2647](https://github.com/Agoric/agoric-sdk/issues/2647)
+
+
+
+
+
+## [1.3.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.3.1...@agoric/tame-metering@1.3.2) (2021-02-22)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.3.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.3.0...@agoric/tame-metering@1.3.1) (2021-02-16)
+
+
+### Bug Fixes
+
+* adapt to new cosmos-sdk ([3b12c9e](https://github.com/Agoric/agoric-sdk/commit/3b12c9e2ef33117206189ecd085f51523c7d0d87))
+* **tame-metering:** be tolerant to Node.js 14.15.x ([5b54e07](https://github.com/Agoric/agoric-sdk/commit/5b54e07c058230cbcc9f9505ce8ec60b61c099f1))
+* **tame-metering:** log problems trying to meter roots ([5ed0310](https://github.com/Agoric/agoric-sdk/commit/5ed03102fd9b893578a1d6ecaa05c0fb010065e0))
+* **tame-metering:** quieter warnings for defineProperty failures ([7575b94](https://github.com/Agoric/agoric-sdk/commit/7575b945d6f647bf3416ce18f843c45d073f8c3a))
+
+
+
+
+
+# [1.3.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.7...@agoric/tame-metering@1.3.0) (2020-12-10)
+
+
+### Features
+
+* **import-bundle:** Preliminary support Endo zip hex bundle format ([#1983](https://github.com/Agoric/agoric-sdk/issues/1983)) ([983681b](https://github.com/Agoric/agoric-sdk/commit/983681bfc4bf512b6bd90806ed9220cd4fefc13c))
+
+
+
+
+
+## [1.2.7](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.7-dev.0...@agoric/tame-metering@1.2.7) (2020-11-07)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.2.7-dev.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.6...@agoric/tame-metering@1.2.7-dev.0) (2020-10-19)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.2.6](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.6-dev.2...@agoric/tame-metering@1.2.6) (2020-10-11)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.2.6-dev.2](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.6-dev.1...@agoric/tame-metering@1.2.6-dev.2) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.2.6-dev.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.6-dev.0...@agoric/tame-metering@1.2.6-dev.1) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.2.6-dev.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.5...@agoric/tame-metering@1.2.6-dev.0) (2020-09-18)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.2.5](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.4...@agoric/tame-metering@1.2.5) (2020-09-16)
+
+**Note:** Version bump only for package @agoric/tame-metering
+
+
+
+
+
+## [1.2.4](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.3...@agoric/tame-metering@1.2.4) (2020-08-31)
+
+
+### Bug Fixes
+
+* reduce inconsistency among our linting rules ([#1492](https://github.com/Agoric/agoric-sdk/issues/1492)) ([b6b675e](https://github.com/Agoric/agoric-sdk/commit/b6b675e2de110e2af19cad784a66220cab21dacf))
+
+
+
+
+
 ## [1.2.3](https://github.com/Agoric/agoric-sdk/compare/@agoric/tame-metering@1.2.2...@agoric/tame-metering@1.2.3) (2020-06-30)
 
 

@@ -1,11 +1,12 @@
 // Copyright (C) 2019 Agoric, under Apache License 2.0
 
-/* global harden */
 import { E } from '@agoric/eventual-send';
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
 import { makeSharedMap } from '../../../src/sharedMap';
 import { makeSharingService } from '../../../src/sharing';
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject(vatPowers, vatParameters) {
   const log = vatPowers.testLog;
   function testSharedMapStorage() {
     log('starting testSharedMapStorage');
@@ -40,7 +41,7 @@ export function buildRootObject(vatPowers) {
       log('expected sharedMap to validate');
     }
 
-    const fakeSharedMap = harden({
+    const fakeSharedMap = Far('fakeSharedMap', {
       lookup(propertyName) {
         return `${propertyName}: value`;
       },
@@ -80,9 +81,9 @@ export function buildRootObject(vatPowers) {
       });
   }
 
-  const obj0 = {
-    async bootstrap(argv, vats) {
-      switch (argv[0]) {
+  return Far('root', {
+    async bootstrap(vats) {
+      switch (vatParameters.argv[0]) {
         case 'sharedMap': {
           return testSharedMapStorage();
         }
@@ -96,10 +97,9 @@ export function buildRootObject(vatPowers) {
           return testTwoVatSharing(aliceMaker, bobMaker, sharingService);
         }
         default: {
-          throw new Error(`unrecognized argument value ${argv[0]}`);
+          assert.fail(X`unrecognized argument value ${vatParameters.argv[0]}`);
         }
       }
     },
-  };
-  return harden(obj0);
+  });
 }

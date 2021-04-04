@@ -1,106 +1,93 @@
+// @ts-check
 // eslint-disable-next-line import/no-extraneous-dependencies
+import { test } from '@agoric/zoe/tools/prepare-test-env-ava';
 
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
-import makeStore from '@agoric/weak-store';
+import { MathKind } from '@agoric/ertp/src/deprecatedAmountMath';
 import { cleanProposal } from '../../src/cleanProposal';
 import { setup } from './setupBasicMints';
 import buildManualTimer from '../../tools/manualTimer';
 
 test('cleanProposal test', t => {
-  t.plan(1);
-  try {
-    const { simoleanR, moolaR, bucksR, moola, simoleans } = setup();
+  const { moola, simoleans } = setup();
 
-    const brandToAmountMath = makeStore('brand');
-    brandToAmountMath.init(moolaR.brand, moolaR.amountMath);
-    brandToAmountMath.init(simoleanR.brand, simoleanR.amountMath);
-    brandToAmountMath.init(bucksR.brand, bucksR.amountMath);
+  const proposal = harden({
+    give: { Asset: simoleans(1) },
+    want: { Price: moola(3) },
+  });
 
-    const getAmountMathForBrand = brandToAmountMath.get;
+  const expected = harden({
+    give: { Asset: simoleans(1) },
+    want: { Price: moola(3) },
+    exit: { onDemand: null },
+  });
 
-    const proposal = harden({
-      give: { Asset: simoleans(1) },
-      want: { Price: moola(3) },
-    });
+  const getMathKindByBrand = _brand => MathKind.NAT;
 
-    const expected = harden({
-      give: { Asset: simoleans(1) },
-      want: { Price: moola(3) },
-      exit: { onDemand: null },
-    });
+  const actual = cleanProposal(proposal, getMathKindByBrand);
 
-    const actual = cleanProposal(getAmountMathForBrand, proposal);
-
-    t.deepEquals(actual, expected);
-  } catch (e) {
-    t.assert(false, e);
-  }
+  t.deepEqual(actual, expected);
 });
 
 test('cleanProposal - all empty', t => {
-  t.plan(1);
-  try {
-    const { simoleanR, moolaR, bucksR } = setup();
+  const proposal = harden({
+    give: harden({}),
+    want: harden({}),
+    exit: { waived: null },
+  });
 
-    const brandToAmountMath = makeStore('brand');
-    brandToAmountMath.init(moolaR.brand, moolaR.amountMath);
-    brandToAmountMath.init(simoleanR.brand, simoleanR.amountMath);
-    brandToAmountMath.init(bucksR.brand, bucksR.amountMath);
+  const expected = harden({
+    give: harden({}),
+    want: harden({}),
+    exit: { waived: null },
+  });
 
-    const getAmountMathForBrand = brandToAmountMath.get;
+  const getMathKindByBrand = _brand => MathKind.NAT;
 
-    const proposal = harden({
-      give: {},
-      want: {},
-      exit: { waived: null },
-    });
-
-    const expected = harden({
-      give: {},
-      want: {},
-      exit: { waived: null },
-    });
-
-    // cleanProposal no longer fills in empty keywords
-    t.deepEquals(cleanProposal(getAmountMathForBrand, proposal), expected);
-  } catch (e) {
-    t.assert(false, e);
-  }
+  // cleanProposal no longer fills in empty keywords
+  t.deepEqual(cleanProposal(proposal, getMathKindByBrand), expected);
 });
 
 test('cleanProposal - repeated brands', t => {
   t.plan(3);
-  try {
-    const { simoleanR, moolaR, bucksR, moola, simoleans } = setup();
+  const { moola, simoleans } = setup();
+  const timer = buildManualTimer(console.log);
 
-    const brandToAmountMath = makeStore('brand');
-    brandToAmountMath.init(moolaR.brand, moolaR.amountMath);
-    brandToAmountMath.init(simoleanR.brand, simoleanR.amountMath);
-    brandToAmountMath.init(bucksR.brand, bucksR.amountMath);
+  const proposal = harden({
+    want: { Asset2: simoleans(1) },
+    give: { Price2: moola(3) },
+    exit: { afterDeadline: { timer, deadline: 100n } },
+  });
 
-    const getAmountMathForBrand = brandToAmountMath.get;
-    const timer = buildManualTimer(console.log);
+  const expected = harden({
+    want: {
+      Asset2: simoleans(1),
+    },
+    give: { Price2: moola(3) },
+    exit: { afterDeadline: { timer, deadline: 100n } },
+  });
 
-    const proposal = harden({
-      want: { Asset2: simoleans(1) },
-      give: { Price2: moola(3) },
-      exit: { afterDeadline: { timer, deadline: 100 } },
-    });
+  const getMathKindByBrand = _brand => MathKind.NAT;
 
-    const expected = harden({
-      want: {
-        Asset2: simoleans(1),
-      },
-      give: { Price2: moola(3) },
-      exit: { afterDeadline: { timer, deadline: 100 } },
-    });
-    // cleanProposal no longer fills in empty keywords
-    const actual = cleanProposal(getAmountMathForBrand, proposal);
-    t.deepEquals(actual.want, expected.want);
-    t.deepEquals(actual.give, expected.give);
-    t.deepEquals(actual.exit, expected.exit);
-  } catch (e) {
-    t.assert(false, e);
-  }
+  // cleanProposal no longer fills in empty keywords
+  const actual = cleanProposal(proposal, getMathKindByBrand);
+  t.deepEqual(actual.want, expected.want);
+  t.deepEqual(actual.give, expected.give);
+  t.deepEqual(actual.exit, expected.exit);
+});
+
+test('cleanProposal - wrong mathKind', t => {
+  const { moola, simoleans } = setup();
+  const timer = buildManualTimer(console.log);
+
+  const proposal = harden({
+    want: { Asset2: simoleans(1) },
+    give: { Price2: moola(3) },
+    exit: { afterDeadline: { timer, deadline: 100n } },
+  });
+
+  const getMathKindByBrand = _brand => MathKind.SET;
+
+  t.throws(() => cleanProposal(proposal, getMathKindByBrand), {
+    message: /The amount .* did not have the mathKind of the brand .*/,
+  });
 });

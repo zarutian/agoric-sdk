@@ -1,13 +1,32 @@
-import '@agoric/install-ses';
-import { test } from 'tape-promise/tape';
-import { loadBasedir, buildVatController } from '../src/index';
+/* global __dirname */
+// eslint-disable-next-line import/order
+import { test } from '../tools/prepare-test-env-ava';
+
+import { initSwingStore } from '@agoric/swing-store-simple';
+import path from 'path';
+import { buildLoopbox } from '../src/devices/loopbox';
+import {
+  loadBasedir,
+  initializeSwingset,
+  makeSwingsetController,
+} from '../src/index';
 
 async function main(basedir, argv) {
   const config = await loadBasedir(basedir);
-  const ldSrcPath = require.resolve('../src/devices/loopbox-src');
-  config.devices = [['loopbox', ldSrcPath, {}]];
+  const { loopboxSrcPath, loopboxEndowments } = buildLoopbox('immediate');
 
-  const controller = await buildVatController(config, argv);
+  config.devices = {
+    loopbox: {
+      sourceSpec: loopboxSrcPath,
+    },
+  };
+  const deviceEndowments = {
+    loopbox: { ...loopboxEndowments },
+  };
+
+  const storage = initSwingStore().storage;
+  await initializeSwingset(config, argv, storage);
+  const controller = await makeSwingsetController(storage, deviceEndowments);
   await controller.run();
   return controller.dump();
 }
@@ -20,7 +39,9 @@ const encouragementBotGolden = [
 ];
 
 test('run encouragementBot Demo', async t => {
-  const dump = await main('demo/encouragementBot', []);
-  t.deepEquals(dump.log, encouragementBotGolden);
-  t.end();
+  const dump = await main(
+    path.resolve(__dirname, '../demo/encouragementBot'),
+    [],
+  );
+  t.deepEqual(dump.log, encouragementBotGolden);
 });

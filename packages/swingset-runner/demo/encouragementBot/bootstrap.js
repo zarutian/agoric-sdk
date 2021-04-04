@@ -1,6 +1,5 @@
-/* global harden */
-
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
 
 const log = console.log;
 
@@ -8,8 +7,8 @@ log(`=> loading bootstrap.js`);
 
 export function buildRootObject(_vatPowers) {
   log(`=> setup called`);
-  return harden({
-    bootstrap(argv, vats) {
+  return Far('root', {
+    bootstrap(vats) {
       log('=> bootstrap() called');
       E(vats.user)
         .talkToBot(vats.bot, 'encouragementBot')

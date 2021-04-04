@@ -1,14 +1,6 @@
-/* global harden */
-
+import { assert } from '@agoric/assert';
 import { importBundle } from '@agoric/import-bundle';
-
-function vatRequire(what) {
-  if (what === '@agoric/harden') {
-    return harden;
-  } else {
-    throw Error(`vatRequire unprepared to satisfy require(${what})`);
-  }
-}
+import { Far } from '@agoric/marshal';
 
 export function buildRootObject(vatPowers) {
   const { makeGetMeter, transformMetering } = vatPowers;
@@ -30,11 +22,11 @@ export function buildRootObject(vatPowers) {
   const log2 = [];
   let meterMe;
 
-  const root = {
+  return Far('root', {
     async start(bundle) {
       // console.log(`vatPowers`, vatPowers);
       // console.log('bundle', bundle);
-      const endowments = { require: vatRequire, console, getMeter };
+      const endowments = { console, assert, getMeter };
       // console.log('doing importBundle');
       log('importing');
       const ns = await importBundle(bundle, {
@@ -80,6 +72,5 @@ export function buildRootObject(vatPowers) {
     async refill(mode) {
       refillFacet[mode](10000000);
     },
-  };
-  return harden(root);
+  });
 }

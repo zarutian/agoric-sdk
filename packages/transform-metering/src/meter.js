@@ -1,4 +1,3 @@
-/* global BigInt */
 import * as c from './constants';
 
 const { isArray } = Array;
@@ -6,9 +5,8 @@ const { getOwnPropertyDescriptors } = Object;
 const { ceil } = Math;
 const ObjectConstructor = Object;
 
-// eslint-disable-next-line no-bitwise
-const bigIntWord = typeof BigInt !== 'undefined' && BigInt(1 << 32);
-const bigIntZero = bigIntWord && BigInt(0);
+const bigIntWord = 2n ** 64n;
+const bigIntZero = 0n;
 
 // Stop deducting when we reach a negative number.
 const makeCounter = initBalance => {
@@ -99,7 +97,6 @@ export function makeAllocateMeter(maybeAbort, meter, allocateCounter = null) {
               remaining = -remaining;
             }
             while (remaining > bigIntZero) {
-              meter[c.METER_COMPUTE](undefined, throwForever);
               remaining /= bigIntWord;
               cost += 1;
             }

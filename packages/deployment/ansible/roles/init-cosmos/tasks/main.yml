@@ -20,7 +20,23 @@
     path: "/home/{{ service }}/.{{ service }}/config/genesis.json"
     state: absent
 
+- name: "Check that app.toml is up-to-date"
+  lineinfile:
+    dest: "/home/{{ service }}/.{{ service }}/config/app.toml"
+    line: "[grpc]"
+    state: present
+    create: yes
+  check_mode: yes
+  register: app_toml
+
+- name: "Remove outdated app.toml"
+  file:
+    path: "/home/{{ service }}/.{{ service }}/config/app.toml"
+    state: absent
+  when: app_toml.changed
+
 - name: "Initialize {{ service }}"
   become: yes
   become_user: "{{ service }}"
-  shell: "{{ service }} init --overwrite {{ inventory_hostname }} --chain-id={{ CHAIN_NAME }}"
+  shell: "{{ service }} init {{ moniker | default(inventory_hostname) }} \
+    --overwrite --chain-id={{ CHAIN_NAME }}"

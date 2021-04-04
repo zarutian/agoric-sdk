@@ -3,22 +3,69 @@ import TOML from '@iarna/toml';
 
 export const MINT_DENOM = 'uag';
 export const STAKING_DENOM = 'uagstake';
+export const STAKING_MAX_VALIDATORS = 150;
+
 export const GOV_DEPOSIT_COINS = [{ amount: '10000000', denom: MINT_DENOM }];
-export const BLOCK_CADENCE_S = 2;
+
+// Can't beat the speed of light, we need 600ms round trip time for the other
+// side of Earth, and multiple round trips per block.
+//
+// 5 seconds is about as fast as we can go without penalising validators.
+export const BLOCK_CADENCE_S = 5;
 
 export const ORIG_BLOCK_CADENCE_S = 5;
 export const ORIG_SIGNED_BLOCKS_WINDOW = 100;
 
+export const DEFAULT_GRPC_PORT = 9090;
+export const DEFAULT_RPC_PORT = 26657;
+export const DEFAULT_PROM_PORT = 26660;
+export const DEFAULT_API_PORT = 1317;
+
+// Rewrite the app.toml.
+export function finishCosmosApp({
+  appToml,
+  exportMetrics,
+  portNum = `${DEFAULT_RPC_PORT}`,
+}) {
+  const rpcPort = Number(portNum);
+  const app = TOML.parse(appToml);
+
+  // Offset the GRPC listener from our rpc port.
+  app.grpc.address = `0.0.0.0:${rpcPort +
+    DEFAULT_GRPC_PORT -
+    DEFAULT_RPC_PORT}`;
+
+  // Lengthen the pruning span.
+  app.pruning = 'custom';
+  app['pruning-keep-recent'] = '10000';
+  app['pruning-keep-every'] = '50000';
+  app['pruning-interval'] = '1000';
+
+  const apiPort = DEFAULT_API_PORT + (rpcPort - DEFAULT_RPC_PORT) / 100;
+  if (exportMetrics) {
+    app.api.laddr = `tcp://0.0.0.0:${apiPort}`;
+    app.api.enable = true;
+    app.telemetry.enabled = true;
+    app.telemetry['prometheus-retention-time'] = 60;
+  }
+
+  return TOML.stringify(app);
+}
+
 // Rewrite the config.toml.
-export function finishCosmosConfig({
+export function finishTendermintConfig({
   configToml,
-  portNum = '26657',
+  exportMetrics,
+  portNum = `${DEFAULT_RPC_PORT}`,
   persistentPeers = '',
+  seeds = '',
+  unconditionalPeerIds = '',
 }) {
   const rpcPort = Number(portNum);
 
   // Adjust the config.toml.
   const config = TOML.parse(configToml);
+
   config.proxy_app = 'kvstore';
 
   // Enforce our inter-block delays for this node.
@@ -27,7 +74,16 @@ export function finishCosmosConfig({
   // Update addresses in the config.
   config.p2p.laddr = `tcp://0.0.0.0:${rpcPort - 1}`;
   config.p2p.persistent_peers = persistentPeers;
-  config.rpc.laddr = `tcp://127.0.0.1:${rpcPort}`;
+  config.p2p.unconditional_peer_ids = unconditionalPeerIds;
+  config.p2p.seeds = seeds;
+  config.rpc.laddr = `tcp://0.0.0.0:${rpcPort}`;
+  config.rpc.max_body_bytes = 15 * 10 ** 6;
+
+  if (exportMetrics) {
+    const promPort = rpcPort - DEFAULT_RPC_PORT + DEFAULT_PROM_PORT;
+    config.instrumentation.prometheus = true;
+    config.instrumentation.prometheus_listen_addr = `:${promPort}`;
+  }
 
   // Needed for IBC.
   config.tx_index.index_all_keys = true;
@@ -41,7 +97,20 @@ export function finishCosmosGenesis({ genesisJson, exportedGenesisJson }) {
   const genesis = JSON.parse(genesisJson);
   const exported = exportedGenesisJson ? JSON.parse(exportedGenesisJson) : {};
 
+  // We upgrade from export data.
+  const { app_state: exportedAppState } = exported;
+  const { ...initState } = genesis.app_state;
+  if (exportedAppState) {
+    genesis.app_state = exportedAppState;
+  }
+
+  // Remove IBC state.
+  // TODO: This needs much more support to preserve contract state
+  // between exports in order to be able to carry forward IBC conns.
+  genesis.app_state.ibc = initState.ibc;
+
   genesis.app_state.staking.params.bond_denom = STAKING_DENOM;
+  genesis.app_state.staking.params.max_validators = STAKING_MAX_VALIDATORS;
 
   // We scale this parameter according to our own block cadence, so
   // that we tolerate the same downtime as the old genesis.
@@ -62,24 +131,15 @@ export function finishCosmosGenesis({ genesisJson, exportedGenesisJson }) {
   // Reduce the cost of a transaction.
   genesis.app_state.auth.params.tx_size_cost_per_byte = '1';
 
-  // We upgrade from export data.
-  const { app_state: exportedAppState = {} } = exported;
-  for (const state of Object.keys(exportedAppState)) {
-    genesis.app_state[state] = exportedAppState[state];
-  }
-
-  // Remove IBC and capability state.
-  // TODO: This needs much more support to preserve contract state
-  // between exports in order to be able to carry forward IBC conns.
-  delete genesis.app_state.capability;
-  delete genesis.app_state.ibc;
-
   // Use the same consensus_params.
   if ('consensus_params' in exported) {
     genesis.consensus_params = exported.consensus_params;
   }
 
-  // This is necessary until https://github.com/cosmos/cosmos-sdk/issues/6446 is closed.
-  genesis.consensus_params.block.time_iota_ms = '1000';
+  // Give some continuity between chains.
+  if ('initial_height' in exported) {
+    genesis.initial_height = exported.initial_height;
+  }
+
   return djson.stringify(genesis);
 }

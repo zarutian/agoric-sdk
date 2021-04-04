@@ -1,8 +1,16 @@
-/* eslint-disable no-use-before-define */
 // @ts-check
 
-import { assert, details } from '@agoric/assert';
-import { makeZoeHelpers, defaultAcceptanceMsg } from '../contractSupport';
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
+import { Nat } from '@agoric/nat';
+import { amountMath } from '@agoric/ertp';
+import {
+  assertIssuerKeywords,
+  trade,
+  defaultAcceptanceMsg,
+  assertProposalShape,
+  assertUsesNatMath,
+} from '../contractSupport';
 
 import '../../exported';
 
@@ -21,107 +29,107 @@ import '../../exported';
  * available to sell, and the money should be pricePerItem times the number of
  * items requested.
  *
- * @param {ContractFacet} zcf
+ * When all the items have been sold, the contract will terminate, triggering
+ * the creator's payout. If the creator has an onDemand exit clause, they can
+ * exit early to collect their winnings. The remaining items will still be
+ * available for sale, but the creator won't be able to collect later earnings.
+ *
+ * @type {ContractStartFn}
  */
-const makeContract = zcf => {
+const start = zcf => {
+  const { pricePerItem, issuers, brands } = zcf.getTerms();
   const allKeywords = ['Items', 'Money'];
-  const {
-    assertKeywords,
-    rejectOffer,
-    checkHook,
-    assertNatMathHelpers,
-    trade,
-  } = makeZoeHelpers(zcf);
-  assertKeywords(harden(allKeywords));
+  assertIssuerKeywords(zcf, harden(allKeywords));
+  assertUsesNatMath(zcf, pricePerItem.brand);
 
-  const { pricePerItem } = zcf.getInstanceRecord().terms;
-  assertNatMathHelpers(pricePerItem.brand);
-  let sellerOfferHandle;
+  let sellerSeat;
 
-  const sellerOfferHook = offerHandle => {
-    sellerOfferHandle = offerHandle;
+  const sell = seat => {
+    sellerSeat = seat;
     return defaultAcceptanceMsg;
   };
 
-  const buyerOfferHook = buyerOfferHandle => {
-    const { brandKeywordRecord } = zcf.getInstanceRecord();
-    const [sellerAllocation, buyerAllocation] = zcf.getCurrentAllocations(
-      [sellerOfferHandle, buyerOfferHandle],
-      [brandKeywordRecord, brandKeywordRecord],
-    );
-    const currentItemsForSale = sellerAllocation.Items;
-    const providedMoney = buyerAllocation.Money;
+  const getAvailableItems = () => {
+    assert(sellerSeat && !sellerSeat.hasExited(), X`no items are for sale`);
+    return sellerSeat.getAmountAllocated('Items');
+  };
 
-    const { proposal } = zcf.getOffer(buyerOfferHandle);
-    const wantedItems = proposal.want.Items;
-    const numItemsWanted = wantedItems.value.length;
-    const totalCostValue = pricePerItem.value * numItemsWanted;
-    const moneyAmountMaths = zcf.getAmountMath(pricePerItem.brand);
-    const itemsAmountMath = zcf.getAmountMath(wantedItems.brand);
+  const buy = buyerSeat => {
+    assertProposalShape(buyerSeat, {
+      want: { Items: null },
+      give: { Money: null },
+    });
+    const currentItemsForSale = sellerSeat.getAmountAllocated('Items');
+    const providedMoney = buyerSeat.getAmountAllocated('Money');
 
-    const totalCost = moneyAmountMaths.make(totalCostValue);
+    const {
+      want: { Items: wantedItems },
+    } = buyerSeat.getProposal();
 
     // Check that the wanted items are still for sale.
-    if (!itemsAmountMath.isGTE(currentItemsForSale, wantedItems)) {
-      return rejectOffer(
-        buyerOfferHandle,
-        `Some of the wanted items were not available for sale`,
-      );
+    if (!amountMath.isGTE(currentItemsForSale, wantedItems)) {
+      const rejectMsg = `Some of the wanted items were not available for sale`;
+      throw buyerSeat.fail(new Error(rejectMsg));
     }
 
+    // All items are the same price.
+    const totalCost = amountMath.make(
+      pricePerItem.value * Nat(wantedItems.value.length),
+      brands.Money,
+    );
+
     // Check that the money provided to pay for the items is greater than the totalCost.
-    if (!moneyAmountMaths.isGTE(providedMoney, totalCost)) {
-      return rejectOffer(
-        buyerOfferHandle,
-        `More money (${totalCost}) is required to buy these items`,
-      );
-    }
+    assert(
+      amountMath.isGTE(providedMoney, totalCost),
+      X`More money (${totalCost}) is required to buy these items`,
+    );
 
     // Reallocate. We are able to trade by only defining the gains
     // (omitting the losses) because the keywords for both offers are
     // the same, so the gains for one offer are the losses for the
     // other.
     trade(
-      { offerHandle: sellerOfferHandle, gains: { Money: providedMoney } },
-      { offerHandle: buyerOfferHandle, gains: { Items: wantedItems } },
+      zcf,
+      { seat: sellerSeat, gains: { Money: providedMoney } },
+      { seat: buyerSeat, gains: { Items: wantedItems } },
     );
 
-    // Complete the buyer offer.
-    zcf.complete([buyerOfferHandle]);
+    // The buyer's offer has been processed.
+    buyerSeat.exit();
+
+    if (amountMath.isEmpty(getAvailableItems())) {
+      zcf.shutdown('All items sold.');
+    }
     return defaultAcceptanceMsg;
   };
 
-  const buyerExpected = harden({
-    want: { Items: null },
-    give: { Money: null },
+  const makeBuyerInvitation = () => {
+    const itemsAmount = sellerSeat.getAmountAllocated('Items');
+    assert(
+      sellerSeat && !amountMath.isEmpty(itemsAmount),
+      X`no items are for sale`,
+    );
+    return zcf.makeInvitation(buy, 'buyer');
+  };
+
+  /** @type {SellItemsPublicFacet} */
+  const publicFacet = Far('SellItemsPublicFacet', {
+    getAvailableItems,
+    getItemsIssuer: () => issuers.Items,
+    makeBuyerInvitation,
   });
 
-  zcf.initPublicAPI(
-    harden({
-      makeBuyerInvite: () => {
-        const itemsAmount = zcf.getCurrentAllocation(sellerOfferHandle).Items;
-        const itemsAmountMath = zcf.getAmountMath(itemsAmount.brand);
-        assert(
-          sellerOfferHandle && !itemsAmountMath.isEmpty(itemsAmount),
-          details`no items are for sale`,
-        );
-        return zcf.makeInvitation(
-          checkHook(buyerOfferHook, buyerExpected),
-          'buyer',
-        );
-      },
-      getAvailableItems: () => {
-        if (!sellerOfferHandle) {
-          throw new Error(`no items have been escrowed`);
-        }
-        return zcf.getCurrentAllocation(sellerOfferHandle).Items;
-      },
-      getItemsIssuer: () => zcf.getInstanceRecord().issuerKeywordRecord.Items,
-    }),
-  );
+  /** @type {SellItemsCreatorFacet} */
+  const creatorFacet = Far('SellItemsCreatorFacet', {
+    makeBuyerInvitation,
+    getAvailableItems: publicFacet.getAvailableItems,
+    getItemsIssuer: publicFacet.getItemsIssuer,
+  });
 
-  return zcf.makeInvitation(sellerOfferHook, 'seller');
+  const creatorInvitation = zcf.makeInvitation(sell, 'seller');
+
+  return harden({ creatorFacet, creatorInvitation, publicFacet });
 };
 
-harden(makeContract);
-export { makeContract };
+harden(start);
+export { start };

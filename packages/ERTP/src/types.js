@@ -2,6 +2,16 @@
 /// <reference types="ses"/>
 
 /**
+ * @template T
+ * @typedef {import('@agoric/promise-kit').ERef<T>} ERef
+ */
+
+/**
+ * @typedef {import('@agoric/marshal').InterfaceSpec} InterfaceSpec
+ * @typedef {import('@agoric/marshal').GetInterfaceOf} GetInterfaceOf
+ */
+
+/**
  * @typedef {Object} Amount
  * Amounts are descriptions of digital assets, answering the questions
  * "how much" and "of what kind". Amounts are values labeled with a brand.
@@ -17,7 +27,7 @@
  */
 
 /**
- * @typedef {any} Value
+ * @typedef {NatValue | SetValue} Value
  * Values describe the value of something that can be owned or shared.
  * Fungible values are normally represented by natural numbers. Other
  * values may be represented as strings naming a particular right, or
@@ -27,7 +37,70 @@
  */
 
 /**
- * @typedef {'nat'|'set'|'strSet'} MathHelpersName
+ * @typedef {'nat' | 'set' | 'strSet'} AmountMathKind
+ */
+
+/**
+ * @callback MakeEmpty
+ * @param {Brand} brand
+ * @param {AmountMathKind=} mathKind
+ * @returns {Amount}
+ */
+
+/**
+ * This section blindly imitates what Endo's ses/src/error/types.js
+ * does to express type overloaded methods.
+ *
+ * @callback AmountMakeBrandValue
+ * @param {Brand} brand
+ * @param {Value} allegedValue
+ * @returns {Amount}
+ *
+ * TODO find out how to get this "deprecated" marking recognized,
+ * or remove it.
+ * @deprecated Use brand-first overload instead
+ * @callback AmountMakeValueBrand
+ * Please use the brand-first overload. The value-first overload
+ * is deprecated and will go way.
+ * @param {Value} brand
+ * @param {Brand} allegedValue
+ * @returns {Amount}
+ *
+ * @typedef {AmountMakeBrandValue & AmountMakeValueBrand} AmountMake
+ *
+ * @callback AmountCoerceBrandAmount
+ * @param {Brand} brand
+ * @param {Amount} allegedAmount
+ * @returns {Amount}
+ *
+ * TODO find out how to get this "deprecated" marking recognized,
+ * or remove it.
+ * @deprecated Use brand-first overload instead
+ * @callback AmountCoerceAmountBrand
+ * Please use the brand-first overload. The amount-first overload
+ * is deprecated and will go way.
+ * @param {Amount} brand
+ * @param {Brand} allegedAmount
+ * @returns {Amount}
+ *
+ * @typedef {AmountCoerceBrandAmount & AmountCoerceAmountBrand} AmountCoerce
+ *
+ * @callback AmountGetValueBrandAmount
+ * @param {Brand} brand
+ * @param {Amount} allegedAmount
+ * @returns {Amount}
+ *
+ * TODO find out how to get this "deprecated" marking recognized,
+ * or remove it.
+ * @deprecated Use brand-first overload instead
+ * @callback AmountGetValueAmountBrand
+ * Please use the brand-first overload. The amount-first overload
+ * is deprecated and will go way.
+ * @param {Amount} brand
+ * @param {Brand} allegedAmount
+ * @returns {Amount}
+ *
+ * @typedef {AmountGetValueBrandAmount & AmountGetValueAmountBrand} AmountGetValue
  */
 
 /**
@@ -35,50 +108,57 @@
  * Logic for manipulating amounts.
  *
  * Amounts are the canonical description of tradable goods. They are manipulated
- * by issuers and mints, and represent the goods and currency carried by purses and
+ * by issuers and mints, and represent the goods and currency carried by purses
+ * and
  * payments. They can be used to represent things like currency, stock, and the
  * abstract right to participate in a particular exchange.
  *
- * @property {() => Brand} getBrand Return the brand.
- * @property {() => MathHelpersName} getMathHelpersName
- * Get the name of the mathHelpers used. This can be used as an
- * argument to `makeAmountMath` to create local amountMath.
- *
- * @property {(allegedValue: Value) => Amount} make
+ * @property {AmountMake} make
  * Make an amount from a value by adding the brand.
+ * Please use the brand-first overload. The value-first overload
+ * is deprecated and will go way.
  *
- * @property {(allegedAmount: Amount) => Amount} coerce
- * Make sure this amount is valid and return it if so.
+ * @property {AmountCoerce} coerce
+ * Make sure this amount is valid enough, and return a corresponding
+ * valid amount if so.
+ * Please use the brand-first overload. The amount-first overload
+ * is deprecated and will go way.
  *
- * @property {(amount: Amount) => Value} getValue
+ * @property {AmountGetValue} getValue
  * Extract and return the value.
+ * Please use the brand-first overload. The amount-first overload
+ * is deprecated and will go way.
  *
- * @property {() => Amount} getEmpty
+ * @property {MakeEmpty} makeEmpty
  * Return the amount representing an empty amount. This is the
  * identity element for MathHelpers.add and MatHelpers.subtract.
  *
- * @property {(amount: Amount) => boolean} isEmpty
+ * @property {(amount: Amount) => Amount} makeEmptyFromAmount
+ * Return the amount representing an empty amount, using another
+ * amount as the template for the brand and mathKind.
+ *
+ * @property {(amount: Amount, brand?: Brand) => boolean} isEmpty
  * Return true if the Amount is empty. Otherwise false.
  *
- * @property {(leftAmount: Amount, rightAmount: Amount) => boolean} isGTE
+ * @property {(leftAmount: Amount, rightAmount: Amount, brand?: Brand) => boolean} isGTE
  * Returns true if the leftAmount is greater than or equal to the
  * rightAmount. For non-scalars, "greater than or equal to" depends
  * on the kind of amount, as defined by the MathHelpers. For example,
  * whether rectangle A is greater than rectangle B depends on whether rectangle
  * A includes rectangle B as defined by the logic in MathHelpers.
  *
- * @property {(leftAmount: Amount, rightAmount: Amount) => boolean} isEqual
+ * @property {(leftAmount: Amount, rightAmount: Amount, brand?: Brand) => boolean} isEqual
  * Returns true if the leftAmount equals the rightAmount. We assume
  * that if isGTE is true in both directions, isEqual is also true
  *
- * @property {(leftAmount: Amount, rightAmount: Amount) => Amount} add
+ * @property {(leftAmount: Amount, rightAmount: Amount, brand?: Brand) => Amount} add
  * Returns a new amount that is the union of both leftAmount and rightAmount.
  *
  * For fungible amount this means adding the values. For other kinds of
  * amount, it usually means including all of the elements from both
  * left and right.
  *
- * @property {(leftAmount: Amount, rightAmount: Amount) => Amount} subtract
+ * @property {(leftAmount: Amount, rightAmount: Amount, brand?: Brand) => Amount} subtract
  * Returns a new amount that is the leftAmount minus the rightAmount
  * (i.e. everything in the leftAmount that is not in the
  * rightAmount). If leftAmount doesn't include rightAmount
@@ -88,22 +168,54 @@
  */
 
 /**
+ * @typedef {Object} DisplayInfo
+ * @property {number=} decimalPlaces
+ *   Tells the display software how many decimal places to move the
+ *   decimal over to the left, or in other words, which position corresponds to whole
+ *   numbers. We require fungible digital assets to be represented in
+ *   integers, in the smallest unit (i.e. USD might be represented in mill,
+ *   a thousandth of a dollar. In that case, `decimalPlaces` would be 3.)
+ *   This property is optional, and for non-fungible digital assets,
+ *   should not be specified.
+ *   The decimalPlaces property should be used for *display purposes only*. Any
+ *   other use is an anti-pattern.
+ */
+
+/**
  * @typedef {Object} Brand
  * The brand identifies the kind of issuer, and has a function to get the
  * alleged name for the kind of asset described. The alleged name (such
  * as 'BTC' or 'moola') is provided by the maker of the issuer and should
  * not be trusted as accurate.
  *
- * Every amount created by AmountMath will have the same brand, but recipients
- * cannot use the brand by itself to verify that a purported amount is
- * authentic, since the brand can be reused by a misbehaving issuer.
+ * Every amount created by a particular AmountMath will share the same brand,
+ * but recipients cannot rely on the brand to verify that a purported amount
+ * represents the issuer they intended, since the same brand can be reused by
+ * a misbehaving issuer.
  *
- * @property {(issuer: Issuer) => boolean} isMyIssuer
+ * @property {(allegedIssuer: ERef<Issuer>) => Promise<boolean>} isMyIssuer Should be used with
+ * `issuer.getBrand` to ensure an issuer and brand match.
  * @property {() => string} getAllegedName
+ * @property {() => DisplayInfo} getDisplayInfo
+ *  Give information to UI on how to display the amount.
  */
 
 /**
- * @typedef {Payment|PromiseLike<Payment>} PaymentP
+ * @typedef {ERef<Payment>} PaymentP
+ */
+
+/**
+ * @callback IssuerBurn
+ * @param {PaymentP} payment
+ * @param {Amount=} optAmount
+ * @returns {Promise<Amount>}
+ */
+
+/**
+ * @callback IssuerClaim
+ * @param {PaymentP} payment
+ * @param {Amount=} optAmount
+ * @returns {Promise<Payment>}
  */
 
 /**
@@ -114,15 +226,16 @@
  * exclusively). The issuer should be gotten from a trusted source and
  * then relied upon as the decider of whether an untrusted payment is valid.
  *
- * @property {() => Brand} getBrand Get the Brand for this Issuer. The Brand indicates the kind of
+ * @property {() => Brand} getBrand Get the Brand for this Issuer. The Brand
+ * indicates the kind of
  * digital asset and is shared by the mint, the issuer, and any purses
  * and payments of this particular kind. The brand is not closely
  * held, so this function should not be trusted to identify an issuer
  * alone. Fake digital assets and amount can use another issuer's brand.
  *
  * @property {() => string} getAllegedName Get the allegedName for this mint/issuer
- * @property {() => AmountMath} getAmountMath Get the AmountMath for this Issuer.
- * @property {() => MathHelpersName} getMathHelpersName Get the name of the MathHelpers for this Issuer.
+ * @property {() => AmountMathKind} getAmountMathKind Get the kind of
+ * MathHelpers used by this Issuer.
  * @property {() => Purse} makeEmptyPurse Make an empty purse of this brand.
  * @property {(payment: PaymentP) => Promise<boolean>} isLive
  * Return true if the payment continues to exist.
@@ -136,7 +249,7 @@
  *
  * If the payment is a promise, the operation will proceed upon resolution.
  *
- * @property {(payment: PaymentP, optAmount?: Amount) => Promise<Amount>} burn
+ * @property {IssuerBurn} burn
  * Burn all of the digital assets in the payment. `optAmount` is optional.
  * If `optAmount` is present, the code will insist that the amount of
  * the digital assets in the payment is equal to `optAmount`, to
@@ -144,7 +257,7 @@
  *
  * If the payment is a promise, the operation will proceed upon resolution.
  *
- * @property {(payment: PaymentP, optAmount?: Amount) => Promise<Payment>} claim
+ * @property {IssuerClaim} claim
  * Transfer all digital assets from the payment to a new payment and
  * delete the original. `optAmount` is optional.
  * If `optAmount` is present, the code will insist that the amount of
@@ -173,38 +286,31 @@
  */
 
 /**
- * @typedef {Object} Brand
- * The Brand indicates the kind of digital asset and is shared by
- * the mint, the issuer, and any purses and payments of this
- * particular kind. Fake digital assets and amount can use another
- * issuer's brand.
+ * @callback MakeIssuerKit
+ * @param {string} allegedName
+ * @param {AmountMathKind} [amountMathKind=MathKind.NAT]
+ * @param {DisplayInfo=} [displayInfo=undefined]
+ * @returns {IssuerKit}
  *
- * @property {(allegedIssuer: any) => boolean} isMyIssuer Should be used with
- * `issuer.getBrand` to ensure an issuer and brand match.
- * @property {() => string} getAllegedName
- */
-
-/**
- * @typedef {Object} IssuerMaker
- * Makes Issuers.
- *
- * @property {(allegedName: string, mathHelperName: string) => IssuerKit} makeIssuerKit
  * The allegedName becomes part of the brand in asset descriptions. The
  * allegedName doesn't have to be a string, but it will only be used for
  * its value. The allegedName is useful for debugging and double-checking
  * assumptions, but should not be trusted.
  *
- * The mathHelpersName will be used to import a specific mathHelpers
+ * The amountMathKind will be used to import a specific mathHelpers
  * from the mathHelpers library. For example, natMathHelpers, the
  * default, is used for basic fungible tokens.
+ *
+ *  `displayInfo` gives information to UI on how to display the amount.
  *
  * @typedef {Object} IssuerKit
  * The return value of makeIssuerKit
  *
  * @property {Mint} mint
  * @property {Issuer} issuer
- * @property {AmountMath} amountMath
+ * @property {DeprecatedAmountMath} amountMath
  * @property {Brand} brand
+ * @property {AmountMathKind} amountMathKind
  */
 
 /**
@@ -218,13 +324,27 @@
  */
 
 /**
+ * @callback DepositFacetReceive
+ * @param {Payment} payment
+ * @param {Amount=} optAmount
+ * @returns {Amount}
+ */
+
+/**
  * @typedef {Object} DepositFacet
- * @property {(payment: Payment, optAmount?: Amount) => Amount} receive
- * Deposit all the contents of payment into the purse that made this facet, returning the
- * amount. If the optional argument `optAmount` does not equal the
+ * @property {DepositFacetReceive} receive
+ * Deposit all the contents of payment into the purse that made this facet,
+ * returning the amount. If the optional argument `optAmount` does not equal the
  * amount of digital assets in the payment, throw an error.
  *
- * If payment is an unresolved promise, throw an error.
+ * If payment is a promise, throw an error.
+ */
+
+/**
+ * @callback PurseDeposit
+ * @param {Payment} payment
+ * @param {Amount=} optAmount
+ * @returns {Amount}
  */
 
 /**
@@ -241,17 +361,20 @@
  * @property {() => Brand} getAllegedBrand Get the alleged Brand for this Purse
  *
  * @property {() => Amount} getCurrentAmount
- * Get the amount contained in this purse, confirmed by the issuer.
+ * Get the amount contained in this purse.
  *
- * @property {(payment: Payment, optAmount?: Amount) => Amount} deposit
+ * @property {() => Notifier<Amount>} getCurrentAmountNotifier
+ * Get a lossy notifier for changes to this purse's balance.
+ *
+ * @property {PurseDeposit} deposit
  * Deposit all the contents of payment into this purse, returning the
  * amount. If the optional argument `optAmount` does not equal the
  * amount of digital assets in the payment, throw an error.
  *
- * If payment is an unresolved promise, throw an error.
+ * If payment is a promise, throw an error.
  *
- * @property {() => DepositFacet} makeDepositFacet
- * Create an object whose `deposit` method deposits to the current Purse.
+ * @property {() => DepositFacet} getDepositFacet
+ * Return an object whose `receive` method deposits to the current Purse.
  *
  * @property {(amount: Amount) => Payment} withdraw
  * Withdraw amount from this purse into a new Payment.
@@ -280,7 +403,8 @@
  */
 
 /**
- * @typedef {Object} MathHelpers
+ * @template V
+ * @typedef {Object} MathHelpers<V>
  * All of the difference in how digital asset amount are manipulated can be reduced to
  * the behavior of the math on values. We extract this
  * custom logic into mathHelpers. MathHelpers are about value
@@ -288,27 +412,98 @@
  * values labeled with a brand. AmountMath use mathHelpers to do their value arithmetic,
  * and then brand the results, making a new amount.
  *
- * @property {(allegedValue: Value) => Value} doCoerce
+ * The MathHelpers are designed to be called only from AmountMath, and so
+ * all methods but coerce can assume their inputs are valid. They only
+ * need to do output validation, and only when there is a possibility of
+ * invalid output.
+ *
+ * @property {(allegedValue: V) => V} doCoerce
  * Check the kind of this value and throw if it is not the
  * expected kind.
  *
- * @property {() => Value} doGetEmpty
+ * @property {() => V} doMakeEmpty
  * Get the representation for the identity element (often 0 or an
  * empty array)
  *
- * @property {(value: Value) => boolean} doIsEmpty
+ * @property {(value: V) => boolean} doIsEmpty
  * Is the value the identity element?
  *
- * @property {(left: Value, right: Value) => boolean} doIsGTE
+ * @property {(left: V, right: V) => boolean} doIsGTE
  * Is the left greater than or equal to the right?
  *
- * @property {(left: Value, right: Value) => boolean} doIsEqual
+ * @property {(left: V, right: V) => boolean} doIsEqual
  * Does left equal right?
  *
- * @property {(left: Value, right: Value) => Value} doAdd
+ * @property {(left: V, right: V) => Value} doAdd
  * Return the left combined with the right.
  *
- * @property {(left: Value, right: Value) => Value} doSubtract
+ * @property {(left: V, right: V) => V} doSubtract
  * Return what remains after removing the right from the left. If
  * something in the right was not in the left, we throw an error.
+ */
+
+/**
+ * @typedef {bigint} NatValue
+ */
+
+/**
+ * @typedef {Array<Comparable>} SetValue
+ */
+
+/**
+ * @typedef {MathHelpers<NatValue>} NatMathHelpers
+ */
+
+/**
+ * @typedef {MathHelpers<SetValue>} SetMathHelpers
+ */
+
+/**
+ * @typedef {{ISSUER: 'issuer', BRAND: 'brand', PURSE: 'purse', PAYMENT:
+ * 'payment', MINT: 'mint', DEPOSIT_FACET: 'depositFacet' }} ERTPKind
+ */
+
+/**
+ * @callback MakeInterface
+ * Make the interface using the allegedName and kind. The particular
+ * structure may change in the future to be more sophisticated.
+ * Therefore, ERTP and Zoe should not depend on this particular
+ * implementation.
+ *
+ * @param {string} allegedName The allegedName, as passed to
+ *  `makeIssuerKit`
+ * @param {string} kind The ERTPKind
+ * @returns {InterfaceSpec}
+ */
+
+/**
+ * @callback MakeFarName
+ * Make the farName using the allegedName and kind. The particular
+ * structure may change in the future to be more sophisticated.
+ * Therefore, ERTP and Zoe should not depend on this particular
+ * implementation. `makeFar` converts its farName argument into
+ * the iface argument it passes to `Remotable`.
+ *
+ * @param {string} allegedName The allegedName, as passed to
+ *  `makeIssuerKit`
+ * @param {string} kind The ERTPKind
+ * @returns {string}
+ */
+
+/**
+ * @typedef {Object} DeprecatedAmountMath
+ * This version of amountMath is deprecated. Please use `amountMath` directly
+ * as exported by `@agoric/ertp`.
+ *
+ * @property {() => Brand} getBrand Deprecated
+ * @property {() => AmountMathKind} getAmountMathKind  Deprecated
+ * @property {(allegedValue: Value) => Amount} make Deprecated
+ * @property {(allegedAmount: Amount) => Amount} coerce Deprecated
+ * @property {(amount: Amount) => Value} getValue Deprecated
+ * @property {() => Amount} getEmpty Deprecated
+ * @property {(amount: Amount) => boolean} isEmpty Deprecated
+ * @property {(leftAmount: Amount, rightAmount: Amount) => boolean} isGTE Deprecated
+ * @property {(leftAmount: Amount, rightAmount: Amount) => boolean} isEqual Deprecated
+ * @property {(leftAmount: Amount, rightAmount: Amount) => Amount} add Deprecated
+ * @property {(leftAmount: Amount, rightAmount: Amount) => Amount} subtract Deprecated
  */

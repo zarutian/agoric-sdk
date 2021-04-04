@@ -1,13 +1,15 @@
-import '@agoric/install-ses';
+/* global __dirname */
+// @ts-check
 // eslint-disable-next-line import/no-extraneous-dependencies
-import { test } from 'tape-promise/tape';
-// eslint-disable-next-line import/no-extraneous-dependencies
+import { test } from '@agoric/zoe/tools/prepare-test-env-ava';
+
 import bundleSource from '@agoric/bundle-source';
 
 // noinspection ES6PreferShortImport
-import { makeZoe } from '../../../src/zoe';
+import { E } from '@agoric/eventual-send';
+import { makeZoe } from '../../../src/zoeService/zoe';
 import { setup } from '../setupBasicMints';
-import fakeVatAdmin from './fakeVatAdmin';
+import fakeVatAdmin from '../../../src/contractFacet/fakeVatAdmin';
 
 const contractRoot = `${__dirname}/useObjExample`;
 
@@ -19,7 +21,7 @@ test('zoe - useObj', async t => {
   // pack the contract
   const bundle = await bundleSource(contractRoot);
   // install the contract
-  const installationHandle = await zoe.install(bundle);
+  const installation = await zoe.install(bundle);
 
   // Setup Alice
   const aliceMoolaPayment = moolaMint.mintPayment(moola(3));
@@ -28,10 +30,12 @@ test('zoe - useObj', async t => {
   const issuerKeywordRecord = harden({
     Pixels: moolaIssuer,
   });
-  const { invite: aliceInvite } = await zoe.makeInstance(
-    installationHandle,
+  const { publicFacet } = await zoe.startInstance(
+    installation,
     issuerKeywordRecord,
   );
+
+  const invitation = E(publicFacet).makeInvitation();
 
   // Alice escrows with zoe
   const aliceProposal = harden({
@@ -40,36 +44,29 @@ test('zoe - useObj', async t => {
   const alicePayments = { Pixels: aliceMoolaPayment };
 
   // Alice makes an offer
-  const {
-    payout: alicePayoutP,
-    outcome: useObjP,
-    completeObj,
-  } = await zoe.offer(aliceInvite, aliceProposal, alicePayments);
+  const aliceSeat = await zoe.offer(invitation, aliceProposal, alicePayments);
 
-  const useObj = await useObjP;
+  const useObj = await E(aliceSeat).getOfferResult();
 
-  t.equals(
+  t.is(
     useObj.colorPixels('purple'),
     `successfully colored 3 pixels purple`,
     `use of use object works`,
   );
 
-  completeObj.complete();
+  aliceSeat.tryExit();
 
-  const alicePayout = await alicePayoutP;
+  const aliceMoolaPayoutPayment = await E(aliceSeat).getPayout('Pixels');
 
-  const aliceMoolaPayoutPayment = await alicePayout.Pixels;
-
-  t.deepEquals(
+  t.deepEqual(
     await moolaIssuer.getAmountOf(aliceMoolaPayoutPayment),
     moola(3),
     `alice gets everything she escrowed back`,
   );
 
-  console.log('EXPECTED ERROR ->>>');
   t.throws(
     () => useObj.colorPixels('purple'),
-    /the escrowing offer is no longer active/,
+    { message: /the escrowing offer is no longer active/ },
     `use of use object fails once offer is withdrawn or amounts are reallocated`,
   );
 });

@@ -1,15 +1,16 @@
-import './install-ersatz-harden';
-
+/* global __dirname process */
 import { Command } from 'commander';
 
+import { assert, details as X } from '@agoric/assert';
 import cosmosMain from './cosmos';
 import deployMain from './deploy';
 import initMain from './init';
 import installMain from './install';
 import setDefaultsMain from './set-defaults';
 import startMain from './start';
+import walletMain from './open';
 
-const DEFAULT_DAPP_TEMPLATE = 'dapp-encouragement';
+const DEFAULT_DAPP_TEMPLATE = 'dapp-fungible-faucet';
 const DEFAULT_DAPP_URL_BASE = 'git://github.com/Agoric/';
 
 const STAMP = '_agstate';
@@ -46,6 +47,7 @@ const main = async (progname, rawArgs, powers) => {
 
   program
     .option('--sdk', 'use the Agoric SDK containing this program')
+    .option('--docker-tag <tag>', 'image tag to use for Docker containers')
     .option(
       '-v, --verbose',
       'verbosity that can be increased',
@@ -60,6 +62,32 @@ const main = async (progname, rawArgs, powers) => {
     .action(async (command, cmd) => {
       const opts = { ...program.opts(), ...cmd.opts() };
       return subMain(cosmosMain, ['cosmos', ...command], opts);
+    });
+
+  program
+    .command('open')
+    .description('launch the Agoric UI')
+    .option(
+      '--hostport <host:port>',
+      'host and port to connect to VM',
+      '127.0.0.1:8000',
+    )
+    .option('--no-browser', `just display the URL, don't open a browser`)
+    .option(
+      '--repl [yes | only | no]',
+      'whether to show the Read-eval-print loop [yes]',
+      value => {
+        assert(
+          ['yes', 'only', 'no'].includes(value),
+          X`--repl must be one of 'yes', 'no', or 'only'`,
+          TypeError,
+        );
+        return value;
+      },
+    )
+    .action(async cmd => {
+      const opts = { ...program.opts(), ...cmd.opts() };
+      return subMain(walletMain, ['wallet'], opts);
     });
 
   program
@@ -92,6 +120,17 @@ const main = async (progname, rawArgs, powers) => {
       'set the config.toml p2p.persistent_peers value',
       '',
     )
+    .option('--seeds <addrs>', 'set the config.toml p2p.seeds value', '')
+    .option(
+      '--unconditional-peer-ids <ids>',
+      'set the config.toml p2p.unconditional_peer_ids value',
+      '',
+    )
+    .option(
+      '--export-metrics',
+      'open ports to export Prometheus metrics',
+      false,
+    )
     .action(async (prog, configDir, cmd) => {
       const opts = { ...program.opts(), ...cmd.opts() };
       return subMain(setDefaultsMain, ['set-defaults', prog, configDir], opts);
@@ -107,12 +146,29 @@ const main = async (progname, rawArgs, powers) => {
     });
 
   program
-    .command('deploy <script...>')
-    .description('run a deployment script against the local Agoric VM')
+    .command('deploy [script...]')
+    .description(
+      'run a deployment script with all your user privileges against the local Agoric VM',
+    )
     .option(
-      '--hostport <HOST:PORT>',
+      '--allow-unsafe-plugins',
+      `CAREFUL: installed Agoric VM plugins will also have all your user's privileges`,
+      false,
+    )
+    .option(
+      '--hostport <host:port>',
       'host and port to connect to VM',
       '127.0.0.1:8000',
+    )
+    .option(
+      '--need <subsystems>',
+      'comma-separated names of subsystems to wait for',
+      'agoric,wallet',
+    )
+    .option(
+      '--provide <subsystems>',
+      'comma-separated names of subsystems this script initializes',
+      '',
     )
     .action(async (scripts, cmd) => {
       const opts = { ...program.opts(), ...cmd.opts() };
@@ -136,6 +192,11 @@ const main = async (progname, rawArgs, powers) => {
     .option(
       '--inspect-brk [host[:port]]',
       'activate inspector on host:port and break at start of script (default: "127.0.0.1:9229")',
+    )
+    .option(
+      '--wallet <package>',
+      'install the wallet from NPM package <package>',
+      '@agoric/wallet-frontend',
     )
     .action(async (profile, args, cmd) => {
       await isNotBasedir();

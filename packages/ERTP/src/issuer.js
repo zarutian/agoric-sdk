@@ -1,46 +1,67 @@
-// Copyright (C) 2019 Agoric, under Apache License 2.0
-
 // @ts-check
+/* global makeWeakStore */
 
-import { assert, details } from '@agoric/assert';
-import makeStore from '@agoric/weak-store';
-import { isPromise } from '@agoric/produce-promise';
+'use jessie';
 
-import makeAmountMath from './amountMath';
+import { assert, details as X } from '@agoric/assert';
+import { makeExternalStore } from '@agoric/store';
+import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { makeNotifierKit } from '@agoric/notifier';
+import { isPromise } from '@agoric/promise-kit';
+
+import { amountMath, MathKind } from './amountMath';
+import { makeAmountMath } from './deprecatedAmountMath';
+import { makeFarName, ERTPKind } from './interfaces';
+import { coerceDisplayInfo } from './displayInfo';
+import { makePaymentMaker } from './payment';
 
 import './types';
 
 /**
- *
- * @param {string} allegedName
- * @param {MathHelpersName} [mathHelpersName='nat']
- * @returns {IssuerKit}
+ * @type {MakeIssuerKit}
  */
-function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
+function makeIssuerKit(
+  allegedName,
+  amountMathKind = MathKind.NAT,
+  displayInfo = undefined,
+) {
   assert.typeof(allegedName, 'string');
+  displayInfo = coerceDisplayInfo(displayInfo);
 
-  const brand = harden({
-    // eslint-disable-next-line no-use-before-define
-    isMyIssuer: allegedIssuer => allegedIssuer === issuer,
+  const brand = Far(makeFarName(allegedName, ERTPKind.BRAND), {
+    isMyIssuer: allegedIssuerP => {
+      return E.when(allegedIssuerP, allegedIssuer => {
+        // eslint-disable-next-line no-use-before-define
+        return allegedIssuer === issuer;
+      });
+    },
     getAllegedName: () => allegedName,
+
+    // Give information to UI on how to display the amount.
+    getDisplayInfo: () => displayInfo,
   });
 
-  const amountMath = makeAmountMath(brand, mathHelpersName);
+  /** @type {(left: Amount, right: Amount) => Amount } */
+  const add = (left, right) => amountMath.add(left, right, brand);
+  /** @type {(left: Amount, right: Amount) => Amount } */
+  const subtract = (left, right) => amountMath.subtract(left, right, brand);
+  /** @type {(allegedAmount: Amount) => Amount} */
+  const coerce = allegedAmount => amountMath.coerce(allegedAmount, brand);
+  /** @type {(left: Amount, right: Amount) => boolean } */
+  const isEqual = (left, right) => amountMath.isEqual(left, right, brand);
 
-  const paymentLedger = makeStore('payment');
-  const purseLedger = makeStore('purse');
+  /** @type {Amount} */
+  const emptyAmount = amountMath.makeEmpty(brand, amountMathKind);
+
+  const makePayment = makePaymentMaker(allegedName, brand);
+
+  /** @type {WeakStore<Payment, Amount>} */
+  const paymentLedger = makeWeakStore('payment');
 
   function assertKnownPayment(payment) {
-    assert(
-      paymentLedger.has(payment),
-      details`payment not found for ${allegedName}`,
-    );
+    assert(paymentLedger.has(payment), X`payment not found for ${allegedName}`);
   }
-
-  const makePayment = () =>
-    harden({
-      getAllegedBrand: () => brand,
-    });
 
   // Methods like deposit() have an optional second parameter `amount`
   // which, if present, is supposed to be equal to the balance of the
@@ -48,21 +69,37 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
   const assertAmountEqual = (paymentBalance, amount) => {
     if (amount !== undefined) {
       assert(
-        amountMath.isEqual(amount, paymentBalance),
-        details`payment balance ${paymentBalance} must equal amount ${amount}`,
+        isEqual(amount, paymentBalance),
+        X`payment balance ${paymentBalance} must equal amount ${amount}`,
       );
     }
   };
 
-  /**
-   * @returns {Purse}
-   */
-  const makePurse = () => {
+  const { makeInstance: makeDepositFacet } = makeExternalStore(
+    'depositFacet',
+    /**
+     * @param {Purse} purse
+     * @returns {DepositFacet}
+     */
+    purse =>
+      Far(makeFarName(allegedName, ERTPKind.DEPOSIT_FACET), {
+        receive: purse.deposit,
+      }),
+  );
+
+  const { makeInstance: makePurse } = makeExternalStore('purse', () => {
+    let currentBalance = emptyAmount;
+    /** @type {NotifierRecord<Amount>} */
+    const {
+      notifier: balanceNotifier,
+      updater: balanceUpdater,
+    } = makeNotifierKit(currentBalance);
+
     /** @type {Purse} */
-    const purse = harden({
+    const purse = Far(makeFarName(allegedName, ERTPKind.PURSE), {
       deposit: (srcPayment, optAmount = undefined) => {
         if (isPromise(srcPayment)) {
-          throw new TypeError(
+          throw TypeError(
             `deposit does not accept promises as first argument. Instead of passing the promise (deposit(paymentPromise)), consider unwrapping the promise first: paymentPromise.then(actualPayment => deposit(actualPayment))`,
           );
         }
@@ -70,59 +107,52 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
         const srcPaymentBalance = paymentLedger.get(srcPayment);
         // Note: this does not guarantee that optAmount itself is a valid stable amount
         assertAmountEqual(srcPaymentBalance, optAmount);
-        const purseBalance = purse.getCurrentAmount();
-        const newPurseBalance = amountMath.add(srcPaymentBalance, purseBalance);
+        const newPurseBalance = add(srcPaymentBalance, currentBalance);
         // Commit point
-        // eslint-disable-next-line no-use-before-define
-        const payments = reallocate(
-          harden({
-            payments: [srcPayment],
-            purses: [purse],
-            newPurseBalances: [newPurseBalance],
-          }),
-        );
-        assert(payments.length === 0, 'no payments should be returned');
+        // Move the assets in `srcPayment` into this purse, using up the
+        // source payment, such that total assets are conserved.
+        paymentLedger.delete(srcPayment);
+        currentBalance = newPurseBalance;
+        balanceUpdater.updateState(currentBalance);
         return srcPaymentBalance;
       },
       withdraw: amount => {
-        amount = amountMath.coerce(amount);
-        const purseBalance = purse.getCurrentAmount();
-        const newPurseBalance = amountMath.subtract(purseBalance, amount);
+        amount = coerce(amount);
+        const newPurseBalance = subtract(currentBalance, amount);
+        const payment = makePayment();
         // Commit point
-        // eslint-disable-next-line no-use-before-define
-        const [payment] = reallocate(
-          harden({
-            purses: [purse],
-            newPurseBalances: [newPurseBalance],
-            newPaymentBalances: [amount],
-          }),
-        );
+        // Move the withdrawn assets from this purse into a new payment
+        // which is returned. Total assets must remain conserved.
+        currentBalance = newPurseBalance;
+        balanceUpdater.updateState(currentBalance);
+        paymentLedger.init(payment, amount);
         return payment;
       },
-      getCurrentAmount: () => purseLedger.get(purse),
+      getCurrentAmount: () => currentBalance,
+      getCurrentAmountNotifier: () => balanceNotifier,
       getAllegedBrand: () => brand,
-      makeDepositFacet: () => harden({ receive: purse.deposit }),
+      // eslint-disable-next-line no-use-before-define
+      getDepositFacet: () => depositFacet,
     });
+
+    const depositFacet = makeDepositFacet(purse);
     return purse;
-  };
+  });
 
-  const { add } = amountMath;
-  const empty = amountMath.getEmpty();
-
-  // Amount in circulation remains constant with reallocate.
-  const reallocate = ({
-    purses = [],
-    payments = [],
-    newPurseBalances = [],
-    newPaymentBalances = [],
-  }) => {
-    // There may be zero or one purse and no more. No methods pass in
-    // more than one purse.
-    assert(
-      purses.length === 0 || purses.length === 1,
-      'purses length must be 0 or 1',
-    );
-
+  /**
+   * Reallocate assets from the `payments` passed in to new payments
+   * created and returned, with balances from `newPaymentBalances`.
+   * Enforces that total assets are conserved.
+   *
+   * Note that this is not the only operation that reallocates assets.
+   * `purse.deposit` and `purse.withdraw` move assets between a purse and
+   * a payment, and so must also enforce conservation there.
+   *
+   * @param {Payment[]} payments
+   * @param {Amount[]} newPaymentBalances
+   * @returns {Payment[]}
+   */
+  const reallocate = (payments, newPaymentBalances) => {
     // There may be zero, one, or many payments as input to
     // reallocate. We want to protect against someone passing in
     // what appears to be multiple payments that turn out to actually
@@ -132,34 +162,24 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
     // other uses.
 
     if (payments.length > 1) {
-      const paymentSet = new Set();
+      const antiAliasingStore = makeWeakStore('payment');
       payments.forEach(payment => {
-        if (paymentSet.has(payment)) {
-          throw new Error('same payment seen twice');
+        if (antiAliasingStore.has(payment)) {
+          throw Error('same payment seen twice');
         }
-        paymentSet.add(payment);
+        antiAliasingStore.init(payment, undefined);
       });
     }
 
-    assert(
-      purses.length === newPurseBalances.length,
-      details`purses and newPurseBalances should have same length`,
-    );
+    const total = payments.map(paymentLedger.get).reduce(add, emptyAmount);
 
-    const totalPursesB = purses.map(purseLedger.get).reduce(add, empty);
-    const totalPaymentsB = payments.map(paymentLedger.get).reduce(add, empty);
-    const total = amountMath.add(totalPursesB, totalPaymentsB);
-
-    const newPursesTotal = newPurseBalances.reduce(add, empty);
-    const newPaymentsTotal = newPaymentBalances.reduce(add, empty);
-    const newTotal = amountMath.add(newPaymentsTotal, newPursesTotal);
+    const newTotal = newPaymentBalances.reduce(add, emptyAmount);
 
     // Invariant check
-    assert(amountMath.isEqual(total, newTotal), 'rights were not conserved');
+    assert(isEqual(total, newTotal), 'rights were not conserved');
 
     // commit point
     payments.forEach(payment => paymentLedger.delete(payment));
-    purses.forEach((purse, i) => purseLedger.set(purse, newPurseBalances[i]));
 
     const newPayments = newPaymentBalances.map(balance => {
       const newPayment = makePayment();
@@ -171,31 +191,26 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
   };
 
   /** @type {Issuer} */
-  const issuer = harden({
+  const issuer = Far(makeFarName(allegedName, ERTPKind.ISSUER), {
     getBrand: () => brand,
     getAllegedName: () => allegedName,
-    getAmountMath: () => amountMath,
-    getMathHelpersName: () => mathHelpersName,
-    makeEmptyPurse: () => {
-      const purse = makePurse();
-      purseLedger.init(purse, amountMath.getEmpty());
-      return purse;
-    },
+    getAmountMathKind: () => amountMathKind,
+    makeEmptyPurse: makePurse,
 
     isLive: paymentP => {
-      return Promise.resolve(paymentP).then(payment => {
+      return E.when(paymentP, payment => {
         return paymentLedger.has(payment);
       });
     },
     getAmountOf: paymentP => {
-      return Promise.resolve(paymentP).then(payment => {
+      return E.when(paymentP, payment => {
         assertKnownPayment(payment);
         return paymentLedger.get(payment);
       });
     },
 
     burn: (paymentP, optAmount = undefined) => {
-      return Promise.resolve(paymentP).then(payment => {
+      return E.when(paymentP, payment => {
         assertKnownPayment(payment);
         const paymentBalance = paymentLedger.get(payment);
         assertAmountEqual(paymentBalance, optAmount);
@@ -205,17 +220,12 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
       });
     },
     claim: (paymentP, optAmount = undefined) => {
-      return Promise.resolve(paymentP).then(srcPayment => {
+      return E.when(paymentP, srcPayment => {
         assertKnownPayment(srcPayment);
         const srcPaymentBalance = paymentLedger.get(srcPayment);
         assertAmountEqual(srcPaymentBalance, optAmount);
         // Commit point.
-        const [payment] = reallocate(
-          harden({
-            payments: [srcPayment],
-            newPaymentBalances: [srcPaymentBalance],
-          }),
-        );
+        const [payment] = reallocate([srcPayment], [srcPaymentBalance]);
         return payment;
       });
     },
@@ -226,59 +236,44 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
         fromPaymentsArray.every(assertKnownPayment);
         const totalPaymentsBalance = fromPaymentsArray
           .map(paymentLedger.get)
-          .reduce(add, empty);
+          .reduce(add, emptyAmount);
         assertAmountEqual(totalPaymentsBalance, optTotalAmount);
         // Commit point.
-        const [payment] = reallocate(
-          harden({
-            payments: fromPaymentsArray,
-            newPaymentBalances: [totalPaymentsBalance],
-          }),
-        );
+        const [payment] = reallocate(fromPaymentsArray, [totalPaymentsBalance]);
         return payment;
       });
     },
     // payment to two payments, A and B
     split: (paymentP, paymentAmountA) => {
-      return Promise.resolve(paymentP).then(srcPayment => {
-        paymentAmountA = amountMath.coerce(paymentAmountA);
+      return E.when(paymentP, srcPayment => {
+        paymentAmountA = coerce(paymentAmountA);
         assertKnownPayment(srcPayment);
         const srcPaymentBalance = paymentLedger.get(srcPayment);
-        const paymentAmountB = amountMath.subtract(
-          srcPaymentBalance,
-          paymentAmountA,
-        );
+        const paymentAmountB = subtract(srcPaymentBalance, paymentAmountA);
         // Commit point
         const newPayments = reallocate(
-          harden({
-            payments: [srcPayment],
-            newPaymentBalances: [paymentAmountA, paymentAmountB],
-          }),
+          [srcPayment],
+          [paymentAmountA, paymentAmountB],
         );
         return newPayments;
       });
     },
     splitMany: (paymentP, amounts) => {
-      return Promise.resolve(paymentP).then(srcPayment => {
+      return E.when(paymentP, srcPayment => {
         assertKnownPayment(srcPayment);
-        amounts = amounts.map(amountMath.coerce);
+        amounts = amounts.map(coerce);
         // Commit point
-        const newPayments = reallocate(
-          harden({
-            payments: [srcPayment],
-            newPaymentBalances: amounts,
-          }),
-        );
+        const newPayments = reallocate([srcPayment], amounts);
         return newPayments;
       });
     },
   });
 
   /** @type {Mint} */
-  const mint = harden({
+  const mint = Far(makeFarName(allegedName, ERTPKind.MINT), {
     getIssuer: () => issuer,
     mintPayment: newAmount => {
-      newAmount = amountMath.coerce(newAmount);
+      newAmount = coerce(newAmount);
       const payment = makePayment();
       paymentLedger.init(payment, newAmount);
       return payment;
@@ -288,11 +283,12 @@ function makeIssuerKit(allegedName, mathHelpersName = 'nat') {
   return harden({
     mint,
     issuer,
-    amountMath,
+    amountMath: makeAmountMath(brand, amountMathKind),
     brand,
+    amountMathKind,
   });
 }
 
 harden(makeIssuerKit);
 
-export default makeIssuerKit;
+export { makeIssuerKit };

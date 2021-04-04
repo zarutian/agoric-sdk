@@ -1,7 +1,10 @@
 {
   "name": "@agoric/sparse-ints",
-  "version": "0.0.7",
+  "version": "0.1.4",
   "description": "Share code across vat boundaries",
+  "parsers": {
+    "js": "mjs"
+  },
   "main": "src/sparseInts.js",
   "engines": {
     "node": ">=11.0"
@@ -9,10 +12,9 @@
   "scripts": {
     "build": "exit 0",
     "test": "exit 0",
+    "test:xs": "exit 0",
     "lint-fix": "eslint --fix '**/*.js'",
-    "lint-check": "eslint '**/*.js'",
-    "lint-fix-jessie": "eslint -c '.eslintrc-jessie.js' --fix '**/*.js'",
-    "lint-check-jessie": "eslint -c '.eslintrc-jessie.js' '**/*.js'"
+    "lint-check": "eslint '**/*.js'"
   },
   "repository": {
     "type": "git",
@@ -25,50 +27,27 @@
     "url": "https://github.com/Agoric/agoric-sdk/issues"
   },
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
-  "dependencies": {
-  },
   "devDependencies": {
+    "ava": "^3.12.1",
     "esm": "^3.2.25",
-    "tap-spec": "^5.0.0",
-    "tape": "^4.11.0",
-    "tape-promise": "^4.0.0"
+    "nyc": "^15.1.0"
   },
   "files": [
     "src/",
     "NEWS.md"
   ],
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ]
+  },
   "eslintConfig": {
     "extends": [
-      "airbnb-base",
-      "plugin:prettier/recommended"
-    ],
-    "env": {
-      "es6": true
-    },
-    "rules": {
-      "implicit-arrow-linebreak": "off",
-      "function-paren-newline": "off",
-      "arrow-parens": "off",
-      "strict": "off",
-      "no-console": "off",
-      "no-unused-vars": [
-        "error",
-        {
-          "argsIgnorePattern": "^_",
-          "varsIgnorePattern": "^_"
-        }
-      ],
-      "no-return-assign": "off",
-      "no-param-reassign": "off",
-      "no-restricted-syntax": [
-        "off",
-        "ForOfStatement"
-      ],
-      "no-unused-expressions": "off",
-      "no-loop-func": "off",
-      "no-inner-declarations": "off",
-      "import/prefer-default-export": "off"
-    }
+      "@agoric"
+    ]
   },
   "eslintIgnore": [
     "bundle-*.js"

@@ -1,19 +1,33 @@
+/* global setTimeout */
 import path from 'path';
 import fs from 'fs';
 import { execFile } from 'child_process';
-import djson from 'deterministic-json';
-import { createHash } from 'crypto';
 import { open as tempOpen } from 'temp';
-// FIXME: Use @agoric/tendermint until
-// https://github.com/nomic-io/js-tendermint/issues/25
-// is resolved.
-import Tendermint from '@agoric/tendermint';
+
+import WebSocket from 'ws';
 
 import anylogger from 'anylogger';
+import { makeNotifierKit } from '@agoric/notifier';
+import { makePromiseKit } from '@agoric/promise-kit';
+
+import { assert, details as X } from '@agoric/assert';
+import { makeBatchedDeliver } from './batched-deliver';
 
 const log = anylogger('chain-cosmos-sdk');
 
 const HELPER = 'ag-cosmos-helper';
+const FAUCET_ADDRESS =
+  '#faucet channel on Discord (https://agoric.com/discord)';
+
+const adviseEgress = myAddr =>
+  `\
+
+
+Send:
+
+  !faucet client ${myAddr}
+
+to ${FAUCET_ADDRESS}`;
 
 const MAX_BUFFER_SIZE = 10 * 1024 * 1024;
 
@@ -99,18 +113,16 @@ export async function connectToChain(
     throwIfCancelled = () => undefined,
     defaultIfCancelled = WAS_CANCELLED_EXCEPTION,
   ) {
-    // eslint-disable-next-line consistent-return
     return retryRpcAddr(async rpcAddr => {
       await throwIfCancelled();
 
       const fullArgs = [
         ...args,
         `--chain-id=${chainID}`,
-        '--output=json',
         `--node=tcp://${rpcAddr}`,
         `--home=${helperDir}`,
       ];
-      log(HELPER, ...fullArgs);
+      log.debug(HELPER, ...fullArgs);
       let ret;
       try {
         ret = await new Promise((resolve, reject) => {
@@ -143,6 +155,7 @@ export async function connectToChain(
           log.error(`Failed to parse return:`, e);
         }
       }
+      return undefined;
     }).catch(e => {
       if (
         e === CANCEL_USE_DEFAULT &&
@@ -151,8 +164,8 @@ export async function connectToChain(
         return defaultIfCancelled;
       }
 
-      // Not silent, so rethrow.
-      throw e;
+      // Just retry.
+      return undefined;
     });
   }
 
@@ -229,11 +242,11 @@ export async function connectToChain(
     }
   }
 
-  const getMailbox = _height =>
+  const getMailbox = () =>
     queuedHelper(
       'getMailbox',
       1, // Only one helper running at a time.
-      ['query', 'swingset', 'mailbox', myAddr],
+      ['query', 'swingset', 'mailbox', myAddr, '-ojson'],
       // eslint-disable-next-line consistent-return
       ret => {
         const { stdout, stderr } = ret;
@@ -241,63 +254,55 @@ export async function connectToChain(
         if (errMsg) {
           log.error(errMsg);
         }
-        log(`helper said: ${stdout}`);
-        try {
-          // Try to parse the stdout.
-          return JSON.parse(JSON.parse(JSON.parse(stdout).value));
-        } catch (e) {
-          log(`failed to parse output:`, e);
+        if (stdout) {
+          log.debug(`helper said: ${stdout}`);
+          try {
+            // Try to parse the stdout.
+            return JSON.parse(JSON.parse(stdout).value);
+          } catch (e) {
+            log(`failed to parse output:`, e);
+          }
         }
       },
       undefined,
-      {}, // defaultIfCancelled
+      false, // defaultIfCancelled
     );
 
-  // The 'tendermint' package can perform light-client checks (instantiate
-  // Tendermint() with a
-  // known-valid starting state, containing {header,validators,commit}, which
-  // can be fetched by RPC, that we compare against the GCI and chainID).
-  //
-  // TODO: decide when these parameters should be updated to something other
-  // than genesis.  This is necessary to ensure we have a recent block
-  // reference that probably isn't compromised.
-  const LAST_KNOWN_BLOCKHEIGHT = 1;
-  const LAST_KNOWN_COMMIT = null;
-  const getClient = () =>
-    retryRpcAddr(async rpcAddr => {
-      const nodeAddr = `ws://${rpcAddr}`;
-      const rpc = Tendermint.RpcClient(nodeAddr);
-      const { genesis } = await rpc.genesis();
-      const { validators } = await rpc.validators({
-        height: LAST_KNOWN_BLOCKHEIGHT,
-      });
-      rpc.close();
-      if (genesis.chain_id !== chainID) {
-        throw Error(
-          `downloaded chainID ${genesis.chain_id} does not match expected chainID ${chainID}`,
-        );
-      }
-      const gci = createHash('sha256')
-        .update(djson.stringify(genesis))
-        .digest('hex');
-      if (gci !== GCI) {
-        throw Error(`computed GCI ${gci} does not match expected GCI ${GCI}`);
-      }
-      const clientState = {
-        validators,
-        commit: LAST_KNOWN_COMMIT,
-        header: { height: LAST_KNOWN_BLOCKHEIGHT, chain_id: chainID },
-      };
-      const client = Tendermint(nodeAddr, clientState);
-      client.on('error', e => log.error(e));
-      return new Promise((resolve, reject) => {
-        client.once('error', reject);
-        client.once('synced', () => {
-          client.removeListener('error', reject);
-          resolve({ lightClient: client });
-        });
+  // Validate that our chain egress exists.
+  await retryRpcAddr(async rpcAddr => {
+    const args = ['query', 'swingset', 'egress', myAddr];
+    const fullArgs = [
+      ...args,
+      `--chain-id=${chainID}`,
+      '--output=json',
+      `--node=tcp://${rpcAddr}`,
+      `--home=${helperDir}`,
+    ];
+    // log(HELPER, ...fullArgs);
+    const r = await new Promise(resolve => {
+      execFile(HELPER, fullArgs, (error, stdout, stderr) => {
+        resolve({ error, stdout, stderr });
       });
     });
+
+    if (r.stderr) {
+      console.error(r.stderr);
+    }
+    if (!r.stdout) {
+      console.error(`\
+=============
+${chainID} chain does not yet know of address ${myAddr}${adviseEgress(myAddr)}
+=============
+`);
+      return undefined;
+    } else if (r.error) {
+      console.error(`Error running`, HELPER, ...args);
+      console.error(r.stderr);
+      return undefined;
+    }
+
+    return r;
+  });
 
   // We need one subscription-type thing
   // to tell us that a new block exists, then we can use a different
@@ -305,29 +310,121 @@ export async function connectToChain(
   // outbox is correctly traced to the block header, and that the block
   // header is a legitimate descendant of our previously-validated state.
 
-  const c = await getClient();
+  // FIXME: We currently don't use the persistent light client functionality.
+  // We hope to move to CosmJS with our own IBC implementation for all our light
+  // client + transaction needs.  For now, it's simple enough to notice when
+  // blocks happen an just to issue mailbox queries.
 
-  // TODO: another way to make this cheaper would be to extract the apphash
-  // from the received block, and only check the mailbox if it changes.
-  // That's more coarse than checking for only our own slot, but better than
-  // hitting the rest-server on every single block.
+  /**
+   * Get a notifier that announces every time a block lands.
+   *
+   * @returns {Notifier<any>}
+   */
+  const getBlockNotifier = () => {
+    const { notifier, updater } = makeNotifierKit();
+    retryRpcAddr(async rpcAddr => {
+      // Every time we enter this function, we are establishing a
+      // new websocket to a potentially different RPC server.
+      //
+      // We use the same notifier, though... it's a stable identity.
 
-  c.lightClient.on('update', ({ height }) => {
-    log(`new block on ${GCI}, fetching mailbox`);
-    return getMailbox(height)
-      .then(({ outbox, ack }) => {
-        // console.debug('have outbox', outbox, ack);
-        if (outbox) {
-          inbound(GCI, outbox, ack);
+      // This promise is for when we're ready to retry.
+      const retryPK = makePromiseKit();
+
+      // Open the WebSocket.
+      const ws = new WebSocket(`ws://${rpcAddr}/websocket`);
+      ws.addEventListener('error', e => {
+        log.debug('WebSocket error', e);
+      });
+
+      // This magic identifier just distinguishes our subscription
+      // from other noise on the Websocket, if there is any.
+      const MAGIC_ID = 13254;
+      ws.addEventListener('open', _ => {
+        // We send a message to subscribe to every
+        // new block header.
+        const obj = {
+          // JSON-RPC version 2.0.
+          jsonrpc: '2.0',
+          id: MAGIC_ID,
+          // We want to subscribe.
+          method: 'subscribe',
+          params: {
+            // Here is the Tendermint event for new blocks.
+            query: "tm.event = 'NewBlockHeader'",
+          },
+        };
+        // Send that message, and wait for the subscription.
+        ws.send(JSON.stringify(obj));
+      });
+      ws.addEventListener('message', ev => {
+        // We received a message.
+        const obj = JSON.parse(ev.data);
+        if (obj.id === MAGIC_ID) {
+          // It matches our subscription, so notify.
+          updater.updateState(obj);
         }
-      })
-      .catch(e => log.error(`Failed to fetch ${GCI} mailbox:`, e));
-  });
-  c.lightClient.on('close', e => log.error('closed', e));
+      });
+      ws.addEventListener('close', _ => {
+        // The value `undefined` as the resolution of this retry
+        // tells the caller to retry again with a different RPC server.
+        retryPK.resolve(undefined);
+      });
+      // Return an unresolved promise that resolves to `undefined`
+      // when the WebSocket is closed.
+      return retryPK.promise;
+    });
+
+    return notifier;
+  };
+
+  // Begin the block notifier cycle.
+  const blockNotifier = getBlockNotifier();
+
+  /**
+   * This function is entered at most the same number of times
+   * as the blockNotifier announces a new block.
+   *
+   * It then gets the mailbox.  There are no optimisations.
+   *
+   * @param {number=} lastBlockUpdate
+   */
+  const recurseEachNewBlock = (lastBlockUpdate = undefined) => {
+    blockNotifier
+      .getUpdateSince(lastBlockUpdate)
+      .then(({ updateCount, value }) => {
+        assert(value, X`${GCI} unexpectedly finished!`);
+        log.debug(`new block on ${GCI}, fetching mailbox`);
+        getMailbox()
+          .then(ret => {
+            if (!ret) {
+              // The getMailbox was cancelled.
+              return;
+            }
+
+            const { outbox, ack } = ret;
+            // console.debug('have outbox', outbox, ack);
+            inbound(GCI, outbox, ack);
+          })
+          .catch(e => log.error(`Failed to fetch ${GCI} mailbox:`, e));
+        recurseEachNewBlock(updateCount);
+      });
+  };
+
+  // Begin the block consumer.
+  recurseEachNewBlock();
+
+  let totalDeliveries = 0;
   async function deliver(newMessages, acknum) {
     let tmpInfo;
     try {
-      log(`delivering to chain`, GCI, newMessages, acknum);
+      totalDeliveries += 1;
+      log(
+        `delivering to chain (trips=${totalDeliveries})`,
+        GCI,
+        newMessages,
+        acknum,
+      );
 
       // Peer and submitter are combined in the message format (i.e. we removed
       // the extra 'myAddr' after 'tx swingset deliver'). All messages from
@@ -374,9 +471,8 @@ export async function connectToChain(
         '--keyring-backend=test',
         `@${tmpInfo.path}`, // Deliver message over file, as it could be big.
         '--gas=auto',
-        '--gas-adjustment=1.05',
+        '--gas-adjustment=1.2',
         '--from=ag-solo',
-        '-ojson',
         '--broadcast-mode=block', // Don't return until committed.
         '--yes',
       ];
@@ -396,10 +492,13 @@ export async function connectToChain(
           if (errMsg) {
             log.error(errMsg);
           }
-          log(`helper said: ${stdout}`);
-          // TODO: parse the helper output (JSON), we want 'code' to be 0. If
-          // not, look at .raw_log (also JSON) at .message.
-          return {};
+          log.debug(`helper said: ${stdout}`);
+          const out = JSON.parse(stdout);
+          if (Number(out.height) > 0) {
+            // We submitted the transaction successfully.
+            return {};
+          }
+          assert.fail(X`Unexpected output: ${stdout.trimRight()}`);
         },
         undefined,
         {}, // defaultIfCancelled
@@ -412,5 +511,7 @@ export async function connectToChain(
     }
   }
 
-  return deliver;
+  // Now that we've started consuming blocks, tell our caller how to deliver
+  // messages.
+  return makeBatchedDeliver(deliver);
 }

@@ -1,5 +1,7 @@
-/* global harden */
+import { makeNotifierKit } from '@agoric/notifier';
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
 import { getReplHandler } from './repl';
 import { getCapTPHandler } from './captp';
 
@@ -7,34 +9,32 @@ import { getCapTPHandler } from './captp';
 export function buildRootObject(vatPowers) {
   const { D } = vatPowers;
   let commandDevice;
-  let provisioner;
   const channelIdToHandle = new Map();
   const channelHandleToId = new WeakMap();
-  const loaded = {};
-  loaded.p = new Promise((resolve, reject) => {
-    loaded.res = resolve;
-    loaded.rej = reject;
-  });
-  harden(loaded);
+  let LOADING = harden(['agoric', 'wallet', 'local']);
+  const {
+    notifier: loadingNotifier,
+    updater: loadingUpdater,
+  } = makeNotifierKit(LOADING);
+
   const replObjects = {
-    home: { LOADING: loaded.p }, // TODO: Remove
-    agoric: { LOADING: loaded.p },
+    home: { LOADING },
+    agoric: {},
     local: {},
   };
-  let isReady = false;
-  const readyForClient = {};
+
   let exportedToCapTP = {
-    LOADING: loaded.p,
-    READY: {
-      resolve(value) {
-        isReady = true;
-        readyForClient.res(value);
-      },
-      isReady() {
-        return isReady;
-      },
-    },
+    loadingNotifier,
   };
+  function doneLoading(subsystems) {
+    LOADING = LOADING.filter(subsys => !subsystems.includes(subsys));
+    loadingUpdater.updateState(LOADING);
+    if (LOADING.length) {
+      replObjects.home.LOADING = LOADING;
+    } else {
+      delete replObjects.home.LOADING;
+    }
+  }
 
   const send = (obj, channelHandles) => {
     // TODO: Make this sane by adding support for multicast to the commandDevice.
@@ -47,77 +47,61 @@ export function buildRootObject(vatPowers) {
     }
   };
 
-  readyForClient.p = new Promise((resolve, reject) => {
-    readyForClient.res = resolve;
-    readyForClient.rej = reject;
-  });
-  harden(readyForClient);
+  const sendResponse = (count, isException, obj) =>
+    D(commandDevice).sendResponse(
+      count,
+      isException,
+      obj || JSON.parse(JSON.stringify(obj)),
+    );
 
-  const handler = {};
-  const registeredURLHandlers = new Map();
+  // Map an URL only to its latest handler.
+  const urlToHandler = new Map();
 
-  // TODO: Don't leak memory.
-  async function registerURLHandler(newHandler, url) {
-    const commandHandler = await E(newHandler).getCommandHandler();
-    let reg = registeredURLHandlers.get(url);
-    if (!reg) {
-      reg = [];
-      registeredURLHandlers.set(url, reg);
-    }
-    reg.push(commandHandler);
+  async function registerURLHandler(handler, url) {
+    const fallback = await E(handler)
+      .getCommandHandler()
+      .catch(_ => undefined);
+    const commandHandler = getCapTPHandler(
+      send,
+      (otherSide, meta, obj) =>
+        E(handler)
+          .getBootstrap(otherSide, meta, obj)
+          .catch(_e => undefined),
+      fallback,
+    );
+    urlToHandler.set(url, commandHandler);
   }
 
-  return harden({
-    setCommandDevice(d, ROLES) {
+  return Far('root', {
+    setCommandDevice(d) {
       commandDevice = d;
-      if (ROLES.client) {
-        handler.readyForClient = () => readyForClient.p;
 
-        const replHandler = getReplHandler(replObjects, send, vatPowers);
-        registerURLHandler(replHandler, '/private/repl');
+      const replHandler = getReplHandler(replObjects, send, vatPowers);
+      registerURLHandler(replHandler, '/private/repl');
 
-        // Assign the captp handler.
-        // TODO: Break this out into a separate vat.
-        const captpHandler = getCapTPHandler(E, send, () =>
-          // Harden only our exported objects.
-          harden(exportedToCapTP),
-        );
-        registerURLHandler(captpHandler, '/private/captp');
-      }
-
-      if (ROLES.controller) {
-        handler.pleaseProvision = obj => {
-          const { nickname, pubkey } = obj;
-          // FIXME: There's a race here.  We return from the call
-          // before the outbound messages have been committed to
-          // a block.  This means the provisioning-server must
-          // retry transactions as they might have the wrong sequence
-          // number.
-          return E(provisioner).pleaseProvision(nickname, pubkey);
-        };
-        handler.pleaseProvisionMany = obj => {
-          const { applies } = obj;
-          return Promise.all(
-            applies.map(args =>
-              // Emulate allSettled.
-              E(provisioner)
-                .pleaseProvision(...args)
-                .then(
-                  value => ({ status: 'fulfilled', value }),
-                  reason => ({ status: 'rejected', reason }),
-                ),
-            ),
-          );
-        };
-      }
+      // Assign the captp handler.
+      const captpHandler = Far('captpHandler', {
+        getBootstrap(_otherSide, _meta) {
+          // Harden only our exported objects, and fetch them afresh each time.
+          return harden(exportedToCapTP);
+        },
+      });
+      registerURLHandler(captpHandler, '/private/captp');
     },
 
     registerURLHandler,
     registerAPIHandler: h => registerURLHandler(h, '/api'),
     send,
+    doneLoading,
 
-    setProvisioner(p) {
-      provisioner = p;
+    setWallet(wallet) {
+      exportedToCapTP = {
+        ...exportedToCapTP,
+        local: { ...exportedToCapTP.local, wallet },
+        wallet,
+      };
+      replObjects.local.wallet = wallet;
+      replObjects.home.wallet = wallet;
     },
 
     setPresences(
@@ -126,23 +110,23 @@ export function buildRootObject(vatPowers) {
       handyObjects = undefined,
     ) {
       exportedToCapTP = {
+        ...exportedToCapTP,
         ...decentralObjects, // TODO: Remove; replaced by .agoric
         ...privateObjects, // TODO: Remove; replaced by .local
         ...handyObjects,
-        LOADING: loaded.p, // TODO: Remove; replaced by .agoric.LOADING
-        agoric: { decentralObjects, LOADING: loaded.p },
-        local: privateObjects,
+        agoric: { ...decentralObjects },
+        local: { ...privateObjects },
       };
 
       // We need to mutate the repl subobjects instead of replacing them.
       if (privateObjects) {
         Object.assign(replObjects.local, privateObjects);
+        doneLoading(['local']);
       }
 
       if (decentralObjects) {
-        loaded.res('chain bundle loaded');
         Object.assign(replObjects.agoric, decentralObjects);
-        delete replObjects.agoric.LOADING;
+        doneLoading(['agoric']);
       }
 
       // TODO: Remove; home object is deprecated.
@@ -153,19 +137,22 @@ export function buildRootObject(vatPowers) {
           privateObjects,
           handyObjects,
         );
-        delete replObjects.home.LOADING;
       }
     },
 
     // devices.command invokes our inbound() because we passed to
     // registerInboundHandler()
     async inbound(count, rawObj) {
+      // Launder the data, since the command device tends to pass device nodes
+      // when there are empty objects, which screw things up for us.
+      // Analysis is in https://github.com/Agoric/agoric-sdk/pull/1956
+      const obj = JSON.parse(JSON.stringify(rawObj));
       console.debug(
         `vat-http.inbound (from browser) ${count}`,
-        JSON.stringify(rawObj, undefined, 2),
+        JSON.stringify(obj, undefined, 2),
       );
 
-      const { type, meta: rawMeta = {} } = rawObj || {};
+      const { type, meta: rawMeta = {} } = obj || {};
       const {
         url = '/private/repl',
         channelID: rawChannelID,
@@ -175,7 +162,7 @@ export function buildRootObject(vatPowers) {
       try {
         let channelHandle = channelIdToHandle.get(rawChannelID);
         if (dispatcher === 'onOpen') {
-          channelHandle = harden({});
+          channelHandle = Far('channelHandle');
           channelIdToHandle.set(rawChannelID, channelHandle);
           channelHandleToId.set(channelHandle, rawChannelID);
         } else if (dispatcher === 'onClose') {
@@ -183,9 +170,6 @@ export function buildRootObject(vatPowers) {
           channelHandleToId.delete(channelHandle);
         }
 
-        const obj = {
-          ...rawObj,
-        };
         delete obj.meta;
 
         const meta = {
@@ -194,43 +178,24 @@ export function buildRootObject(vatPowers) {
         };
         delete meta.channelID;
 
-        if (url === '/private/repl') {
-          // Use our local handler object (compatibility).
-          // TODO: standardise
-          if (handler[type]) {
-            D(commandDevice).sendResponse(
-              count,
-              false,
-              await handler[type](obj, meta),
-            );
+        const urlHandler = urlToHandler.get(url);
+        if (urlHandler) {
+          const res = await E(urlHandler)[dispatcher](obj, meta);
+          if (res) {
+            sendResponse(count, false, res);
             return;
           }
         }
 
-        const urlHandlers = registeredURLHandlers.get(url);
-        if (urlHandlers) {
-          // todo fixme avoid the loop
-          // For now, go from the end to beginning so that handlers
-          // override.
-          for (let i = urlHandlers.length - 1; i >= 0; i -= 1) {
-            // eslint-disable-next-line no-await-in-loop
-            const res = await E(urlHandlers[i])[dispatcher](obj, meta);
-
-            if (res) {
-              D(commandDevice).sendResponse(count, false, harden(res));
-              return;
-            }
-          }
-        }
-
         if (dispatcher === 'onMessage') {
-          throw Error(`No handler for ${url} ${type}`);
+          sendResponse(count, false, { type: 'doesNotUnderstand', obj });
+          assert.fail(X`No handler for ${url} ${type}`);
         }
-        D(commandDevice).sendResponse(count, false, harden(true));
+        sendResponse(count, false, true);
       } catch (rej) {
         console.debug(`Error ${dispatcher}:`, rej);
         const jsonable = (rej && rej.message) || rej;
-        D(commandDevice).sendResponse(count, true, harden(jsonable));
+        sendResponse(count, true, jsonable);
       }
     },
   });

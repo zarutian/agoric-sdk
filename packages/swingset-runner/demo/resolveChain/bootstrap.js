@@ -1,17 +1,15 @@
-/* global harden */
-
 import { E } from '@agoric/eventual-send';
 
 const log = console.log;
 
 log(`=> loading bootstrap.js`);
 
-export function buildRootObject(_vatPowers) {
+export function buildRootObject(_vatPowers, options) {
   let count;
   function waitFor(who, p) {
     p.then(
       answer => {
-        if (0 < count && count < 50) {
+        if (count > 0 && count < 50) {
           log(`Alice: Bob answers with value ${answer[0]}`);
         }
         if (answer[0] < count || count < 0) {
@@ -26,8 +24,8 @@ export function buildRootObject(_vatPowers) {
   }
 
   return harden({
-    bootstrap(argv, vats) {
-      count = argv[0] ? Number(argv[0]) : 3;
+    bootstrap(vats) {
+      count = options.argv[0] ? Number(options.argv[0]) : 3;
       const bob = vats.bob;
       const p = E(bob).init();
       E(bob).gen();

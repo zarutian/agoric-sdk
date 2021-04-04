@@ -1,11 +1,13 @@
-/* global harden */
+// @ts-check
 
-import { sameValueZero, passStyleOf } from '@agoric/marshal';
-import { assert, details, q } from '@agoric/assert';
+import { sameValueZero, passStyleOf, REMOTE_STYLE } from '@agoric/marshal';
+import { assert, details as X, q } from '@agoric/assert';
 
 // Shim of Object.fromEntries from
 // https://github.com/tc39/proposal-object-from-entries/blob/master/polyfill.js
-function ObjectFromEntries(iter) {
+// TODO reconcile and dedup with the Object.fromEntries ponyfill in
+// SES-shim/packages/ses/src/commons.js
+function objectFromEntries(iter) {
   const obj = {};
 
   for (const pair of iter) {
@@ -29,25 +31,30 @@ function ObjectFromEntries(iter) {
   return obj;
 }
 
-// A *passable* is something that may be marshalled. It consists of a
-// graph of pass-by-copy data terminating in leaves of passable
-// non-pass-by-copy data. These leaves may be promises, or
-// pass-by-presence objects. A *comparable* is a passable whose leaves
-// contain no promises. Two comparables can be synchronously compared
-// for structural equivalence.
-//
-// TODO: Currently, all algorithms here treat the pass-by-copy
-// superstructure as a tree. This means that dags are unwound at
-// potentially exponential cost, and cycles cause failure to
-// terminate. We must fix both problems, making all these algorithms
-// graph-aware.
-
-// We say that a function *reveals* an X when it returns either an X
-// or a promise for an X.
-
-// Given a passable, reveal a corresponding comparable, where each
-// leaf promise of the passable has been replaced with its
-// corresponding comparable.
+/**
+ * A *passable* is something that may be marshalled. It consists of a
+ * graph of pass-by-copy data terminating in leaves of passable
+ * non-pass-by-copy data. These leaves may be promises, or
+ * pass-by-presence objects. A *comparable* is a passable whose leaves
+ * contain no promises. Two comparables can be synchronously compared
+ * for structural equivalence.
+ *
+ * TODO: Currently, all algorithms here treat the pass-by-copy
+ * superstructure as a tree. This means that dags are unwound at
+ * potentially exponential cost, and cycles cause failure to
+ * terminate. We must fix both problems, making all these algorithms
+ * graph-aware.
+ *
+ * We say that a function *reveals* an X when it returns either an X
+ * or a promise for an X.
+ *
+ * Given a passable, reveal a corresponding comparable, where each
+ * leaf promise of the passable has been replaced with its
+ * corresponding comparable.
+ *
+ * @param {Passable} passable
+ * @returns {Promise<Comparable>}
+ */
 function allComparable(passable) {
   const passStyle = passStyleOf(passable);
   switch (passStyle) {
@@ -56,9 +63,8 @@ function allComparable(passable) {
     case 'string':
     case 'boolean':
     case 'number':
-    case 'symbol':
     case 'bigint':
-    case 'presence':
+    case REMOTE_STYLE:
     case 'copyError': {
       return passable;
     }
@@ -73,34 +79,39 @@ function allComparable(passable) {
       const names = Object.getOwnPropertyNames(passable);
       const valPs = names.map(name => allComparable(passable[name]));
       return Promise.all(valPs).then(vals =>
-        harden(ObjectFromEntries(vals.map((val, i) => [names[i], val]))),
+        harden(objectFromEntries(vals.map((val, i) => [names[i], val]))),
       );
     }
     default: {
-      throw new TypeError(`unrecognized passStyle ${passStyle}`);
+      assert.fail(X`unrecognized passStyle ${passStyle}`, TypeError);
     }
   }
 }
 harden(allComparable);
 
-// Are left and right structurally equivalent comparables? This
-// compares pass-by-copy data deeply until non-pass-by-copy values are
-// reached. The non-pass-by-copy values at the leaves of the
-// comparison may only be pass-by-presence objects. If they are
-// anything else, including promises, throw an error.
-//
-// Pass-by-presence objects compare identities.
-
+/**
+ * Are left and right structurally equivalent comparables? This
+ * compares pass-by-copy data deeply until non-pass-by-copy values are
+ * reached. The non-pass-by-copy values at the leaves of the
+ * comparison may only be pass-by-presence objects. If they are
+ * anything else, including promises, throw an error.
+ *
+ * Pass-by-presence objects compare identities.
+ *
+ * @param {Comparable} left
+ * @param {Comparable} right
+ * @returns {boolean}
+ */
 function sameStructure(left, right) {
   const leftStyle = passStyleOf(left);
   const rightStyle = passStyleOf(right);
   assert(
     leftStyle !== 'promise',
-    details`Cannot structurally compare promises: ${left}`,
+    X`Cannot structurally compare promises: ${left}`,
   );
   assert(
     rightStyle !== 'promise',
-    details`Cannot structurally compare promises: ${right}`,
+    X`Cannot structurally compare promises: ${right}`,
   );
 
   if (leftStyle !== rightStyle) {
@@ -112,9 +123,8 @@ function sameStructure(left, right) {
     case 'string':
     case 'boolean':
     case 'number':
-    case 'symbol':
     case 'bigint':
-    case 'presence': {
+    case REMOTE_STYLE: {
       return sameValueZero(left, right);
     }
     case 'copyRecord':
@@ -140,7 +150,7 @@ function sameStructure(left, right) {
       return left.name === right.name && left.message === right.message;
     }
     default: {
-      throw new TypeError(`unrecognized passStyle ${leftStyle}`);
+      assert.fail(X`unrecognized passStyle ${leftStyle}`, TypeError);
     }
   }
 }
@@ -167,7 +177,7 @@ function pathStr(path) {
 function mustBeSameStructureInternal(left, right, message, path) {
   function complain(problem) {
     assert.fail(
-      details`${q(message)}: ${q(problem)} at ${q(
+      X`${q(message)}: ${q(problem)} at ${q(
         pathStr(path),
       )}: (${left}) vs (${right})`,
     );
@@ -191,9 +201,8 @@ function mustBeSameStructureInternal(left, right, message, path) {
     case 'string':
     case 'boolean':
     case 'number':
-    case 'symbol':
     case 'bigint':
-    case 'presence': {
+    case REMOTE_STYLE: {
       if (!sameValueZero(left, right)) {
         complain('different');
       }
@@ -236,13 +245,23 @@ function mustBeSameStructureInternal(left, right, message, path) {
     }
   }
 }
+
+/**
+ * @param {Comparable} left
+ * @param {Comparable} right
+ * @param {string} message
+ */
 function mustBeSameStructure(left, right, message) {
   mustBeSameStructureInternal(left, right, `${message}`, null);
 }
 harden(mustBeSameStructure);
 
-// If `val` would be a valid input to `sameStructure`, return
-// normally. Otherwise error.
+/**
+ * If `val` would be a valid input to `sameStructure`, return
+ * normally. Otherwise error.
+ *
+ * @param {Comparable} val
+ */
 function mustBeComparable(val) {
   mustBeSameStructure(val, val, 'not comparable');
 }

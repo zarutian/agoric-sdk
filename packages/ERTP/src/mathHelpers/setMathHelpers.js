@@ -1,8 +1,8 @@
 // @ts-check
 
 import { passStyleOf } from '@agoric/marshal';
-import { assert, details } from '@agoric/assert';
-import { sameStructure } from '@agoric/same-structure';
+import { assert, details as X } from '@agoric/assert';
+import { mustBeComparable, sameStructure } from '@agoric/same-structure';
 
 import '../types';
 
@@ -10,10 +10,7 @@ import '../types';
 // information about digital assets. Used for Zoe invites.
 const identity = harden([]);
 
-// Cut down the number of sameStructure comparisons to only the ones
-// that don't fail basic equality tests
-// TODO: better name?
-const hashBadly = record => {
+const getKeyForRecord = record => {
   const keys = Object.getOwnPropertyNames(record);
   keys.sort();
   const values = Object.values(record).filter(
@@ -21,6 +18,26 @@ const hashBadly = record => {
   );
   values.sort();
   return [...keys, ...values].join();
+};
+
+// Cut down the number of sameStructure comparisons to only the ones
+// that don't fail basic equality tests
+// TODO: better name?
+const hashBadly = thing => {
+  const type = typeof thing;
+  const allowableNonObjectValues = ['string', 'number', 'bigint', 'boolean'];
+  if (allowableNonObjectValues.includes(type)) {
+    return thing;
+  }
+  if (passStyleOf(thing) === 'presence') {
+    return thing;
+  }
+  if (passStyleOf(thing) === 'copyRecord') {
+    return getKeyForRecord(thing);
+  }
+  assert.fail(
+    X`typeof ${typeof thing} is not allowed in an amount of MathKind.SET`,
+  );
 };
 
 const makeBuckets = list => {
@@ -43,7 +60,7 @@ const checkForDupes = buckets => {
       for (let j = i + 1; j < maybeMatches.length; j += 1) {
         assert(
           !sameStructure(maybeMatches[i], maybeMatches[j]),
-          details`value has duplicates: ${maybeMatches[i]} and ${maybeMatches[j]}`,
+          X`value has duplicates: ${maybeMatches[i]} and ${maybeMatches[j]}`,
         );
       }
     }
@@ -64,15 +81,17 @@ const hasElement = (buckets, elem) => {
 // only use sameStructure within that bucket.
 
 /**
- * @type {MathHelpers}
+ * @type {SetMathHelpers}
  */
 const setMathHelpers = harden({
   doCoerce: list => {
+    harden(list);
+    mustBeComparable(list);
     assert(passStyleOf(list) === 'copyArray', 'list must be an array');
     checkForDupes(makeBuckets(list));
     return list;
   },
-  doGetEmpty: _ => identity,
+  doMakeEmpty: _ => identity,
   doIsEmpty: list => passStyleOf(list) === 'copyArray' && list.length === 0,
   doIsGTE: (left, right) => {
     const leftBuckets = makeBuckets(left);
@@ -92,7 +111,7 @@ const setMathHelpers = harden({
     right.forEach(rightElem => {
       assert(
         hasElement(leftBuckets, rightElem),
-        details`right element ${rightElem} was not in left`,
+        X`right element ${rightElem} was not in left`,
       );
     });
     const leftElemNotInRight = leftElem => !hasElement(rightBuckets, leftElem);

@@ -1,0 +1,43 @@
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+## [0.2.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/eslint-plugin@0.2.0...@agoric/eslint-plugin@0.2.1) (2021-03-24)
+
+**Note:** Version bump only for package @agoric/eslint-plugin
+
+
+
+
+
+# [0.2.0](https://github.com/Agoric/agoric-sdk/compare/@agoric/eslint-plugin@0.1.1...@agoric/eslint-plugin@0.2.0) (2021-03-16)
+
+
+### Bug Fixes
+
+* make separate 'test:xs' target, remove XS from 'test' target ([b9c1a69](https://github.com/Agoric/agoric-sdk/commit/b9c1a6987093fc8e09e8aba7acd2a1618413bac8)), closes [#2647](https://github.com/Agoric/agoric-sdk/issues/2647)
+
+
+### Features
+
+* eslint 'use jessie'; detection and first cut at rules ([9ea9909](https://github.com/Agoric/agoric-sdk/commit/9ea99097336ade6bb5645b06a1714e38c7185864))
+
+
+
+
+
+## [0.1.1](https://github.com/Agoric/agoric-sdk/compare/@agoric/eslint-plugin@0.1.0...@agoric/eslint-plugin@0.1.1) (2021-02-22)
+
+**Note:** Version bump only for package @agoric/eslint-plugin
+
+
+
+
+
+# 0.1.0 (2021-02-16)
+
+
+### Features
+
+* make @agoric/eslint-plugin deal with assert.fail as throw ([f23adee](https://github.com/Agoric/agoric-sdk/commit/f23adee512aec50788d9c9efed1cea9d774dfe8f))

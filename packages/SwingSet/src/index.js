@@ -1,18 +1,14 @@
-export { loadBasedir, buildVatController } from './controller';
+export { buildVatController, makeSwingsetController } from './controller';
+export {
+  swingsetIsInitialized,
+  initializeSwingset,
+  buildKernelBundles,
+  loadBasedir,
+  loadSwingsetConfigFile,
+} from './initializeSwingset';
 
 export { buildMailboxStateMap, buildMailbox } from './devices/mailbox';
 export { buildTimer } from './devices/timer';
 export { buildBridge } from './devices/bridge';
 export { default as buildCommand } from './devices/command';
-
-export function getVatTPSourcePath() {
-  return require.resolve('./vats/vat-tp');
-}
-
-export function getCommsSourcePath() {
-  return require.resolve('./vats/comms');
-}
-
-export function getTimerWrapperSourcePath() {
-  return require.resolve('./vats/vat-timerWrapper');
-}
+export { buildPlugin } from './devices/plugin';

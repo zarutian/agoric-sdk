@@ -1,9 +1,9 @@
-/* global harden */
+import { trackTurns } from './track-turns';
 
 // eslint-disable-next-line spaced-comment
 /// <reference path="index.d.ts" />
 
-const readOnlyProxy = {
+const readOnlyProxyHandler = {
   set(_target, _prop, _value) {
     return false;
   },
@@ -22,15 +22,13 @@ const readOnlyProxy = {
  * A Proxy handler for E(x).
  *
  * @param {*} x Any value passed to E(x)
+ * @param {*} HandledPromise
  * @returns {ProxyHandler} the Proxy handler
  */
 function EProxyHandler(x, HandledPromise) {
   return harden({
-    ...readOnlyProxy,
+    ...readOnlyProxyHandler,
     get(_target, p, _receiver) {
-      if (`${p}` !== p) {
-        return undefined;
-      }
       // Harden this Promise because it's our only opportunity to ensure
       // p1=E(x).foo() is hardened. The Handled Promise API does not (yet)
       // allow the handler to synchronously influence the promise returned
@@ -48,6 +46,34 @@ function EProxyHandler(x, HandledPromise) {
   });
 }
 
+/**
+ * A Proxy handler for E.sendOnly(x)
+ * For now it is just a variant on the E(x) Proxy handler.
+ *
+ * @param {*} x Any value passed to E.sendOnly(x)
+ * @param {*} HandledPromise
+ * @returns {ProxyHandler} the Proxy handler
+ */
+function EsendOnlyProxyHandler(x, HandledPromise) {
+  return harden({
+    ...readOnlyProxyHandler,
+    get(_target, p, _receiver) {
+      return (...args) => {
+        HandledPromise.applyMethod(x, p, args);
+        return undefined;
+      };
+    },
+    apply(_target, _thisArg, argsArray = []) {
+      HandledPromise.applyFunction(x, argsArray);
+      return undefined;
+    },
+    has(_target, _p) {
+      // We just pretend that every thing exists.
+      return true;
+    },
+  });
+}
+
 export default function makeE(HandledPromise) {
   function E(x) {
     const handler = EProxyHandler(x, HandledPromise);
@@ -56,7 +82,7 @@ export default function makeE(HandledPromise) {
 
   const makeEGetterProxy = x =>
     new Proxy(Object.create(null), {
-      ...readOnlyProxy,
+      ...readOnlyProxyHandler,
       has(_target, _prop) {
         return true;
       },
@@ -66,11 +92,17 @@ export default function makeE(HandledPromise) {
     });
 
   E.G = makeEGetterProxy;
+  E.get = makeEGetterProxy;
   E.resolve = HandledPromise.resolve;
-  E.unwrap = HandledPromise.unwrap;
+  E.sendOnly = x => {
+    const handler = EsendOnlyProxyHandler(x, HandledPromise);
+    return harden(new Proxy(() => {}, handler));
+  };
 
-  E.when = (x, onfulfilled = undefined, onrejected = undefined) =>
-    HandledPromise.resolve(x).then(onfulfilled, onrejected);
+  E.when = (x, onfulfilled = undefined, onrejected = undefined) => {
+    const [onsuccess, onfailure] = trackTurns([onfulfilled, onrejected]);
+    return HandledPromise.resolve(x).then(onsuccess, onfailure);
+  };
 
   return harden(E);
 }

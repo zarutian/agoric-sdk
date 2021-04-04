@@ -1,5 +1,4 @@
-/* global harden */
-
+import { Far } from '@agoric/marshal';
 import makeScratchPad from './scratch';
 
 // This vat contains the private upload scratch pad.
@@ -11,5 +10,5 @@ export function buildRootObject(_vatPowers) {
     return uploads;
   }
 
-  return harden({ getUploads });
+  return Far('root', { getUploads });
 }

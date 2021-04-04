@@ -1,26 +1,31 @@
 {
   "name": "@agoric/install-metering-and-ses",
-  "version": "0.1.1",
+  "version": "0.2.4",
   "description": "tame metering and install SES at import time",
+  "parsers": {
+    "js": "mjs"
+  },
   "main": "install-metering-and-ses.js",
   "scripts": {
     "build": "exit 0",
-    "test": "tap --no-coverage --jobs=1 'test*.js'",
+    "test": "ava",
+    "test:xs": "exit 0",
     "lint-fix": "eslint --fix '**/*.js'",
     "lint-check": "eslint '**/*.js'"
   },
   "devDependencies": {
-    "@agoric/transform-metering": "^1.3.0",
+    "@agoric/transform-metering": "^1.4.4",
+    "ava": "^3.12.1",
     "esm": "^3.2.5",
-    "tap": "^14.10.5",
-    "tape": "^4.13.2"
+    "nyc": "^15.1.0"
   },
   "dependencies": {
-    "@agoric/install-ses": "^0.2.0",
-    "@agoric/tame-metering": "^1.2.3"
+    "@agoric/eventual-send": "^0.13.4",
+    "@agoric/install-ses": "^0.5.4",
+    "@agoric/tame-metering": "^1.3.4"
   },
   "files": [
-    "src/**/*.js"
+    "*.js"
   ],
   "repository": {
     "type": "git",
@@ -34,36 +39,8 @@
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
   "eslintConfig": {
     "extends": [
-      "airbnb-base",
-      "plugin:prettier/recommended"
-    ],
-    "env": {
-      "es6": true
-    },
-    "rules": {
-      "implicit-arrow-linebreak": "off",
-      "function-paren-newline": "off",
-      "arrow-parens": "off",
-      "strict": "off",
-      "no-console": "off",
-      "no-unused-vars": [
-        "error",
-        {
-          "argsIgnorePattern": "^_",
-          "varsIgnorePattern": "^_"
-        }
-      ],
-      "no-return-assign": "off",
-      "no-param-reassign": "off",
-      "no-restricted-syntax": [
-        "off",
-        "ForOfStatement"
-      ],
-      "no-unused-expressions": "off",
-      "no-loop-func": "off",
-      "no-inner-declarations": "off",
-      "import/prefer-default-export": "off"
-    }
+      "@agoric"
+    ]
   },
   "eslintIgnore": [
     "bundle-*.js"
@@ -74,5 +51,14 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ],
+    "timeout": "2m"
   }
 }

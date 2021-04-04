@@ -1,6 +1,6 @@
-/* global harden */
+import { Nat } from '@agoric/nat';
 
-import Nat from '@agoric/nat';
+import { assert, details as X } from '@agoric/assert';
 
 // Vats are identified by an integer index, which (for typechecking purposes)
 // is encoded as `vNN`. Devices are similarly identified as `dNN`. Both have
@@ -14,33 +14,29 @@ import Nat from '@agoric/nat';
  * Assert function to ensure that something expected to be a vat ID string
  * actually is one.
  *
- * @param s  The (alleged) string to be tested.
+ * @param {string} s  The (alleged) string to be tested.
  *
- * @throws Error if, upon inspection, the parameter is not a string or is not a
+ * @throws {Error} if, upon inspection, the parameter is not a string or is not a
  *    well-formed vat ID as described above.
  *
- * @return nothing
+ * @returns {void}
  */
 export function insistVatID(s) {
   try {
-    if (s !== `${s}`) {
-      throw new Error(`not a string`);
-    }
-    if (!s.startsWith(`v`)) {
-      throw new Error(`does not start with 'v'`);
-    }
-    Nat(Number(s.slice(1)));
+    assert.typeof(s, 'string', X`not a string`);
+    assert(s.startsWith(`v`), X`does not start with 'v'`);
+    Nat(BigInt(s.slice(1)));
   } catch (e) {
-    throw new Error(`'${s} is not a 'vNN'-style VatID: ${e.message}`);
+    assert.fail(X`'${s} is not a 'vNN'-style VatID: ${e}`);
   }
 }
 
 /**
  * Generate a vat ID string given an index.
  *
- * @param index  The index.
+ * @param {number} index  The index.
  *
- * @return a vat ID string of the form "vNN" where NN is the index.
+ * @returns {string} a vat ID string of the form "vNN" where NN is the index.
  */
 export function makeVatID(index) {
   return `v${Nat(index)}`;
@@ -50,33 +46,29 @@ export function makeVatID(index) {
  * Assert function to ensure that something expected to be a device ID string
  * actually is one.
  *
- * @param s  The (alleged) string to be tested.
+ * @param {string} s  The (alleged) string to be tested.
  *
- * @throws Error if, upon inspection, the parameter is not a string or is not a
+ * @throws {Error} if, upon inspection, the parameter is not a string or is not a
  *    well-formed device ID as described above.
  *
- * @return nothing
+ * @returns {void}
  */
 export function insistDeviceID(s) {
   try {
-    if (s !== `${s}`) {
-      throw new Error(`not a string`);
-    }
-    if (!s.startsWith(`d`)) {
-      throw new Error(`does not start with 'd'`);
-    }
-    Nat(Number(s.slice(1)));
+    assert.typeof(s, 'string', X`not a string`);
+    assert(s.startsWith(`d`), X`does not start with 'd'`);
+    Nat(BigInt(s.slice(1)));
   } catch (e) {
-    throw new Error(`'${s} is not a 'dNN'-style DeviceID: ${e.message}`);
+    assert.fail(X`'${s} is not a 'dNN'-style DeviceID: ${e}`);
   }
 }
 
 /**
  * Generate a device ID string given an index.
  *
- * @param index  The index.
+ * @param {number} index  The index.
  *
- * @return a device ID string of the form "dNN" where NN is the index.
+ * @returns {string} a device ID string of the form "dNN" where NN is the index.
  */
 export function makeDeviceID(index) {
   return `d${Nat(index)}`;
@@ -85,19 +77,21 @@ export function makeDeviceID(index) {
 /**
  * Parse a vat or device ID string into its constituent parts.
  *
- * @param s  The string to be parsed.
+ * @param {string} s  The string to be parsed.
  *
- * @return an object: {
+ * @returns {{ type: 'vat' | 'device', id: number}} an object: {
  *    type: STRING, // 'vat' or 'device', accordingly
  *    id: Nat       // the index
  *  }
  *
- * @throws if the parameter is not a string or is malformed.
+ * @throws {Error} if the parameter is not a string or is malformed.
  */
 export function parseVatOrDeviceID(s) {
-  if (s !== `${s}`) {
-    throw new Error(`${s} is not a string, so cannot be a VatID/DeviceID`);
-  }
+  assert.typeof(
+    s,
+    'string',
+    X`${s} is not a string, so cannot be a VatID/DeviceID`,
+  );
   s = `${s}`;
   let type;
   let idSuffix;
@@ -108,7 +102,7 @@ export function parseVatOrDeviceID(s) {
     type = 'device';
     idSuffix = s.slice(1);
   } else {
-    throw new Error(`'${s}' is neither a VatID nor a DeviceID`);
+    assert.fail(X`'${s}' is neither a VatID nor a DeviceID`);
   }
-  return harden({ type, id: Nat(Number(idSuffix)) });
+  return harden({ type, id: Nat(BigInt(idSuffix)) });
 }

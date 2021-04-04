@@ -1,6 +1,8 @@
-import '@agoric/install-ses';
+/* global __dirname */
+// @ts-check
 // eslint-disable-next-line import/no-extraneous-dependencies
-import { test } from 'tape-promise/tape';
+import { test } from '@agoric/swingset-vat/tools/prepare-test-env-ava';
+
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { loadBasedir, buildVatController } from '@agoric/swingset-vat';
 import path from 'path';
@@ -8,11 +10,6 @@ import path from 'path';
 async function main(basedir, argv) {
   const dir = path.resolve(`${__dirname}/..`, basedir);
   const config = await loadBasedir(dir);
-  const ldSrcPath = require.resolve(
-    '@agoric/swingset-vat/src/devices/loopbox-src',
-  );
-  config.devices = [['loopbox', ldSrcPath, {}]];
-
   const controller = await buildVatController(config, argv);
   await controller.run();
   return controller.dump();
@@ -27,6 +24,5 @@ const expectedTapFaucetLog = [
 
 test('test splitPayments', async t => {
   const dump = await main('splitPayments', ['splitPayments']);
-  t.deepEquals(dump.log, expectedTapFaucetLog);
-  t.end();
+  t.deepEqual(dump.log, expectedTapFaucetLog);
 });

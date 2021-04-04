@@ -1,10 +1,14 @@
+/* global __dirname Buffer process */
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 
+import { assert, details as X } from '@agoric/assert';
 import anylogger from 'anylogger';
 
 const log = anylogger('ag-solo:init');
+
+const DEFAULT_WALLET = '@agoric/dapp-svelte-wallet';
 
 export default function initBasedir(
   basedir,
@@ -12,18 +16,26 @@ export default function initBasedir(
   webhost,
   subdir,
   egresses,
+  opts = {},
 ) {
+  const { env = process.environment } = opts;
+  const {
+    wallet = DEFAULT_WALLET,
+    defaultManagerType = env.SWINGSET_WORKER_TYPE || 'local',
+    ...options
+  } = opts;
+  options.wallet = wallet;
+  options.defaultManagerType = defaultManagerType;
+
   const here = __dirname;
-  try {
-    fs.mkdirSync(basedir);
-  } catch (e) {
-    if (!fs.existsSync(path.join(basedir, 'ag-cosmos-helper-address'))) {
-      log.error(
-        `unable to create basedir ${basedir}, it must not already exist`,
-      );
-      throw e;
-    }
-  }
+  // We either need a basedir with an initialised key, or no basedir.
+  assert(
+    fs.existsSync(path.join(basedir, 'ag-cosmos-helper-address')) ||
+      !fs.existsSync(basedir),
+    X`${basedir} must not already exist`,
+  );
+
+  fs.mkdirSync(basedir, { mode: 0o700, recursive: true });
 
   const connections = [{ type: 'http', port: webport, host: webhost }];
   fs.writeFileSync(
@@ -39,21 +51,8 @@ export default function initBasedir(
       fs.copyFileSync(path.join(srcHtmldir, name), path.join(dstHtmldir, name));
     });
 
-  // Symlink the wallet.
-  let agWallet;
-  try {
-    agWallet = path.resolve(__dirname, '../../../wallet-frontend/build');
-    if (!fs.existsSync(agWallet)) {
-      const pjs = require.resolve('@agoric/wallet-frontend/package.json');
-      agWallet = path.join(path.dirname(pjs), 'build');
-      fs.statSync(agWallet);
-    }
-    fs.symlinkSync(agWallet, `${dstHtmldir}/wallet`);
-  } catch (e) {
-    console.warn(
-      `${agWallet} does not exist; you may want to run 'yarn build' in 'wallet-frontend'`,
-    );
-  }
+  // Save the configuration options.
+  fs.writeFileSync(path.join(basedir, 'options.json'), JSON.stringify(options));
 
   // Save our version codes.
   const pj = 'package.json';
@@ -78,7 +77,7 @@ export default function initBasedir(
   const dstVatdir = path.join(basedir, 'vats');
   fs.mkdirSync(dstVatdir);
   fs.readdirSync(srcVatdir)
-    .filter(name => name.match(/\.js$/))
+    .filter(name => name.match(/\.(js|json)$/))
     .forEach(name => {
       fs.copyFileSync(path.join(srcVatdir, name), path.join(dstVatdir, name));
     });
@@ -93,7 +92,7 @@ export default function initBasedir(
     dots += '../';
     nm = path.resolve(here, dots, 'node_modules');
   }
-  fs.symlinkSync(nm, path.join(basedir, 'node_modules'));
+  fs.symlinkSync(nm, path.join(basedir, 'node_modules'), 'junction');
 
   // cosmos-sdk keypair
   if (egresses.includes('cosmos')) {

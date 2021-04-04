@@ -1,10 +1,12 @@
-/* global harden */
 import { E } from '@agoric/eventual-send';
+import { Far } from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject(vatPowers, vatParameters) {
   const log = vatPowers.testLog;
-  return harden({
-    async bootstrap(argv, vats, devices) {
+  return Far('root', {
+    async bootstrap(vats, devices) {
+      const { argv } = vatParameters;
       const bundles = argv[1];
       const vatAdminSvc = await E(vats.vatAdmin).createVatAdminService(
         devices.vatAdmin,
@@ -61,7 +63,7 @@ export function buildRootObject(vatPowers) {
           return;
         }
         default:
-          throw new Error(`unknown argv mode '${argv[0]}'`);
+          assert.fail(X`unknown argv mode '${argv[0]}'`);
       }
     },
   });

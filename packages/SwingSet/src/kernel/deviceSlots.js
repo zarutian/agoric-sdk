@@ -1,17 +1,28 @@
-/* global harden */
-
-import { mustPassByPresence, makeMarshal } from '@agoric/marshal';
-import { assert, details } from '@agoric/assert';
+import {
+  Remotable,
+  passStyleOf,
+  REMOTE_STYLE,
+  makeMarshal,
+} from '@agoric/marshal';
+import { assert, details as X } from '@agoric/assert';
 import { insistVatType, makeVatSlot, parseVatSlot } from '../parseVatSlots';
 import { insistCapData } from '../capdata';
 
 // 'makeDeviceSlots' is a subset of makeLiveSlots, for device code
 
-function build(syscall, state, makeRoot, forDeviceName) {
+export function makeDeviceSlots(
+  syscall,
+  state,
+  buildRootDeviceNode,
+  forDeviceName,
+  endowments,
+  testLog,
+  deviceParameters,
+) {
   assert(state.get && state.set, 'deviceSlots.build got bad "state" argument');
   assert(
-    typeof makeRoot === 'function',
-    'deviceSlots.build got bad "makeRoot"',
+    typeof buildRootDeviceNode === 'function',
+    'deviceSlots.build got bad "buildRootDeviceNode"',
   );
   const enableLSDebug = false;
   function lsdebug(...args) {
@@ -20,10 +31,14 @@ function build(syscall, state, makeRoot, forDeviceName) {
     }
   }
 
-  function makePresence(id) {
-    return harden({
+  function makePresence(id, iface = undefined) {
+    const result = {
       [`_importID_${id}`]() {},
-    });
+    };
+    if (iface === undefined) {
+      return harden(result);
+    }
+    return Remotable(iface, undefined, result);
   }
 
   const outstandingProxies = new WeakSet();
@@ -57,7 +72,7 @@ function build(syscall, state, makeRoot, forDeviceName) {
     if (!valToSlot.has(val)) {
       // must be a new export
       // lsdebug('must be a new export', JSON.stringify(val));
-      mustPassByPresence(val);
+      assert.equal(passStyleOf(val), REMOTE_STYLE);
       const slot = exportPassByPresence();
       parseVatSlot(slot); // assertion
       valToSlot.set(val, slot);
@@ -66,20 +81,20 @@ function build(syscall, state, makeRoot, forDeviceName) {
     return valToSlot.get(val);
   }
 
-  function convertSlotToVal(slot) {
+  function convertSlotToVal(slot, iface = undefined) {
     if (!slotToVal.has(slot)) {
       let val;
       const { type, allocatedByVat } = parseVatSlot(slot);
-      assert(!allocatedByVat, details`I don't remember allocating ${slot}`);
+      assert(!allocatedByVat, X`I don't remember allocating ${slot}`);
       if (type === 'object') {
         // this is a new import value
         // lsdebug(`assigning new import ${slot}`);
-        val = makePresence(slot);
+        val = makePresence(slot, iface);
         // lsdebug(` for presence`, val);
       } else if (type === 'device') {
-        throw Error(`devices should not be given other devices '${slot}'`);
+        assert.fail(X`devices should not be given other devices '${slot}'`);
       } else {
-        throw Error(`unrecognized slot type '${type}'`);
+        assert.fail(X`unrecognized slot type '${type}'`);
       }
       slotToVal.set(slot, val);
       valToSlot.set(val, slot);
@@ -87,13 +102,18 @@ function build(syscall, state, makeRoot, forDeviceName) {
     return slotToVal.get(slot);
   }
 
-  const m = makeMarshal(convertValToSlot, convertSlotToVal);
+  const m = makeMarshal(convertValToSlot, convertSlotToVal, {
+    marshalName: `device:${forDeviceName}`,
+    // TODO Temporary hack.
+    // See https://github.com/Agoric/agoric-sdk/issues/2780
+    errorIdNum: 50000,
+  });
 
   function PresenceHandler(importSlot) {
     return {
       get(target, prop) {
-        lsdebug(`PreH proxy.get(${prop})`);
-        if (prop !== `${prop}`) {
+        lsdebug(`PreH proxy.get(${String(prop)})`);
+        if (typeof prop !== 'string' && typeof prop !== 'symbol') {
           return undefined;
         }
         const p = (...args) => {
@@ -116,13 +136,12 @@ function build(syscall, state, makeRoot, forDeviceName) {
     // since devices don't accept Promises either, SO(x) must be given a
     // presence, not a promise that might resolve to a presence.
 
-    if (outstandingProxies.has(x)) {
-      throw new Error('SO(SO(x)) is invalid');
-    }
+    assert(!outstandingProxies.has(x), X`SO(SO(x)) is invalid`);
     const slot = valToSlot.get(x);
-    if (!slot || parseVatSlot(slot).type !== 'object') {
-      throw new Error(`SO(x) must be called on a Presence, not ${x}`);
-    }
+    assert(
+      slot && parseVatSlot(slot).type === 'object',
+      X`SO(x) must be called on a Presence, not ${x}`,
+    );
     const handler = PresenceHandler(slot);
     const p = harden(new Proxy({}, handler));
     outstandingProxies.add(p);
@@ -144,14 +163,29 @@ function build(syscall, state, makeRoot, forDeviceName) {
     state.set(ser);
   }
 
-  // here we finally invoke the device code, and get back the root devnode
-  const rootObject = makeRoot(harden({ SO, getDeviceState, setDeviceState }));
-  mustPassByPresence(rootObject);
+  // Here we finally invoke the device code, and get back the root devnode.
+  // Note that we do *not* harden() the argument, since the provider might
+  // not have wanted the endowments hardened.
+  const rootObject = buildRootDeviceNode({
+    SO,
+    getDeviceState,
+    setDeviceState,
+    testLog,
+    endowments,
+    deviceParameters,
+    serialize: m.serialize, // We deliberately do not provide m.deserialize
+  });
+  assert.equal(passStyleOf(rootObject), REMOTE_STYLE);
 
-  const rootSlot = makeVatSlot('device', true, 0);
+  const rootSlot = makeVatSlot('device', true, 0n);
   valToSlot.set(rootObject, rootSlot);
   slotToVal.set(rootSlot, rootObject);
 
+  // Exceptions in device invocations are fatal to the kernel. This returns a
+  // VatInvocationResult object: ['ok', capdata].
+
+  // this function throws an exception if anything goes wrong, or if the
+  // device node itself throws an exception during invocation
   function invoke(deviceID, method, args) {
     insistVatType('device', deviceID);
     insistCapData(args);
@@ -175,30 +209,10 @@ function build(syscall, state, makeRoot, forDeviceName) {
       );
     }
     const res = t[method](...m.unserialize(args));
-    const resultdata = m.serialize(res);
-    lsdebug(` results ${resultdata.body} ${JSON.stringify(resultdata.slots)}`);
-    return resultdata;
+    const vres = harden(['ok', m.serialize(res)]);
+    lsdebug(` results ${vres.body} ${JSON.stringify(vres.slots)}`);
+    return vres;
   }
 
-  return {
-    m,
-    invoke,
-  };
-}
-
-export function makeDeviceSlots(
-  syscall,
-  state,
-  makeRoot,
-  forDeviceName = 'unknown',
-) {
-  const { invoke } = build(syscall, state, makeRoot, forDeviceName);
-  return harden({
-    invoke,
-  });
-}
-
-// for tests
-export function makeMarshaller(syscall) {
-  return { m: build(syscall, () => harden({})).m };
+  return harden({ invoke });
 }

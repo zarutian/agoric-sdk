@@ -1,50 +1,53 @@
 // @ts-check
 
+import { assert, details as X } from '@agoric/assert';
+import { Far } from '@agoric/marshal';
+import { amountMath } from '@agoric/ertp';
+
 // Eventually will be importable from '@agoric/zoe-contract-support'
-import { assert, details } from '@agoric/assert';
-import { makeZoeHelpers } from '../../../src/contractSupport';
+import {
+  assertIssuerKeywords,
+  assertProposalShape,
+} from '../../../src/contractSupport';
 
 /**
  * Give a use object when a payment is escrowed
  *
- * @typedef {import('../../../src/zoe').ContractFacet} ContractFacet
- * @typedef {import('@agoric/ERTP').Amount} Amount
- * @param {ContractFacet} zcf
+ * @type {ContractStartFn}
  */
-const makeContract = zcf => {
-  const { assertKeywords, checkHook } = makeZoeHelpers(zcf);
-  assertKeywords(harden(['Pixels']));
-  const { brandKeywordRecord } = zcf.getInstanceRecord();
-  const amountMath = zcf.getAmountMath(brandKeywordRecord.Pixels);
+const start = zcf => {
+  const {
+    brands: { Pixels: pixelBrand },
+  } = zcf.getTerms();
+  assertIssuerKeywords(zcf, harden(['Pixels']));
 
-  const makeUseObjHook = offerHandle => {
-    const useObj = harden({
+  const makeUseObj = seat => {
+    assertProposalShape(seat, {
+      give: { Pixels: null },
+    });
+    const useObj = Far('useObj', {
       /**
        * (Pretend to) color some pixels.
+       *
        * @param {string} color
-       * @param {Amount} amountToColor
+       * @param {Amount=} amountToColor
        */
       colorPixels: (color, amountToColor = undefined) => {
         // Throw if the offer is no longer active, i.e. the user has
         // completed their offer and the assets are no longer escrowed.
-        assert(
-          zcf.isOfferActive(offerHandle),
-          `the escrowing offer is no longer active`,
-        );
-        const { Pixels: escrowedAmount } = zcf.getCurrentAllocation(
-          offerHandle,
-          brandKeywordRecord,
-        );
+        assert(!seat.hasExited(), X`the escrowing offer is no longer active`);
+        const escrowedAmount = seat.getAmountAllocated('Pixels', pixelBrand);
         // If no amountToColor is provided, color all the pixels
         // escrowed for this offer.
         if (amountToColor === undefined) {
           amountToColor = escrowedAmount;
         }
+        assert(amountToColor);
         // Ensure that the amount of pixels that we want to color is
         // covered by what is actually escrowed.
         assert(
           amountMath.isGTE(escrowedAmount, amountToColor),
-          details`The pixels to color were not all escrowed. Currently escrowed: ${escrowedAmount}, amount to color: ${amountToColor}`,
+          X`The pixels to color were not all escrowed. Currently escrowed: ${escrowedAmount}, amount to color: ${amountToColor}`,
         );
 
         // Pretend to color
@@ -54,21 +57,13 @@ const makeContract = zcf => {
     return useObj;
   };
 
-  const expected = harden({
-    give: { Pixels: null },
+  const publicFacet = Far('publicFacet', {
+    // The only publicFacet method is to make an invitation.
+    makeInvitation: () => zcf.makeInvitation(makeUseObj, 'use object'),
   });
 
-  const makeUseObjInvite = () =>
-    zcf.makeInvitation(checkHook(makeUseObjHook, expected), 'use object');
-
-  zcf.initPublicAPI({
-    // The only publicAPI method is to make an invite.
-    makeInvite: makeUseObjInvite,
-  });
-
-  // Return an invite.
-  return makeUseObjInvite();
+  return harden({ publicFacet });
 };
 
-harden(makeContract);
-export { makeContract };
+harden(start);
+export { start };

@@ -1,11 +1,32 @@
 // @ts-check
 
-import { assert, details } from '@agoric/assert';
-
+import { assert, details as X } from '@agoric/assert';
 import { mustBeComparable } from '@agoric/same-structure';
-import mathHelpersLib from './mathHelpersLib';
 
 import './types';
+import natMathHelpers from './mathHelpers/natMathHelpers';
+import setMathHelpers from './mathHelpers/setMathHelpers';
+import { makeAmountMath } from './deprecatedAmountMath';
+import {
+  looksLikeSetValue,
+  looksLikeNatValue,
+  looksLikeValue,
+  looksLikeBrand,
+} from './typeGuards';
+
+// We want an enum, but narrowed to the AmountMathKind type.
+/**
+ * Constants for the kinds of amountMath we support.
+ *
+ * @type {{ NAT: 'nat', SET: 'set', STRING_SET: 'strSet' }}
+ */
+const MathKind = {
+  NAT: 'nat',
+  SET: 'set',
+  // Deprecated, to be removed in Beta
+  STRING_SET: 'strSet',
+};
+harden(MathKind);
 
 /**
  * Amounts describe digital assets. From an amount, you can learn the
@@ -38,127 +59,194 @@ import './types';
  * function `coerce` takes an amount and checks it, returning an amount (amount
  * -> amount).
  *
- * `makeAmount` takes in a brand and the name of the particular
- * mathHelpers to use.
- *
- * amountMath is unfortunately not pass-by-copy. If you call
- * `getAmountMath` on a remote issuer, it will be a remote object and
- * each call will incur the costs of calling a remote object. However,
- * you can create a local amountMath by importing this module locally
- * and calling makeAmountMath(), passing in a brand and a mathHelpers name,
- * both of which can be passed-by-copy (since there are no calls to brand
- * in this module).
- *
  * Each issuer of digital assets has an associated brand in a one-to-one
  * mapping. In untrusted contexts, such as in analyzing payments and
  * amounts, we can get the brand and find the issuer which matches the
  * brand. The issuer and the brand mutually validate each other.
- *
- * @param {Brand} brand
- * @param {MathHelpersName} mathHelpersName
- * @returns {AmountMath}
  */
-function makeAmountMath(brand, mathHelpersName) {
-  mustBeComparable(brand);
-  assert.typeof(mathHelpersName, 'string');
 
-  const helpers = mathHelpersLib[mathHelpersName];
-  assert(
-    helpers !== undefined,
-    details`unrecognized mathHelpersName: ${mathHelpersName}`,
+/** @type {{ nat: NatMathHelpers, set: SetMathHelpers, strSet: SetMathHelpers }} */
+const helpers = {
+  nat: natMathHelpers,
+  set: setMathHelpers,
+  strSet: setMathHelpers,
+};
+
+/**
+ * @param {Value} value
+ * @returns {NatMathHelpers | SetMathHelpers}
+ */
+const getHelpersFromValue = value => {
+  if (looksLikeSetValue(value)) {
+    return setMathHelpers;
+  }
+  if (looksLikeNatValue(value)) {
+    return natMathHelpers;
+  }
+  assert.fail(X`value ${value} must be a bigint or an array`);
+};
+
+/** @type {(amount: Amount) => AmountMathKind} */
+const getMathKind = amount => {
+  if (looksLikeSetValue(amount.value)) {
+    return 'set';
+  }
+  if (looksLikeNatValue(amount.value)) {
+    return 'nat';
+  }
+  assert.fail(X`value ${amount.value} must be a bigint or an array`);
+};
+
+/**
+ * @type {(amount: Amount ) => NatMathHelpers | SetMathHelpers }
+ */
+const getHelpersFromAmount = amount => {
+  return getHelpersFromValue(amount.value);
+};
+
+/** @type {(leftAmount: Amount, rightAmount: Amount ) =>
+ * NatMathHelpers | SetMathHelpers } */
+const getHelpers = (leftAmount, rightAmount) => {
+  const leftHelpers = getHelpersFromAmount(leftAmount);
+  const rightHelpers = getHelpersFromAmount(rightAmount);
+  assert.equal(leftHelpers, rightHelpers);
+  return leftHelpers;
+};
+
+/** @type {(amount: Amount, brand?: Brand) => void} */
+const optionalBrandCheck = (amount, brand) => {
+  if (brand !== undefined) {
+    mustBeComparable(brand);
+    assert.equal(
+      amount.brand,
+      brand,
+      X`amount's brand ${amount.brand} did not match expected brand ${brand}`,
+    );
+  }
+};
+
+/** @type {(value: Value, brand: Brand) => Amount} */
+const noCoerceMake = (value, brand) => {
+  const amount = harden({ brand, value });
+  return amount;
+};
+
+/** @type {(value: Value) => void} */
+const assertLooksLikeValue = value => {
+  assert(looksLikeValue(value), X`value ${value} must be a Nat or an array`);
+};
+
+/** @type {(brand: Brand, msg?: Details) => void} */
+const assertLooksLikeBrand = (
+  brand,
+  msg = X`The brand ${brand} doesn't look like a brand.`,
+) => {
+  assert(looksLikeBrand(brand), msg);
+};
+
+/**
+ * Give a better error message by logging the entire amount
+ * rather than just the brand
+ *
+ * @type {(amount: Amount) => void}
+ */
+const assertLooksLikeAmount = amount => {
+  const msg = X`The amount ${amount} doesn't look like an amount. Did you pass a value instead?`;
+  assertLooksLikeBrand(amount.brand, msg);
+  assertLooksLikeValue(amount.value);
+};
+
+const checkLRAndGetHelpers = (leftAmount, rightAmount, brand = undefined) => {
+  assertLooksLikeAmount(leftAmount);
+  assertLooksLikeAmount(rightAmount);
+  optionalBrandCheck(leftAmount, brand);
+  optionalBrandCheck(rightAmount, brand);
+  assert.equal(
+    leftAmount.brand,
+    rightAmount.brand,
+    X`Brands in left ${leftAmount.brand} and right ${rightAmount.brand} should match but do not`,
   );
+  return getHelpers(leftAmount, rightAmount);
+};
 
-  // Cache the amount if we can.
-  const cache = new WeakSet();
+const coerceLR = (h, leftAmount, rightAmount) => {
+  return [h.doCoerce(leftAmount.value), h.doCoerce(rightAmount.value)];
+};
 
-  const amountMath = harden({
-    getBrand: () => brand,
-    getMathHelpersName: () => mathHelpersName,
+/** @type {AmountMath} */
+const amountMath = {
+  make: (brand, allegedValue) => {
+    if (looksLikeBrand(allegedValue)) {
+      // Swap to support deprecated reverse argument order
+      [brand, allegedValue] = [allegedValue, brand];
+    } else {
+      assertLooksLikeBrand(brand);
+    }
+    assertLooksLikeValue(allegedValue);
+    const value = getHelpersFromValue(allegedValue).doCoerce(allegedValue);
+    return harden({ brand, value });
+  },
+  coerce: (brand, allegedAmount) => {
+    if (looksLikeBrand(allegedAmount)) {
+      // Swap to support deprecated reverse argument order
+      [brand, allegedAmount] = [allegedAmount, brand];
+    } else {
+      assertLooksLikeBrand(brand);
+    }
+    assertLooksLikeAmount(allegedAmount);
+    assert(
+      brand === allegedAmount.brand,
+      X`The brand in the allegedAmount ${allegedAmount} in 'coerce' didn't match the specified brand ${brand}.`,
+    );
+    // Will throw on inappropriate value
+    return amountMath.make(brand, allegedAmount.value);
+  },
+  // @ts-ignore TODO Why doesn't this type correctly?
+  getValue: (brand, amount) => amountMath.coerce(brand, amount).value,
+  makeEmpty: (brand, mathKind = MathKind.NAT) => {
+    assert(
+      helpers[mathKind],
+      X`${mathKind} must be MathKind.NAT or MathKind.SET. MathKind.STRING_SET is accepted but deprecated`,
+    );
+    assertLooksLikeBrand(brand);
+    return noCoerceMake(helpers[mathKind].doMakeEmpty(), brand);
+  },
+  makeEmptyFromAmount: amount =>
+    amountMath.makeEmpty(amount.brand, getMathKind(amount)),
+  isEmpty: (amount, brand = undefined) => {
+    assertLooksLikeAmount(amount);
+    optionalBrandCheck(amount, brand);
+    const h = getHelpersFromAmount(amount);
+    // @ts-ignore Needs better typing to express Value to Helpers relationship
+    return h.doIsEmpty(h.doCoerce(amount.value));
+  },
+  isGTE: (leftAmount, rightAmount, brand = undefined) => {
+    const h = checkLRAndGetHelpers(leftAmount, rightAmount, brand);
+    // @ts-ignore Needs better typing to express Value to Helpers relationship
+    return h.doIsGTE(...coerceLR(h, leftAmount, rightAmount));
+  },
+  isEqual: (leftAmount, rightAmount, brand = undefined) => {
+    const h = checkLRAndGetHelpers(leftAmount, rightAmount, brand);
+    // @ts-ignore Needs better typing to express Value to Helpers relationship
+    return h.doIsEqual(...coerceLR(h, leftAmount, rightAmount));
+  },
+  add: (leftAmount, rightAmount, brand = undefined) => {
+    const h = checkLRAndGetHelpers(leftAmount, rightAmount, brand);
+    return noCoerceMake(
+      // @ts-ignore Needs better typing to express Value to Helpers relationship
+      h.doAdd(...coerceLR(h, leftAmount, rightAmount)),
+      leftAmount.brand,
+    );
+  },
+  subtract: (leftAmount, rightAmount, brand = undefined) => {
+    const h = checkLRAndGetHelpers(leftAmount, rightAmount, brand);
+    return noCoerceMake(
+      // @ts-ignore Needs better typing to express Value to Helpers relationship
+      h.doSubtract(...coerceLR(h, leftAmount, rightAmount)),
+      leftAmount.brand,
+    );
+  },
+};
+harden(amountMath);
 
-    /**
-     * Make an amount from a value by adding the brand.
-     * @param {any} allegedValue
-     * @returns {Amount}
-     */
-    make: allegedValue => {
-      const value = helpers.doCoerce(allegedValue);
-      const amount = harden({ brand, value });
-      cache.add(amount);
-      return amount;
-    },
-
-    /**
-     * Make sure this amount is valid and return it if so, throwing if invalid.
-     * @param {any} allegedAmount
-     * @returns {Amount} or throws if invalid
-     */
-    coerce: allegedAmount => {
-      // If the cache already has the allegedAmount, that
-      // means it is a valid amount.
-      if (cache.has(allegedAmount)) {
-        return allegedAmount;
-      }
-      const { brand: allegedBrand, value } = allegedAmount;
-      assert(
-        allegedBrand !== undefined,
-        details`alleged brand is undefined. Did you pass a value rather than an amount?`,
-      );
-      assert(
-        brand === allegedBrand,
-        details`the brand in the allegedAmount in 'coerce' didn't match the amountMath brand`,
-      );
-      // Will throw on inappropriate value
-      return amountMath.make(value);
-    },
-
-    // Get the value from the amount.
-    getValue: amount => amountMath.coerce(amount).value,
-
-    // Represents the empty set/mathematical identity.
-    // eslint-disable-next-line no-use-before-define
-    getEmpty: () => empty,
-
-    // Is the amount equal to the empty set?
-    isEmpty: amount => helpers.doIsEmpty(amountMath.getValue(amount)),
-
-    // Is leftAmount greater than or equal to rightAmount? In other
-    // words, is everything in the rightAmount included in the
-    // leftAmount?
-    isGTE: (leftAmount, rightAmount) =>
-      helpers.doIsGTE(
-        amountMath.getValue(leftAmount),
-        amountMath.getValue(rightAmount),
-      ),
-
-    // Is leftAmount equal to rightAmount?
-    isEqual: (leftAmount, rightAmount) =>
-      helpers.doIsEqual(
-        amountMath.getValue(leftAmount),
-        amountMath.getValue(rightAmount),
-      ),
-
-    // Combine leftAmount and rightAmount.
-    add: (leftAmount, rightAmount) =>
-      amountMath.make(
-        helpers.doAdd(
-          amountMath.getValue(leftAmount),
-          amountMath.getValue(rightAmount),
-        ),
-      ),
-
-    // Return the amount included in leftAmount but not included in
-    // rightAmount. If leftAmount does not include all of rightAmount,
-    // error.
-    subtract: (leftAmount, rightAmount) =>
-      amountMath.make(
-        helpers.doSubtract(
-          amountMath.getValue(leftAmount),
-          amountMath.getValue(rightAmount),
-        ),
-      ),
-  });
-  const empty = amountMath.make(helpers.doGetEmpty());
-  return amountMath;
-}
-
-export default harden(makeAmountMath);
+export { amountMath, MathKind, getMathKind, makeAmountMath };

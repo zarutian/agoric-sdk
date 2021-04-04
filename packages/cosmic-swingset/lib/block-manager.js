@@ -1,5 +1,7 @@
 import anylogger from 'anylogger';
 
+import { assert, details as X } from '@agoric/assert';
+
 const log = anylogger('block-manager');
 
 const BEGIN_BLOCK = 'BEGIN_BLOCK';
@@ -13,11 +15,13 @@ export default function makeBlockManager({
   deliverInbound,
   doBridgeInbound,
   beginBlock,
+  endBlock,
   flushChainSends,
   saveChainState,
   saveOutsideState,
   savedActions,
   savedHeight,
+  verboseBlocks = false,
 }) {
   let computedHeight = savedHeight;
   let runTime = 0;
@@ -58,11 +62,11 @@ export default function makeBlockManager({
       }
 
       case END_BLOCK:
-        p = Promise.resolve();
+        p = endBlock(action.blockHeight, action.blockTime);
         break;
 
       default:
-        throw new Error(`${action.type} not recognized`);
+        assert.fail(X`${action.type} not recognized`);
     }
     p.then(finish, finish);
     return p;
@@ -70,9 +74,8 @@ export default function makeBlockManager({
 
   let currentActions = [];
   let decohered;
-  let saveTime = 0;
 
-  async function blockManager(action) {
+  async function blockManager(action, savedChainSends) {
     if (decohered) {
       throw decohered;
     }
@@ -80,26 +83,19 @@ export default function makeBlockManager({
     // console.warn('FIGME: blockHeight', action.blockHeight, 'received', action.type)
     switch (action.type) {
       case COMMIT_BLOCK: {
+        verboseBlocks && log.info('block', action.blockHeight, 'commit');
         if (action.blockHeight !== computedHeight) {
           throw Error(
             `Committed height ${action.blockHeight} does not match computed height ${computedHeight}`,
           );
         }
-
-        const start = Date.now();
-
-        // Save the kernel's computed state because we've committed
-        // the block (i.e. have obtained consensus on the prior
-        // state).
-        saveOutsideState(computedHeight, savedActions);
-        savedHeight = computedHeight;
-
-        saveTime = Date.now() - start;
-        currentActions = [];
+        flushChainSends(false);
         break;
       }
 
       case BEGIN_BLOCK: {
+        verboseBlocks && log.info('block', action.blockHeight, 'begin');
+
         // Start a new block, or possibly replay the prior one.
         for (const a of currentActions) {
           // FIXME: This is a problem, apparently with Cosmos SDK.
@@ -126,9 +122,12 @@ export default function makeBlockManager({
         if (!deepEquals(currentActions, savedActions)) {
           // We only handle the trivial case.
           const restoreHeight = action.blockHeight - 1;
-          if (restoreHeight !== computedHeight) {
+          // We can reset from 0 to anything, since that's what happens
+          // when genesis.initial_height !== "0".
+          if (computedHeight !== 0 && restoreHeight !== computedHeight) {
             // Keep throwing forever.
             decohered = Error(
+              // TODO unimplemented
               `Unimplemented reset state from ${computedHeight} to ${restoreHeight}`,
             );
             throw decohered;
@@ -138,8 +137,8 @@ export default function makeBlockManager({
         if (computedHeight === action.blockHeight) {
           // We are reevaluating, so send exactly the same downcalls to the chain.
           //
-          // This is necessary since the block proposer will be asked to validate
-          // the actions it just proposed (in Tendermint v0.33.0).
+          // This is necessary only after a restart when Tendermint is reevaluating the
+          // block that was interrupted and not committed.
           //
           // We assert that the return values are identical, which allows us not
           // to resave our state.
@@ -159,23 +158,30 @@ export default function makeBlockManager({
             // eslint-disable-next-line no-await-in-loop
             await kernelPerformAction(a);
           }
+
+          // We write out our on-chain state as a number of chainSends.
+          const start = Date.now();
+          await saveChainState();
+          const chainTime = Date.now() - start;
+
+          // Advance our saved state variables.
+          savedActions = currentActions;
+          computedHeight = action.blockHeight;
+
+          // Save the kernel's computed state so that we can recover if we ever
+          // reset before Cosmos SDK commit.
+          const start2 = Date.now();
+          await saveOutsideState(computedHeight, savedActions, savedChainSends);
+          savedHeight = computedHeight;
+
+          const saveTime = Date.now() - start2;
+
+          log.debug(
+            `wrote SwingSet checkpoint [run=${runTime}ms, chainSave=${chainTime}ms, kernelSave=${saveTime}ms]`,
+          );
         }
 
-        // Always commit all the keeper state live.
-        const start = Date.now();
-        const { mailboxSize } = saveChainState();
-        const mbTime = Date.now() - start;
-        log.debug(
-          `wrote SwingSet checkpoint (mailbox=${mailboxSize}), [run=${runTime}ms, mb=${mbTime}ms, save=${saveTime}ms]`,
-        );
-
-        // Advance our saved state variables.
-        savedActions = currentActions;
-        computedHeight = action.blockHeight;
-        if (action.blockHeight === 0) {
-          // No replay, no errors on genesis init.
-          currentActions = [];
-        }
+        currentActions = [];
         break;
       }
 

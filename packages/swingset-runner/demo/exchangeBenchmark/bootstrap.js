@@ -1,95 +1,80 @@
-/* global harden */
-
-import makeIssuerKit from '@agoric/ertp';
+import { makeIssuerKit } from '@agoric/ertp';
 import { E } from '@agoric/eventual-send';
-import fakeVatAdmin from '@agoric/zoe/test/unitTests/contracts/fakeVatAdmin';
-import { makePrintLog } from './printLog';
 
 /* eslint-disable-next-line import/no-unresolved, import/extensions */
-import simpleExchangeBundle from './bundle-simpleExchange';
+import exchangeBundle from './bundle-simpleExchange';
 
-const log = makePrintLog();
-
-function setupBasicMints() {
-  // prettier-ignore
-  const all = [
-    makeIssuerKit('moola'),
-    makeIssuerKit('simoleans'),
-  ];
-  const mints = all.map(objs => objs.mint);
-  const issuers = all.map(objs => objs.issuer);
-  const amountMaths = all.map(objs => objs.amountMath);
-
-  return harden({
-    mints,
-    issuers,
-    amountMaths,
-  });
-}
-
-function makeVats(vats, zoe, installations, startingValues) {
-  const { mints, issuers, amountMaths } = setupBasicMints();
-  // prettier-ignore
-  function makePayments(values) {
-    return mints.map((mint, i) => mint.mintPayment(amountMaths[i].make(values[i])));
-  }
-  const [aliceValues, bobValues] = startingValues;
-
-  // Setup Alice
-  const alice = E(vats.alice).build(
-    zoe,
-    issuers,
-    makePayments(aliceValues),
-    installations,
-  );
-
-  // Setup Bob
-  const bob = E(vats.bob).build(
-    zoe,
-    issuers,
-    makePayments(bobValues),
-    installations,
-  );
-
-  const result = {
-    alice,
-    bob,
-  };
-
-  log(`=> alice and bob are set up`);
-  return harden(result);
-}
-
-export function buildRootObject(_vatPowers) {
+export function buildRootObject(_vatPowers, vatParameters) {
   let alice;
   let bob;
   let round = 0;
+  let quiet = false;
+
   return harden({
-    async bootstrap(argv, vats) {
-      const zoe = await E(vats.zoe).buildZoe(fakeVatAdmin);
+    async bootstrap(vats, devices) {
+      let primeContracts = false;
+      for (const arg of vatParameters.argv) {
+        if (arg === '--prime') {
+          primeContracts = true;
+        } else if (arg === '--quiet') {
+          quiet = true;
+        }
+      }
 
-      const installations = {
-        simpleExchange: await E(zoe).install(simpleExchangeBundle),
-      };
+      const vatAdminSvc = await E(vats.vatAdmin).createVatAdminService(
+        devices.vatAdmin,
+      );
+      const zoe = await E(vats.zoe).buildZoe(vatAdminSvc);
 
-      const startingValues = [
+      const exchange = await E(zoe).install(exchangeBundle.bundle);
+
+      const grubStake = [
         [3, 0], // Alice: 3 moola, no simoleans
         [0, 3], // Bob:   no moola, 3 simoleans
       ];
 
-      ({ alice, bob } = makeVats(vats, zoe, installations, startingValues));
+      const all = [makeIssuerKit('moola'), makeIssuerKit('simoleans')];
+      const mints = all.map(objs => objs.mint);
+      const issuers = all.map(objs => objs.issuer);
+      const amountMaths = all.map(objs => objs.amountMath);
+
+      function makePayments(values) {
+        return mints.map((mint, i) =>
+          mint.mintPayment(amountMaths[i].make(values[i])),
+        );
+      }
+
+      const [alicePayments, bobPayments] = grubStake.map(v => makePayments(v));
+
+      const [moolaIssuer, simoleanIssuer] = issuers;
+      const issuerKeywordRecord = harden({
+        Price: simoleanIssuer,
+        Asset: moolaIssuer,
+      });
+      const { publicFacet } = await E(zoe).startInstance(
+        exchange,
+        issuerKeywordRecord,
+      );
+
+      alice = E(vats.alice).build(zoe, issuers, alicePayments, publicFacet);
+      bob = E(vats.bob).build(zoe, issuers, bobPayments, publicFacet);
+
       // Zoe appears to do some one-time setup the first time it's used, so this
-      // is a sacrifical benchmark round to prime the pump.
-      if (argv[0] === '--prime') {
-        await E(alice).initiateSimpleExchange(bob);
-        await E(bob).initiateSimpleExchange(alice);
+      // is an optional, sacrifical benchmark round to prime the pump.
+      if (primeContracts) {
+        await E(alice).initiateTrade(bob, quiet);
+        await E(bob).initiateTrade(alice, quiet);
       }
     },
     async runBenchmarkRound() {
       round += 1;
-      await E(alice).initiateSimpleExchange(bob);
-      await E(bob).initiateSimpleExchange(alice);
-      return `round ${round} complete`;
+      if (round % 2) {
+        await E(alice).initiateTrade(bob, quiet);
+        return `round ${round} (alice->bob) complete`;
+      } else {
+        await E(bob).initiateTrade(alice, quiet);
+        return `round ${round} (bob->alice) complete`;
+      }
     },
   });
 }

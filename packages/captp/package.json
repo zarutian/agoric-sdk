@@ -1,7 +1,10 @@
 {
   "name": "@agoric/captp",
-  "version": "1.3.3",
+  "version": "1.7.4",
   "description": "Capability Transfer Protocol for distributed objects",
+  "parsers": {
+    "js": "mjs"
+  },
   "keywords": [
     "agoric",
     "captp",
@@ -25,23 +28,22 @@
   },
   "scripts": {
     "build": "exit 0",
-    "test": "tape -r esm 'test/**/*.js'",
+    "test": "ava",
+    "test:nyc": "nyc ava",
+    "test:xs": "exit 0",
     "lint-fix": "eslint --fix '**/*.js'",
-    "lint-check": "eslint '**/*.js'",
-    "lint-fix-jessie": "eslint -c '.eslintrc-jessie.js' --fix '**/*.js'",
-    "lint-check-jessie": "eslint -c '.eslintrc-jessie.js' '**/*.js'"
+    "lint-check": "eslint 'lib/*.js'"
   },
   "devDependencies": {
-    "@agoric/install-ses": "^0.2.0",
-    "tap-spec": "^5.0.0",
-    "tape": "^4.11.0",
-    "tape-promise": "^4.0.0"
+    "@agoric/install-ses": "^0.5.4",
+    "ava": "^3.12.1",
+    "nyc": "^15.1.0"
   },
   "dependencies": {
-    "@agoric/eventual-send": "^0.9.3",
-    "@agoric/marshal": "^0.2.3",
-    "@agoric/nat": "^2.0.1",
-    "@agoric/produce-promise": "^0.1.3",
+    "@agoric/eventual-send": "^0.13.4",
+    "@agoric/marshal": "^0.4.1",
+    "@agoric/nat": "^4.0.0",
+    "@agoric/promise-kit": "^0.2.4",
     "esm": "^3.2.5"
   },
   "bugs": {
@@ -49,5 +51,23 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "ava": {
+    "files": [
+      "test/**/test-*.js"
+    ],
+    "require": [
+      "esm"
+    ],
+    "timeout": "2m"
+  },
+  "eslintConfig": {
+    "extends": [
+      "@agoric"
+    ]
+  },
+  "prettier": {
+    "trailingComma": "all",
+    "singleQuote": true
   }
 }
