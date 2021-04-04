@@ -203,14 +203,44 @@ const marshalString = (specimen, putter) => {
   return undefined;
 }
 
+const sym2str = new Map();
+const str2sym = new Map();
+(() => {
+  [
+    ["Symbol.asyncIterator",      Symbol.asyncIterator],
+    ["Symbol.hasInstance",        Symbol.hasInstance],
+    ["Symbol.isConcatSpreadable", Symbol.isConcatSpreadable],
+    ["Symbol.iterator",           Symbol.iterator],
+    ["Symbol.match",              Symbol.match],
+    ["Symbol.matchAll",           Symbol.matchAll],
+    ["Symbol.replace",            Symbol.replace],
+    ["Symbol.search",             Symbol.search],
+    ["Symbol.split",              Symbol.split],
+    ["Symbol.species",            Symbol.species],
+    ["Symbol.toPrimitive",        Symbol.toPrimitive],
+    ["Symbol.toStringTag",        Symbol.toStringTag],
+    ["Symbol.unscopables",        Symbol.unscopables],
+  ].forEach([key, val] => {
+    str2sym.set(key, val);
+    sym2str.set(val, key);
+  });
+})();
 const unmarshallSymbol = (pl) => {
   const symbolStr = utf8_TextDecoder.decode(pl);
+  if (str2sym.has(symbolStr)) {
+    return str2sym.get(symbolStr);
+  }
   return Symbol.for(symbolStr);
 }
 const marshallSymbol = (specimen, putter) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Symbol) {
-      var symbolStr = Symbol.keyFor(specimen);
+      var symbolStr;
+      if (sym2str.has(specimen)) {
+        symbolStr = sym2str.get(specimen);
+      } else {
+        symbolStr = Symbol.keyFor(specimen);
+      }
       const bytes = utf8_TextEncoder.encode(symbolStr);
       return eu8a.concat(bytes.byteLength.toString(10), "'", bytes);
     }
