@@ -179,22 +179,35 @@ const makeEncodingPutter = (opt) => {
 }
 export { makeEncodingPutter };
 
+const eu8a = new Uint8Array.of(0);
+
 const makeBytestring = (bytes) => Uint8Array.from(bytes);
 const marshallBytestring = (specimen, putter) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Uint8Array) {
       const length = specimen.byteLength;
-      return "".concat(length.toString(10), ":", specimen);
+      return eu8a.concat(length.toString(10), ":", specimen);
     }
   }
   return undefined;
 };
 
+const utf8_TextDecoder = new TextDecoder("utf-8");
+const utf8_TextEncoder = new TextEncoder();
+const makeString = (pl) => utf8_TextDecoder.decode(pl);
+const marshalString = (specimen, putter) => {
+  if (typeof specimen == "string") {
+    const bytes = utf8_TextEncoder.encode(specimen);
+    return eu8a.concat(bytes.byteLength.toString(10), '"', bytes);
+  }
+  return undefined;
+}
+
 const makeInteger = (sign, num) => (sign == "-") ? -num : num ;
 const marshallInteger = (specimen, putter) => {
   const t = typeof specimen;
   if ((t == "number") || (t == "bigint")) {
-    return "".concat("i", specimen.toString(10), "e");
+    return eu8a.concat("i", specimen.toString(10), "e");
   }
   return undefined;
 };
