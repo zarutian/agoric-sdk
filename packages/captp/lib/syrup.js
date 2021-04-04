@@ -256,3 +256,17 @@ const marshallInteger = (specimen, putter) => {
   }
   return undefined;
 };
+
+const unmarshallDictionary = (payload) => new Map(payload);
+const marshallDictionary = (specimen, putter) => {
+  if (typeof specimen == "object") {
+    if (specimen instanceof Map) {
+      const entries = new Array(specimen.entries());
+      const encodedEntries = entries.reduce(
+        (acc, [key, val]) => acc.concat(putter(key), putter(val)),
+        eu8a );
+      return eu8a.concat("{", encodedEntries, "}");
+    }
+  }
+  return undefined;
+};
