@@ -179,6 +179,17 @@ const makeEncodingPutter = (opt) => {
 }
 export { makeEncodingPutter };
 
+const makeBytestring = (bytes) => Uint8Array.from(bytes);
+const marshallBytestring = (specimen, putter) => {
+  if (typeof specimen == "object") {
+    if (specimen instanceof Uint8Array) {
+      const length = specimen.byteLength;
+      return "".concat(length.toString(10), ":", specimen);
+    }
+  }
+  return undefined;
+};
+
 const makeInteger = (sign, num) => (sign == "-") ? -num : num ;
 const marshallInteger = (specimen, putter) => {
   const t = typeof specimen;
