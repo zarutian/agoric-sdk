@@ -8,7 +8,9 @@ const makeDecodingGetter = (opt) => {
           makeString,
           makeSymbol,
           makeFloatSingle,
-          makeFloatDouble, } = opt;
+          makeFloatDouble,
+          makeDictionary, } = opt;
+  const dictionaryEndSentiel = harden({});
   const getter = async (self = getter) => {
     const first = await eventualBytegetter(1n);
       var length = 0n;
@@ -93,7 +95,19 @@ const makeDecodingGetter = (opt) => {
               return (sign * num);
           }
         }
+        break; // end of case
+      case '{': // dictionaries|maps|assoc_arrays et ceterata;
+        const payload = new Array();
+        while (true) {
+          const key = await self(getter);
+          if (key === dictionaryEndSentiel) {
+            return makeDictionary(payload);
+          }
+          const val = await self(getter);
+          payload.push([key, value]);
+        }
         break;
+      case '}': return dictionaryEndSentiel;
     }
   }
   return harden(getter);
