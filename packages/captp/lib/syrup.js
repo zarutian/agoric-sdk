@@ -270,3 +270,12 @@ const marshallDictionary = (specimen, putter) => {
   }
   return undefined;
 };
+
+const unmarshallList = (pl) => pl;
+const marshallList = (specimen, putter) => {
+  if (Array.isArray(specimen)) {
+    const encodedEntries = specimen.reduce((acc, item) => acc.concat(putter(item)), eu8a);
+    return eu8a.concat("[", encodedEntries, "]");
+  }
+  return undefined;
+};
