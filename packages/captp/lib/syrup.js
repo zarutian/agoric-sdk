@@ -160,5 +160,18 @@ const makeDecodingGetter = (opt) => {
 export { makeDecodingGetter };
 
 const makeEncodingPutter = (opt) => {
+  const { eventualByteputter,
+          marshallers,
+        } = opt;
+  const putter = (specimen) => {
+    for (marshaller of marshallers) {
+      const mugshot = marshaller(specimen, putter);
+      if (mugshot !== undefined) {
+        return eventualByteputter(mugshot);
+      }
+    }
+    throw new Error("syrup encode error #0");
+  };
+  return harden(putter);
 }
 export { makeEncodingPutter };
