@@ -6,7 +6,9 @@ const makeDecodingGetter = (opt) => {
   const { eventualBytegetter,
           makeBytestring,
           makeString,
-          makeSymbol, } = opt;
+          makeSymbol,
+          makeFloatSingle,
+          makeFloatDouble, } = opt;
   const getter = async (self = getter) => {
     const first = await eventualBytegetter(1n);
       var length = 0n;
@@ -51,6 +53,12 @@ const makeDecodingGetter = (opt) => {
         break; // end the case
       case 't': return true;
       case 'f': return false;
+      case 'F': // ieee single precision floating point number big endian
+        const payload = await eventualBytegetter(4n);
+        return makeFloatSingle(payload);
+      case 'D': // ieee double precision floating point number big endian
+        const payload = await eventualBytegetter(8n);
+        return makeFloarDouble(payload);
     }
   }
   return harden(getter);
