@@ -4,16 +4,16 @@
 
 const makeDecodingGetter = (opt) => {
   const { eventualBytegetter,
-          makeBytestring,
-          makeString,
-          makeSymbol,
-          makeFloatSingle,
-          makeFloatDouble,
-          makeInteger,
-          makeDictionary,
-          makeList,
-          makeRecord,
-          makeSet,
+          unmarshallBytestring,
+          unmarshallString,
+          unmarshallSymbol,
+          unmarshallFloatSingle,
+          unmarshallFloatDouble,
+          unmarshallInteger,
+          unmarshallDictionary,
+          unmarshallList,
+          unmarshallRecord,
+          unmarshallSet,
         } = opt;
   const dictionaryEndSentiel = harden({});
   const listEndSentiel = harden({});
@@ -51,9 +51,9 @@ const makeDecodingGetter = (opt) => {
             default:
               const payload = await eventualBytegetter(length);
               switch (byte) {
-                case ':': return makeBytestring(payload);
-                case '"': return makeString(payload);
-                case "'": return makeSymbol(payload);
+                case ':': return unmarshallBytestring(payload);
+                case '"': return unmarshallString(payload);
+                case "'": return unmarshallSymbol(payload);
                 default:
                   throw new Error("syrup decoding error #1");
               }
@@ -65,10 +65,10 @@ const makeDecodingGetter = (opt) => {
       case 'f': return false;
       case 'F': // ieee single precision floating point number big endian
         const payload = await eventualBytegetter(4n);
-        return makeFloatSingle(payload);
+        return unmarshallFloatSingle(payload);
       case 'D': // ieee double precision floating point number big endian
         const payload = await eventualBytegetter(8n);
-        return makeFloatDouble(payload);
+        return unmarshallFloatDouble(payload);
       case 'i': // integers
         var num = 0n;
         var sign = "";
@@ -99,7 +99,7 @@ const makeDecodingGetter = (opt) => {
               num = (num * 10n) + BigInt(Number.parse(byte, 10));
               break; // end of case
             case 'e':
-              return makeInteger(sign, num);
+              return unmarshallInteger(sign, num);
             default:
               throw new Error("syrup decode error #3");
           }
@@ -110,7 +110,7 @@ const makeDecodingGetter = (opt) => {
         while (true) {
           const key = await self(getter);
           if (key === dictionaryEndSentiel) {
-            return makeDictionary(payload);
+            return unmarshallDictionary(payload);
           }
           const val = await self(getter);
           payload.push([key, value]);
@@ -122,7 +122,7 @@ const makeDecodingGetter = (opt) => {
         while (true) {
           const val = await self(getter);
           if (val === listEndSentiel) {
-            return makeList(payload);
+            return unmarshallList(payload);
           }
           payload.push(val);
         }
@@ -134,7 +134,7 @@ const makeDecodingGetter = (opt) => {
         while (true) {
           const val = await self(getter);
           if (val === recordEndSentiel) {
-            return makeRecord(tag, payload);
+            return unmarshallRecord(tag, payload);
           }
           payload.push(val);
         }
@@ -145,7 +145,7 @@ const makeDecodingGetter = (opt) => {
         while (true) {
           const val = await self(getter);
           if (val === setEndSentiel) {
-            return makeSet(payload);
+            return unmarshallSet(payload);
           }
           payload.push(val);
         }
@@ -181,7 +181,7 @@ export { makeEncodingPutter };
 
 const eu8a = new Uint8Array.of(0);
 
-const makeBytestring = (bytes) => Uint8Array.from(bytes);
+const unmarshallBytestring = (bytes) => Uint8Array.from(bytes);
 const marshallBytestring = (specimen, putter) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Uint8Array) {
@@ -194,7 +194,7 @@ const marshallBytestring = (specimen, putter) => {
 
 const utf8_TextDecoder = new TextDecoder("utf-8");
 const utf8_TextEncoder = new TextEncoder();
-const makeString = (pl) => utf8_TextDecoder.decode(pl);
+const unmarshallString = (pl) => utf8_TextDecoder.decode(pl);
 const marshalString = (specimen, putter) => {
   if (typeof specimen == "string") {
     const bytes = utf8_TextEncoder.encode(specimen);
@@ -203,7 +203,7 @@ const marshalString = (specimen, putter) => {
   return undefined;
 }
 
-const makeSymbol = (pl) => {
+const unmarshallSymbol = (pl) => {
   const symbolStr = utf8_TextDecoder.decode(pl);
   return Symbol.for(symbolStr);
 }
@@ -218,7 +218,7 @@ const marshallSymbol = (specimen, putter) => {
   return undefined;
 }
 
-const makeInteger = (sign, num) => (sign == "-") ? -num : num ;
+const unmarshallInteger = (sign, num) => (sign == "-") ? -num : num ;
 const marshallInteger = (specimen, putter) => {
   const t = typeof specimen;
   if ((t == "number") || (t == "bigint")) {
