@@ -157,4 +157,8 @@ const makeDecodingGetter = (opt) => {
   }
   return harden(getter);
 }
-export { makeDecodingGetter }
+export { makeDecodingGetter };
+
+const makeEncodingPutter = (opt) => {
+}
+export { makeEncodingPutter };
