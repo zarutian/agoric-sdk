@@ -163,14 +163,17 @@ const makeEncodingPutter = (opt) => {
   const { eventualByteputter,
           marshallers,
         } = opt;
-  const putter = async (specimen) => {
+  const innerPutter = (specimen) => {
     for (const marshaller of marshallers) {
-      const mugshot = marshaller(specimen, putter);
+      const mugshot = marshaller(specimen, innerPutter);
       if (mugshot !== undefined) {
-        return await eventualByteputter(mugshot);
+        return mugshot;
       }
     }
     throw new Error("syrup encode error #0");
+  };
+  const putter = async (specimen) => {
+    return await eventualByteputter(innerPutter(specimen));
   };
   return harden(putter);
 }
