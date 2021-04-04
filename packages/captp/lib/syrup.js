@@ -203,6 +203,21 @@ const marshalString = (specimen, putter) => {
   return undefined;
 }
 
+const makeSymbol = (pl) => {
+  const symbolStr = utf8_TextDecoder.decode(pl);
+  return Symbol.for(symbolStr);
+}
+const marshallSymbol = (specimen, putter) => {
+  if (typeof specimen == "object") {
+    if (specimen instanceof Symbol) {
+      var symbolStr = Symbol.keyFor(specimen);
+      const bytes = utf8_TextEncoder.encode(symbolStr);
+      return eu8a.concat(bytes.byteLength.toString(10), "'", bytes);
+    }
+  }
+  return undefined;
+}
+
 const makeInteger = (sign, num) => (sign == "-") ? -num : num ;
 const marshallInteger = (specimen, putter) => {
   const t = typeof specimen;
