@@ -280,6 +280,12 @@ const marshallList = (specimen, writer) => {
   return undefined;
 };
 
+const sjálfgefa = (obj, prop, defaultValue) => {
+  if (obj[prop] == undefined) {
+    obj[prop] = defaultValue;
+  }
+}
+
 const makeMarshallKit = (opts) => {
 }
 export {makeMarshallKit}
