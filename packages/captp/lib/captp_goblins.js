@@ -101,7 +101,9 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   const exports   = new Map();     // key er pos, val er obj
   const imports   = new WeakMap(); // key er obj, val er pos
 
-  recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"]);
+  recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"],
+            // remote is asking for our bootstrap object
+            );
   recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"]);
   recStruct("op:deliver", ["to-desc", "method", "args", "kw-args", "answer-pos", "resolve-me-desc"]);
   recStruct("op:abort",   ["reason"]);
