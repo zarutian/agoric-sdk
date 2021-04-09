@@ -279,3 +279,7 @@ const marshallList = (specimen, writer) => {
   }
   return undefined;
 };
+
+const makeMarshallKit = (opts) => {
+}
+export {makeMarshallKit}
