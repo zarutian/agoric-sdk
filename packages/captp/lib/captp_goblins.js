@@ -35,6 +35,8 @@ const recordableStruct = (tagstr, memberNames, unmarshallTrap = (i) => i) => {
 const recStruct = recordableStruct; // tbdecided point.
 
 recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"]);
+recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"]);
+recStruct("op:deliver", ["to-desc", "method", "args", "kw-args", "answer-pos", "resolve-me-desc"]);
 
 
 /**
