@@ -191,6 +191,7 @@ const marshallBytestring = (specimen, writer) => {
   }
   return undefined;
 };
+export { unmarshallBytestring, marshallBytestring };
 
 const utf8_TextDecoder = new TextDecoder("utf-8");
 const utf8_TextEncoder = new TextEncoder();
@@ -202,6 +203,7 @@ const marshalString = (specimen, writer) => {
   }
   return undefined;
 }
+export { unmarshallString, marshallString };
 
 const sym2str = new Map();
 const str2sym = new Map();
@@ -247,6 +249,7 @@ const marshallSymbol = (specimen, writer) => {
   }
   return undefined;
 }
+export { unmarshallSymbol, marshallSymbol };
 
 const unmarshallInteger = (sign, num) => (sign == "-") ? -num : num ;
 const marshallInteger = (specimen, writer) => {
@@ -256,6 +259,7 @@ const marshallInteger = (specimen, writer) => {
   }
   return undefined;
 };
+export { unmarshallInteger, marshallInteger };
 
 const unmarshallDictionary = (payload) => new Map(payload);
 const marshallDictionary = (specimen, writer) => {
@@ -270,8 +274,9 @@ const marshallDictionary = (specimen, writer) => {
   }
   return undefined;
 };
+export { unmarshallDictionary, marshallDictionary };
 
-const unmarshallList = (pl) => pl; // pl is aæready an array
+const unmarshallList = (pl) => pl; // pl is allready an array
 const marshallList = (specimen, writer) => {
   if (Array.isArray(specimen)) {
     const encodedEntries = specimen.reduce((acc, item) => acc.concat(writer(item)), eu8a);
@@ -279,6 +284,7 @@ const marshallList = (specimen, writer) => {
   }
   return undefined;
 };
+export { unmarshallList, marshallList };
 
 const unmarshallSet = (pl) => new Set(pl);
 const marshallSet = (specimen, writer) => {
@@ -291,6 +297,7 @@ const marshallSet = (specimen, writer) => {
   }
   return undefined;
 }
+export { unmarshallSet, marshallSet };
 
 const sjálfgefa = (obj, prop, defaultValue) => {
   if (obj[prop] == undefined) {
