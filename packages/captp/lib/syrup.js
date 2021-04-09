@@ -303,6 +303,11 @@ const sjálfgefa = (obj, prop, defaultValue) => {
   if (obj[prop] == undefined) {
     obj[prop] = defaultValue;
   }
+};
+const krefjast = (obj, prop, villumelding) => {
+  if (obj[prop] == undefined) {
+    throw new Error(villumelding);
+  }
 }
 
 const makeMarshallKit = (opts) => {
@@ -329,6 +334,8 @@ const makeMarshallKit = (opts) => {
                        marshallSet,
                        marshallRecord];
   sjálfgefa(opt, "marshallers", marshallers);
+  krefjast(opt, "bytereader", "bytereader not given");
+  krefjast(opt, "bytewriter", "bytewriter not given");
 
   const reader = makeDecodingReader(opt);
   const writer = makeEncodingWriter(opt);
