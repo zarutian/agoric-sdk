@@ -31,7 +31,11 @@ const recordableStruct = (tagstr, memberNames, unmarshallTrap = (i) => i) => {
     return unmarshallTrap(make(payload));
   };
   return harden({ make, makeFromObj, unmarshallRecord, marshall, symbol: sym});
-}
+};
+const recStruct = recordableStruct; // tbdecided point.
+
+recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"]);
+
 
 /**
  * Create a CapTP connection.
