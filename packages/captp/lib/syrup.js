@@ -287,5 +287,16 @@ const sjálfgefa = (obj, prop, defaultValue) => {
 }
 
 const makeMarshallKit = (opts) => {
+  const opt = new Object(opts);
+  sjálfgefa(opt, "unmarshallBytestring", unmarshallBytestring);
+  sjálfgefa(opt, "unmarshallString",     unmarshallString);
+          unmarshallSymbol,
+          unmarshallFloatSingle,
+          unmarshallFloatDouble,
+          unmarshallInteger,
+          unmarshallDictionary,
+          unmarshallList,
+          unmarshallRecord,
+          unmarshallSet
 }
 export {makeMarshallKit}
