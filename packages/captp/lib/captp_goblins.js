@@ -7,8 +7,10 @@ export { E };
 
 import { makeMarshallKit, marshallRecord } from "./syrup.js";
 
+const idFunc = (thing) => thing;
+
 const tagSym = new Symbol("tagSym");
-const recordableStruct = (tagstr, memberNames, unmarshallTrap = (i) => i) => {
+const recordableStruct = (tagstr, memberNames, unmarshallTrap = idFunc) => {
   // þrjár leiðir að tilurð: make, makeFromObj, og unmarshall
   const sym = Symbol.for(tagstr);
   const make = (..args) => {
@@ -94,6 +96,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     }
     return undefined;
   }
+  const marshallers = [];
   
   // Frægu töflurnar fjórar
   const questions = new WeakMap(); // key er promise<obj>/obj, val er okkar answer pos
@@ -117,6 +120,14 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   recStruct("op:gc-answer", ["answer-pos"]);
 
   recStruct("desc:answer", ["pos"], (r) => answers.get(r.pos));
+  marshallers.push((specimen, writer) => {
+    const ourAnswerPos = questions.get(specimen);
+    if (ourAnswerPos != undefined) {
+      return writer(ourAnswerPos);
+    }
+    return undefined;
+  });
+
   recStruct("desc:import-object", ["pos"]);
   recStruct("desc:import-promise", ["pos"]);
   recStruct("desc:export", ["pos"], (r) => exports.get(r.pos));
