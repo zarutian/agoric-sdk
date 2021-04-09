@@ -32,14 +32,6 @@ const recordableStruct = (tagstr, memberNames, unmarshallTrap = (i) => i) => {
   };
   return harden({ make, makeFromObj, unmarshallRecord, marshall, symbol: sym});
 };
-const recStruct = recordableStruct; // tbdecided point.
-
-recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"]);
-recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"]);
-recStruct("op:deliver", ["to-desc", "method", "args", "kw-args", "answer-pos", "resolve-me-desc"]);
-recStruct("op:abort",   ["reason"]);
-recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð
-recStruct("op:gc-export", ["export-pos", "wire-delta"])
 
 /**
  * Create a CapTP connection.
@@ -79,6 +71,15 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     };
     return { bytereader, dispatch };
   })();
+  const recStruct = recordableStruct; // tbdecided point.
+
+recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"]);
+recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"]);
+recStruct("op:deliver", ["to-desc", "method", "args", "kw-args", "answer-pos", "resolve-me-desc"]);
+recStruct("op:abort",   ["reason"]);
+recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð
+recStruct("op:gc-export", ["export-pos", "wire-delta"])
+
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize });
 }
