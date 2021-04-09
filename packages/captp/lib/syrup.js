@@ -182,7 +182,7 @@ export { makeEncodingWriter };
 const eu8a = new Uint8Array.of(0);
 
 const unmarshallBytestring = (bytes) => Uint8Array.from(bytes);
-const marshallBytestring = (specimen, putter) => {
+const marshallBytestring = (specimen, writer) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Uint8Array) {
       const length = specimen.byteLength;
@@ -195,7 +195,7 @@ const marshallBytestring = (specimen, putter) => {
 const utf8_TextDecoder = new TextDecoder("utf-8");
 const utf8_TextEncoder = new TextEncoder();
 const unmarshallString = (pl) => utf8_TextDecoder.decode(pl);
-const marshalString = (specimen, putter) => {
+const marshalString = (specimen, writer) => {
   if (typeof specimen == "string") {
     const bytes = utf8_TextEncoder.encode(specimen);
     return eu8a.concat(bytes.byteLength.toString(10), '"', bytes);
@@ -232,7 +232,7 @@ const unmarshallSymbol = (pl) => {
   }
   return Symbol.for(symbolStr);
 }
-const marshallSymbol = (specimen, putter) => {
+const marshallSymbol = (specimen, writer) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Symbol) {
       var symbolStr;
@@ -249,7 +249,7 @@ const marshallSymbol = (specimen, putter) => {
 }
 
 const unmarshallInteger = (sign, num) => (sign == "-") ? -num : num ;
-const marshallInteger = (specimen, putter) => {
+const marshallInteger = (specimen, writer) => {
   const t = typeof specimen;
   if ((t == "number") || (t == "bigint")) {
     return eu8a.concat("i", specimen.toString(10), "e");
@@ -258,7 +258,7 @@ const marshallInteger = (specimen, putter) => {
 };
 
 const unmarshallDictionary = (payload) => new Map(payload);
-const marshallDictionary = (specimen, putter) => {
+const marshallDictionary = (specimen, writer) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Map) {
       const entries = new Array(specimen.entries());
@@ -272,7 +272,7 @@ const marshallDictionary = (specimen, putter) => {
 };
 
 const unmarshallList = (pl) => pl;
-const marshallList = (specimen, putter) => {
+const marshallList = (specimen, writer) => {
   if (Array.isArray(specimen)) {
     const encodedEntries = specimen.reduce((acc, item) => acc.concat(putter(item)), eu8a);
     return eu8a.concat("[", encodedEntries, "]");
