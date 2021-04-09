@@ -35,6 +35,8 @@ const recordableStruct = (tagstr, memberNames, unmarshallTrap = idFunc) => {
   return harden({ make, makeFromObj, unmarshallRecord, marshall, symbol: sym});
 };
 
+const emptyDictionary = new Map();
+
 /**
  * Create a CapTP connection.
  *
@@ -118,7 +120,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
             (r) => {
               const promise = Promise.resolve(bootstrapObj);
               answers.set(r["answer-pos"], promise);
-              deliverOnly2remote(r["resolve-me-desc"], "resolve", [bootstrapObj], undefined);
+              deliverOnly2remote(r["resolve-me-desc"], "resolve", [bootstrapObj], emptyDictionary);
               return undefined;
             });
   recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"],
@@ -132,7 +134,27 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              }
              return undefined;
            });
-  recStruct("op:deliver", ["to-desc", "method", "args", "kw-args", "answer-pos", "resolve-me-desc"]);
+  recStruct("op:deliver", ["to-desc", "method", "args", "kw-args", "answer-pos", "resolve-me-desc"],
+           // got a send delivery!
+           (r) => {
+             const target = E(r["to-desc"]);
+             var resultP;
+             if (r.method == false) {
+               resultP = target(...(r.args), r["kw-args"]);
+             } else if ((r.method == true) || (r.method = Symbol.for("get")) {
+               // tbd: ég veit það ekki hvort þetta sé sú rétta leið til að styðja eventual get eður ei
+               resultP = E.get(r["to-desc"])[r.args];
+             } else {
+               resultP = target[r.method].apply(target, [...(r.args), r["kw-args"]]);
+             }
+             answers.set(r["answer-pos"], resultP);
+             E.when(resultP, (result) => {
+               deliverOnly2remote(r["resolve-me-desc"], "resolve", [result], emptyDictionary);
+             }, (err) => {
+               deliverOnly2remote(r["resolve-me-desc"], "reject", [err], emptyDictionary);
+             });
+             return undefined;
+           });
   recStruct("op:abort",   ["reason"]);
   recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð
   recStruct("op:gc-export", ["export-pos", "wire-delta"]);
