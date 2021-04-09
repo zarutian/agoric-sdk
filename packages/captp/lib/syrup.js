@@ -321,7 +321,8 @@ const makeMarshallKit = (opts) => {
   sjálfgefa(opt  "unmarshallDictionary", unmarshallDictionary);
   sjálfgefa(opt  "unmarshallList",       unmarshallList);
   sjálfgefa(opt, "unmarshallSet",        unmarshallSet);
-  krefjast(opt, "marshallRecord", "marshallRecord not given');
+  krefjast(opt, "marshallRecord", "marshallRecord not given");
+  krefjast(opt, "unmarshallRecord", "unmarshallRecord not given");
   const { marshallRecord } = opt;
   const marshallers = [marshallBytestring,
                        marshallString,
