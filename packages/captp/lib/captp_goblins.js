@@ -102,8 +102,10 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð
   recStruct("op:gc-export", ["export-pos", "wire-delta"]);
   recStruct("op:gc-answer", ["answer-pos"]);
+  recStruct("desc:answer", [pos]);
   recStruct("desc:import-object", ["pos"]);
   recStruct("desc:import-promise", ["pos"]);
+  recStruct("desc:export", ["pos"]);
 
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize });
