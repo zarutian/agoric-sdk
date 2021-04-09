@@ -123,7 +123,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   marshallers.push((specimen, writer) => {
     const ourAnswerPos = questions.get(specimen);
     if (ourAnswerPos != undefined) {
-      return writer(ourAnswerPos);
+      const { make } = recordMakers.get(Symbol.for("desc:answer"));
+      return writer(make(ourAnswerPos));
     }
     return undefined;
   });
