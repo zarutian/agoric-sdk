@@ -101,8 +101,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   // Frægu töflurnar fjórar
   const questions = new WeakMap(); // key er promise<obj>/obj, val er okkar answer pos
   const answers   = new Map();     // key er þeirra answer pos, val er promise<obj>
-  const exports   = new Map();     // key er pos, val er obj
-  const imports   = new WeakMap(); // key er obj, val er pos
+  const exports   = new Map();     // key er okkar pos, val er obj
+  const imports   = new WeakMap(); // key er proxobj, val er þeirra pos
 
   const nextExportId = (() => {
     var counter = 1n;
