@@ -96,14 +96,19 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   }
   
   // Frægu töflurnar fjórar
-  const questions = new WeakMap(); // key er obj/promise, val er okkar answer pos
-  const answers   = new Map();     // key er þeirra answer pos, val er obj/promise
+  const questions = new WeakMap(); // key er promise<obj>/obj, val er okkar answer pos
+  const answers   = new Map();     // key er þeirra answer pos, val er promise<obj>
   const exports   = new Map();     // key er pos, val er obj
   const imports   = new WeakMap(); // key er obj, val er pos
 
   recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"],
             // remote is asking for our bootstrap object
-            );
+            (r) => {
+              const promise = Promise.resolve(bootstrapObj);
+              answers.set(r["answer-pos"], promise);
+              deliverOnly2remote(r["resolve-me-desc"], "resolve", [bootstrapObj], undefined);
+              return undefined;
+            });
   recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"]);
   recStruct("op:deliver", ["to-desc", "method", "args", "kw-args", "answer-pos", "resolve-me-desc"]);
   recStruct("op:abort",   ["reason"]);
