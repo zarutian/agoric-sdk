@@ -8,7 +8,7 @@ export { E };
 import { makeMarshallKit, marshallRecord } from "./syrup.js";
 
 const tagSym = new Symbol("tagSym");
-const recordableStruct = (tagstr, memberNames, onUnmarshall) => {
+const recordableStruct = (tagstr, memberNames, unmarshallTrap = (i) => i) => {
   // þrjár leiðir að tilurð: make, makeFromObj, og unmarshall
   const sym = Symbol.for(tagstr);
   const make = (..args) => {
@@ -25,9 +25,12 @@ const recordableStruct = (tagstr, memberNames, onUnmarshall) => {
       }
     }
     return undefined;
-  }
-
-  return harden({ make, makeFromObj, unmarshallRecord, marshall });
+  };
+  const unmarshallRecord = (tag, payload) => {
+    if (tag != sym) { throw new Error("tbd: er etta villa?"); }
+    return unmarshallTrap(make(payload));
+  };
+  return harden({ make, makeFromObj, unmarshallRecord, marshall, symbol: sym});
 }
 
 /**
