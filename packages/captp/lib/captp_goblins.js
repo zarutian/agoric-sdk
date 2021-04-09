@@ -7,6 +7,10 @@ export { E };
 
 import { makeMarshallKit } from "./syrup.js";
 
+const recordableStruct = (tagstr, memberNames, onUnmarshall) => {
+  // þrjár leiðir að tilurð: make, makeFromObj, og unmarshall
+}
+
 /**
  * Create a CapTP connection.
  *
