@@ -7,8 +7,18 @@ export { E };
 
 import { makeMarshallKit } from "./syrup.js";
 
+const tagSym = new Symbol("tagSym");
 const recordableStruct = (tagstr, memberNames, onUnmarshall) => {
   // þrjár leiðir að tilurð: make, makeFromObj, og unmarshall
+  const sym = Symbol.for(tagstr);
+  const make = (..args) => {
+    const struct = {};
+    struct[tagSym] = sym;
+    memberNames.forEach((mn, i) => struct[mn] = args[i]);
+    return harden(struct);
+  }
+
+  return harden({ make, makeFromObj, unmarshall, marshall });
 }
 
 /**
