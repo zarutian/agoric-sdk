@@ -5,7 +5,7 @@ import { isPromise, makePromiseKit } from '@agoric/promise-kit';
 
 export { E };
 
-import { makeMarshallKit } from "./syrup.js";
+import { makeMarshallKit, marshallRecord } from "./syrup.js";
 
 const tagSym = new Symbol("tagSym");
 const recordableStruct = (tagstr, memberNames, onUnmarshall) => {
@@ -17,10 +17,17 @@ const recordableStruct = (tagstr, memberNames, onUnmarshall) => {
     memberNames.forEach((mn, i) => struct[mn] = args[i]);
     return harden(struct);
   };
-  const makeFromObj = (obj) => {
-  };
+  const makeFromObj = (obj) => make(.. memberNames.map(mn => obj[mn]));
+  const marshall = (specimen, writer) => {
+    if (typeof specimen == "object") {
+      if (specimen[tagSym] == sym) {
+        return marshallRecord(sym, memberNames.map(mn => specimen[mn]), writer);
+      }
+    }
+    return undefined;
+  }
 
-  return harden({ make, makeFromObj, unmarshall, marshall });
+  return harden({ make, makeFromObj, unmarshallRecord, marshall });
 }
 
 /**
