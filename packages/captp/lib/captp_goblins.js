@@ -36,6 +36,11 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     }
     const dispatch = (chunk) => {
       buffer = buffer.concat(chunk);
+      do {
+        const reread = pendingReads.shift();
+        const framhald = reread();
+        if (!framhald) { pendingReads.unshift(reread); }
+      } while (framhald);
       return undefined
     };
     return { bytereader, dispatch };
