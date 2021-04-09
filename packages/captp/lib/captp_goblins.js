@@ -121,7 +121,17 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
               deliverOnly2remote(r["resolve-me-desc"], "resolve", [bootstrapObj], undefined);
               return undefined;
             });
-  recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"]);
+  recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"],
+           // got a sendOnly delivery!
+           (r) => {
+             const target = E.sendOnly(r["to-desc"]);
+             if (r.method == false) {
+               target(...(r.args), r["kw-args"]);
+             } else {
+               target[r.method].apply(target, [...(r.args), r["kw-args"]]);
+             }
+             return undefined;
+           });
   recStruct("op:deliver", ["to-desc", "method", "args", "kw-args", "answer-pos", "resolve-me-desc"]);
   recStruct("op:abort",   ["reason"]);
   recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð
