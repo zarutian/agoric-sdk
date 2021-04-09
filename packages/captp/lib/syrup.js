@@ -316,6 +316,7 @@ const makeMarshallKit = (opts) => {
   sjálfgefa(opt  "unmarshallDictionary", unmarshallDictionary);
   sjálfgefa(opt  "unmarshallList",       unmarshallList);
   sjálfgefa(opt, "unmarshallSet",        unmarshallSet);
+  krefjast(opt, "marshallRecord", "marshallRecord not given');
   const { marshallRecord } = opt;
   const marshallers = [marshallBytestring,
                        marshallString,
@@ -329,6 +330,8 @@ const makeMarshallKit = (opts) => {
                        marshallRecord];
   sjálfgefa(opt, "marshallers", marshallers);
 
+  const reader = makeDecodingReader(opt);
+  const writer = makeEncodingWriter(opt);
   return harden({ reader, writer });
 }
 export {makeMarshallKit}
