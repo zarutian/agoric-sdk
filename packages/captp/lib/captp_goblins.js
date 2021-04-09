@@ -22,16 +22,20 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     const pendingReads = [];
     const bytereader = (numOfBytes) => {
       const { promise, resolver } = makePromiseKit();
-      if (BigInt(buffer.byteLength) < BigInt(numOfBytes)) {
-        pendingReads.push([numOfBytes, resolver]);
-      } else {
+      const reread = () => {
+        if (BigInt(buffer.byteLength) < BigInt(numOfBytes)) { return false; }
         const bytes = buffer.slice(0, numOfBytes);
         buffer = buffer.slice(numOfBytes);
         resolver.resolve(bytes);
+        return true;
+      };
+      if (!reread()) {
+        pendingReads.push(reread);
       }
       return promise;
     }
     const dispatch = (chunk) => {
+      buffer = buffer.concat(chunk);
       return undefined
     };
     return { bytereader, dispatch };
