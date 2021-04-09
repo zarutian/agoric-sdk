@@ -290,12 +290,12 @@ const makeMarshallKit = (opts) => {
   const opt = new Object(opts);
   sjálfgefa(opt, "unmarshallBytestring", unmarshallBytestring);
   sjálfgefa(opt, "unmarshallString",     unmarshallString);
-          unmarshallSymbol,
-          unmarshallFloatSingle,
-          unmarshallFloatDouble,
-          unmarshallInteger,
-          unmarshallDictionary,
-          unmarshallList,
+  sjálfgefa(opt, "unmarshallSymbol",     unmarshallSymbol);
+  sjálfgefa(opt, "unmarshallFloatSingle", unmarshallFloatSingle);
+  sjálfgefa(opt, "unmarshallFloatDouble", unmarshallFloatDouble);
+  sjálfgefa(opt, "unmarshallInteger",    unmarshallInteger);
+  sjálfgefa(opt  "unmarshallDictionary", unmarshallDictionary);
+  sjálfgefa(opt  "unmarshallList",       unmarshallList);
           unmarshallRecord,
           unmarshallSet
 }
