@@ -5,6 +5,8 @@ import { isPromise } from '@agoric/promise-kit';
 
 export { E };
 
+import { makeMarshallKit } from "./syrup.js";
+
 /**
  * Create a CapTP connection.
  *
@@ -15,4 +17,5 @@ export { E };
  */
 export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 
+  return harden({ abort, dispatch, getBootstrap, serialize, unserialize });
 }
