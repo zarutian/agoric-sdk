@@ -71,10 +71,29 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     };
     return { bytereader, dispatch };
   })();
-  const recordMarshallers = new Map();
+  const recordMakers        = new Map();
+  const recordUnmarshallers = new Map();
+  const recordMarshallers   = new Array();
   const recStruct = (tagstr, memberNames, unmarshallTrap) => {
-    const kit = recordableStruct(tagstr, memberNames, unmarshallTrap);
+    const { make,
+            makeFromObj,
+            unmarshallRecord,
+            marshall,
+            symbol: sym} = recordableStruct(tagstr, memberNames, unmarshallTrap);
+    recordMakers.set(sym, harden({ make, makeFromObj });
+    recordUnmarshallers.set(sym, unmarshallRecord);
+    recordMarshallers.push(marshall);
+    return undefined;
   };
+  const marshallRecord = (specimen, writer) => {
+    for (marshall of recordMarshallers) {
+      const mugshot = marshall(specimen, writer);
+      if (mugshot != undefined) {
+        return mugshot;
+      }
+    }
+    return undefined;
+  }
 
   recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"]);
   recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"]);
