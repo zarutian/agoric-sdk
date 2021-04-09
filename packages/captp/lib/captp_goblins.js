@@ -94,6 +94,12 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     }
     return undefined;
   }
+  
+  // Frægu töflurnar fjórar
+  const questions = new WeakMap(); // key er obj/promise, val er okkar answer pos
+  const answers   = new Map();     // key er þeirra answer pos, val er obj/promise
+  const exports   = new Map();     // key er pos, val er obj
+  const imports   = new WeakMap(); // key er obj, val er pos
 
   recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"]);
   recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"]);
@@ -102,10 +108,11 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð
   recStruct("op:gc-export", ["export-pos", "wire-delta"]);
   recStruct("op:gc-answer", ["answer-pos"]);
-  recStruct("desc:answer", [pos]);
+
+  recStruct("desc:answer", ["pos"], (r) => answers.get(r.pos));
   recStruct("desc:import-object", ["pos"]);
   recStruct("desc:import-promise", ["pos"]);
-  recStruct("desc:export", ["pos"]);
+  recStruct("desc:export", ["pos"], (r) => exports.get(r.pos));
 
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize });
