@@ -1,7 +1,7 @@
 /* global harden */
 
 import { E, HandledPromise } from '@agoric/eventual-send';
-import { isPromise } from '@agoric/promise-kit';
+import { isPromise, makePromiseKit } from '@agoric/promise-kit';
 
 export { E };
 
@@ -19,7 +19,18 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   const bytewriter = rawSend;
   const {bytereader, dispatch} = (() => {
     var buffer = new Uint8Array(0);
-    const pendingReads = []; // Tja hvernig ætti'tta að fara?
+    const pendingReads = [];
+    const bytereader = (numOfBytes) => {
+      const { promise, resolver } = makePromiseKit();
+      if (BigInt(buffer.byteLength) < BigInt(numOfBytes)) {
+        pendingReads.push([numOfBytes, resolver]);
+      } else {
+        const bytes = buffer.slice(0, numOfBytes);
+        buffer = buffer.slice(numOfBytes);
+        resolver.resolve(bytes);
+      }
+      return promise;
+    }
     const dispatch = (chunk) => {
       return undefined
     };
