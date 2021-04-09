@@ -104,6 +104,15 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   const exports   = new Map();     // key er pos, val er obj
   const imports   = new WeakMap(); // key er obj, val er pos
 
+  const nextExportId = (() => {
+    var counter = 1n;
+    return harden(() => {
+      const id = counter;
+      counter = counter + 1n;
+      return id;
+    });
+  })();
+
   recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"],
             // remote is asking for our bootstrap object
             (r) => {
@@ -129,9 +138,20 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     return undefined;
   });
 
+  recStruct("desc:export", ["pos"], (r) => exports.get(r.pos));
+
   recStruct("desc:import-object", ["pos"]);
   recStruct("desc:import-promise", ["pos"]);
-  recStruct("desc:export", ["pos"], (r) => exports.get(r.pos));
+  marshallers.push((specimen, writer) => {
+    const pos = nextExportId();
+    exports.set(pos, specimen);
+    const makeSel = isPromise(specimen) ? "desc:import-promise" : "desc:import-object";
+    const { make } = recordMakers.get(Symbol.for(makeSel));
+    // always returns a mugshot, thence this marshaller must be the penultimate one
+    return writer(make(pos));
+  });
+
+  
 
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize });
