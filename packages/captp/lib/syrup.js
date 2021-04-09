@@ -2,8 +2,8 @@
 
 // See https://gitlab.com/spritely/syrup/-/blob/master/impls/racket/syrup/syrup.rkt
 
-const makeDecodingGetter = (opt) => {
-  const { eventualBytegetter,
+const makeDecodingReader = (opt) => {
+  const { bytereader,
           unmarshallBytestring,
           unmarshallString,
           unmarshallSymbol,
@@ -20,7 +20,7 @@ const makeDecodingGetter = (opt) => {
   const recordEndSentiel = harden({});
   const setEndSentiel = harden({});
   const getter = async (self = getter) => {
-    const first = await eventualBytegetter(1n);
+    const first = await bytereader(1n);
       var length = 0n;
     switch (first) {
       case '1': // fallthrough
@@ -34,7 +34,7 @@ const makeDecodingGetter = (opt) => {
       case '9':
         length = (length * 10n) + BigInt(Number.parse(first, 10));
         while (true) {
-          const byte = await eventualBytegetter(1n);
+          const byte = await bytereader(1n);
           switch (byte) {
             case '0': // fallthrough -start-
             case '1':
@@ -49,7 +49,7 @@ const makeDecodingGetter = (opt) => {
               length = (length * 10n) + BigInt(Number.parse(first, 10));
               break; // end of case
             default:
-              const payload = await eventualBytegetter(length);
+              const payload = await bytereader(length);
               switch (byte) {
                 case ':': return unmarshallBytestring(payload);
                 case '"': return unmarshallString(payload);
@@ -64,17 +64,17 @@ const makeDecodingGetter = (opt) => {
       case 't': return true;
       case 'f': return false;
       case 'F': // ieee single precision floating point number big endian
-        const payload = await eventualBytegetter(4n);
+        const payload = await bytereader(4n);
         return unmarshallFloatSingle(payload);
       case 'D': // ieee double precision floating point number big endian
-        const payload = await eventualBytegetter(8n);
+        const payload = await bytereader(8n);
         return unmarshallFloatDouble(payload);
       case 'i': // integers
         var num = 0n;
         var sign = "";
         var signSet = false;
         while (true) {
-          const byte = await eventualBytegetter(1n);
+          const byte = await bytereader(1n);
           switch (byte) {
             case '-':
               if (signSet) {
@@ -157,27 +157,27 @@ const makeDecodingGetter = (opt) => {
   }
   return harden(getter);
 }
-export { makeDecodingGetter };
+export { makeDecodingReader };
 
-const makeEncodingPutter = (opt) => {
-  const { eventualByteputter,
+const makeEncodingWriter = (opt) => {
+  const { bytewriter,
           marshallers,
         } = opt;
-  const innerPutter = (specimen) => {
+  const innerwriter = (specimen) => {
     for (const marshaller of marshallers) {
-      const mugshot = marshaller(specimen, innerPutter);
+      const mugshot = marshaller(specimen, innerwriter);
       if (mugshot !== undefined) {
         return mugshot;
       }
     }
     throw new Error("syrup encode error #0");
   };
-  const putter = async (specimen) => {
-    return await eventualByteputter(innerPutter(specimen));
+  const writer = async (specimen) => {
+    return await eventualByteputter(innerwriter(specimen));
   };
-  return harden(putter);
+  return harden(writer);
 }
-export { makeEncodingPutter };
+export { makeEncodingWriter };
 
 const eu8a = new Uint8Array.of(0);
 
