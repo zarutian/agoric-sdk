@@ -16,7 +16,9 @@ const recordableStruct = (tagstr, memberNames, onUnmarshall) => {
     struct[tagSym] = sym;
     memberNames.forEach((mn, i) => struct[mn] = args[i]);
     return harden(struct);
-  }
+  };
+  const makeFromObj = (obj) => {
+  };
 
   return harden({ make, makeFromObj, unmarshall, marshall });
 }
