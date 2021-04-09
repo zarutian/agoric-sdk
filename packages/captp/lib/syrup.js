@@ -263,7 +263,7 @@ const marshallDictionary = (specimen, writer) => {
     if (specimen instanceof Map) {
       const entries = new Array(specimen.entries());
       const encodedEntries = entries.reduce(
-        (acc, [key, val]) => acc.concat(putter(key), putter(val)),
+        (acc, [key, val]) => acc.concat(putter(key), writer(val)),
         eu8a );
       return eu8a.concat("{", encodedEntries, "}");
     }
@@ -271,14 +271,26 @@ const marshallDictionary = (specimen, writer) => {
   return undefined;
 };
 
-const unmarshallList = (pl) => pl;
+const unmarshallList = (pl) => pl; // pl is aæready an array
 const marshallList = (specimen, writer) => {
   if (Array.isArray(specimen)) {
-    const encodedEntries = specimen.reduce((acc, item) => acc.concat(putter(item)), eu8a);
+    const encodedEntries = specimen.reduce((acc, item) => acc.concat(writer(item)), eu8a);
     return eu8a.concat("[", encodedEntries, "]");
   }
   return undefined;
 };
+
+const unmarshallSet = (pl) => new Set(pl);
+const marshallSet = (specimen, writer) => {
+  if (typeof specimen == "object") {
+    if (specimen instanceof Set) {
+      const items = new Array(specimen.values());
+      const encodedItems = items.reduce((acc, item) => acc.concat(writer(item)), eu8a);
+      return eu8a.concat("#", encodedItems, "$"); 
+    }
+  }
+  return undefined;
+}
 
 const sjálfgefa = (obj, prop, defaultValue) => {
   if (obj[prop] == undefined) {
@@ -296,7 +308,6 @@ const makeMarshallKit = (opts) => {
   sjálfgefa(opt, "unmarshallInteger",    unmarshallInteger);
   sjálfgefa(opt  "unmarshallDictionary", unmarshallDictionary);
   sjálfgefa(opt  "unmarshallList",       unmarshallList);
-          unmarshallRecord,
-          unmarshallSet
+  sjálfgefa(opt, "unmarshallSet",        unmarshallSet);
 }
 export {makeMarshallKit}
