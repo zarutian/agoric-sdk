@@ -107,7 +107,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   // Frægu töflurnar fjórar
   const questions = new WeakMap(); // key er promise<obj>/obj, val er okkar answer pos
   const answers   = new Map();     // key er þeirra answer pos, val er promise<obj>
-  const exports   = new Map();     // key er okkar pos, val er obj
+  const exports   = new Map();     // key er okkar pos, val er local obj
   const imports   = new WeakMap(); // key er proxobj, val er þeirra pos
 
   const nextExportId = (() => {
@@ -163,8 +163,13 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
            // same reaction needed as for CTP_DISCONNECT in captp.js
            );
   recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð
-  recStruct("op:gc-export", ["export-pos", "wire-delta"]);
-  recStruct("op:gc-answer", ["answer-pos"]);
+  recStruct("op:gc-export", ["export-pos", "wire-delta"],
+           // todo: write a wire delta check but for now, just drop the export
+           (r) => {
+             exports.delete(r["export-pos"]);
+             return undefined;
+           });
+  recStruct("op:gc-answer", ["answer-pos"], (r) => answers.delete(r["answer-pos"]));
 
   recStruct("desc:answer", ["pos"], (r) => answers.get(r.pos));
   marshallers.push((specimen, writer) => {
