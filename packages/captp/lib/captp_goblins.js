@@ -216,7 +216,23 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              }
              return obj;
            });
-  recStruct("desc:import-promise", ["pos"]);
+  recStruct("desc:import-promise", ["pos"],
+           (r) => {
+             var obj = undefined;
+             // not very efficient but a fast kludge to write
+             (new Array(imports.entries()).forEach(
+               ([o, p]) => {
+                 if (r.pos == p) {
+                   obj = o;
+                 }
+             });
+             if (obj == undefined) {
+               // a new thing being exported by the remote end
+               obj = makeProxPromise(r.pos);
+               imports.set(obj, r.pos);
+             }
+             return obj;
+           });
   marshallers.push((specimen, writer) => {
     const pos = nextExportId();
     exports.set(pos, specimen);
