@@ -46,6 +46,10 @@ const emptyDictionary = new Map();
  * @param {Partial<CapTPOptions>} opts options to the connection
  */
 export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
+  const {
+          otherImport3Desc = (specimen, writer) => undefined,
+        } = opts;
+
   const bytewriter = rawSend;
   const {bytereader, dispatch} = (() => {
     var buffer = new Uint8Array(0);
@@ -155,7 +159,9 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              });
              return undefined;
            });
-  recStruct("op:abort",   ["reason"]);
+  recStruct("op:abort",   ["reason"],
+           // same reaction needed as for CTP_DISCONNECT in captp.js
+           );
   recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð
   recStruct("op:gc-export", ["export-pos", "wire-delta"]);
   recStruct("op:gc-answer", ["answer-pos"]);
@@ -171,6 +177,22 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   });
 
   recStruct("desc:export", ["pos"], (r) => exports.get(r.pos));
+  marshallers.push((specimen, writer) => {
+    if (typeof specimen == "object") {
+      const pos = imports.get(specimen);
+      if (pos != undefined) {
+        const { make } = recordMakers.get(Symbol.for("desc:export"));
+        return writer(make(pos));
+      }
+    }
+    return undefined;
+  });
+
+  marshallers.push((specimen, writer) => {
+    // for 3vat handoff, ófullgert
+    // otherImport3Desc
+    return undefined;
+  });
 
   recStruct("desc:import-object", ["pos"]);
   recStruct("desc:import-promise", ["pos"]);
@@ -186,5 +208,5 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   
 
 
-  return harden({ abort, dispatch, getBootstrap, serialize, unserialize });
+  return harden({ abort, dispatch, getBootstrap, serialize, unserialize, yourRemoteImport3Desc });
 }
