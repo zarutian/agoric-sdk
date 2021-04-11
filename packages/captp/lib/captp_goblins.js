@@ -244,8 +244,11 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
                const { make: makeExpRec } = recordMakers.get(Symbol.for("desc:export"));
                const exp = makeExpRec(r.pos);
                // deliverOnly2remote(exp, "then", [resolver.resolve, resolver.reject], emptyDictionary);
-               deliverOnly2remote(exp, "__whenMoreResolved", [resolver.resolve], emptyDictionary);
-               deliverOnly2remote(exp, "__whenBroken", [resolver.reject], emptyDictionary);
+               // deliverOnly2remote(exp, "__whenMoreResolved", [resolver.resolve], emptyDictionary);
+               // deliverOnly2remote(exp, "__whenBroken", [resolver.reject], emptyDictionary);
+               // hin rétta leið
+               const { make } = recordMakers.get(Symbol.for("op:listen"));
+               bytewriter(rwriter(make(exp), resolver);
                imports.set(obj, r.pos);
              }
              return obj;
