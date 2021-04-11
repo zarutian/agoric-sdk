@@ -242,7 +242,10 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
                //                                __whenBroken(resolver.reject) á loforðið
                { promise: obj, resolver } = makeProxPromise(r.pos);
                const { make: makeExpRec } = recordMakers.get(Symbol.for("desc:export"));
-               deliverOnly2remote(makeExpRec(r.pos), "then", [resolver.resolve, resolver.reject], emptyDictionary);
+               const exp = makeExpRec(r.pos);
+               // deliverOnly2remote(exp, "then", [resolver.resolve, resolver.reject], emptyDictionary);
+               deliverOnly2remote(exp, "__whenMoreResolved", [resolver.resolve], emptyDictionary);
+               deliverOnly2remote(exp, "__whenBroken", [resolver.reject], emptyDictionary);
                imports.set(obj, r.pos);
              }
              return obj;
