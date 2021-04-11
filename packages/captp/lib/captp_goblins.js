@@ -118,6 +118,14 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
       return id;
     });
   })();
+  const nextQuestionId = (() => {
+    var counter = 1n;
+    return harden(() => {
+      const id = counter;
+      counter = counter + 1n;
+      return id;
+    });
+  })();
 
   recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"],
             // remote is asking for our bootstrap object
@@ -242,7 +250,18 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     return writer(make(pos));
   });
 
-  
+  const deliverOnly2remote = (target, verb, args, kwargs = emptyDictionary) => {
+    const { make } = recordMakers.get(Symbol.for("op:deliver-only"));
+    bytewriter(rwriter(make(target, verb, args, kwargs)));
+  };
+  const deliver2remote = (target, verb, args, kwargs = emptyDictionary) => {
+    const spurnPos = nextQuestionId();
+    var resolver;
+    const spurn = makeProxPromise(spurnPos, (r) => resolver = r);
+    const { make } = recordMakers.get(Symbol.for("op:deliver"));
+    bytewriter(rwriter(make(target, verb, args, kwargs, spurnPos, resolver);
+    return spurn;
+  };
 
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize, yourRemoteImport3Desc });
