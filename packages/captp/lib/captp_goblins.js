@@ -248,7 +248,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
                // deliverOnly2remote(exp, "__whenBroken", [resolver.reject], emptyDictionary);
                // hin rétta leið
                const { make } = recordMakers.get(Symbol.for("op:listen"));
-               bytewriter(rwriter(make(exp), resolver);
+               bytewriter(rwriter(make(exp, resolver, false)));
                imports.set(obj, r.pos);
              }
              return obj;
