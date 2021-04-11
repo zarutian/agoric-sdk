@@ -271,6 +271,10 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     return spurn;
   };
 
+  const abort = (reason) => {
+    const { make } = recordMakers.get(Symbol.for("op:abort"));
+    bytewriter(rwriter(make(reason)));
+  };
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize, yourRemoteImport3Desc });
 }
