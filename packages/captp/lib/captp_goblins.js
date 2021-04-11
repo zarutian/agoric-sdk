@@ -236,7 +236,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              });
              if (obj == undefined) {
                // a new thing being exported by the remote end
-               obj = makeProxPromise(r.pos);
+               // todo: hvurnig er áskrift að loforðsfyllingu ætluð?
+               { promise: obj, resolver } = makeProxPromise(r.pos);
                imports.set(obj, r.pos);
              }
              return obj;
@@ -256,8 +257,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   };
   const deliver2remote = (target, verb, args, kwargs = emptyDictionary) => {
     const spurnPos = nextQuestionId();
-    var resolver;
-    const spurn = makeProxPromise(spurnPos, (r) => resolver = r);
+    const { promise: spurn, resolver } = makeProxPromise(spurnPos);
     const { make } = recordMakers.get(Symbol.for("op:deliver"));
     bytewriter(rwriter(make(target, verb, args, kwargs, spurnPos, resolver);
     return spurn;
