@@ -238,6 +238,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
                // a new thing being exported by the remote end
                // todo: hvurnig er áskrift að loforðsfyllingu ætluð?
                //  + temp fix: .then sent á loforðið
+               //    hugsanlega rétt leið: senda __whenMoreResolved(resolver.resolve) og
+               //                                __whenBroken(resolver.reject) á loforðið
                { promise: obj, resolver } = makeProxPromise(r.pos);
                const { make: makeExpRec } = recordMakers.get(Symbol.for("desc:export"));
                deliverOnly2remote(makeExpRec(r.pos), "then", [resolver.resolve, resolver.reject], emptyDictionary);
