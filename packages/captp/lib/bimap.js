@@ -104,6 +104,17 @@ const WeakValueFinalizingMap = (iterable, finalizer, periodicRepeater = () => {}
         },
       });
     },
+    entries() { return realSelf[Symbol.iterator](); },
+    keys() {
+      const myIterator = realSelf[Symbol.iterator]();
+      return harden({
+        next() {
+          const { done, value } = myIterator.next();
+          const [lykill, gildi] = value;
+          return harden({ done, value: gildi });
+        },
+      });
+    },
     // todo: fully replicate the interface of Map
   });
   return realSelf;
