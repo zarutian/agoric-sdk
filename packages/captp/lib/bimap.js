@@ -6,7 +6,7 @@ const BiMap => (iterable = [], self) => {
   const key2val = new Map(iterable);
   const val2key = new Map((new Array(iterable)).map(([key, val]) => [val, key]));
   const realSelf = harden({
-    get [Symbol.species]() { return BiMap },
+    get [Symbol.species]() { return BiMap; },
     get size() { return key2val.size; },
     clear() {
       key2val.clear();
@@ -61,6 +61,11 @@ const WeakValueFinalizingMap = (iterable, opts = {}, self) => {
   periodicRepeater(gc);
   const fr = new FinalizationRegistry(fin);
   const realSelf = harden({
+    get [Symbol.species]() { return WeakValueFinalizingMap; },
+    get size() {
+      gc();
+      return m.size;
+    },
     set(key, value) {
       // tbd: gc(); // here or omitt it?
       if (m.has(key)) { fr.unregister(key); }
