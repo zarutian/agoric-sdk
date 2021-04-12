@@ -144,4 +144,7 @@ const WeakValueFinalizingMap = (iterable, opts = {}, self) => {
   return realSelf;
 };
 
+const WeakBiMap = (iterable, opts = {}, self) => {
+};
+
 export { BiMap, WeakBiMap, WeakValueFinalizingMap };
