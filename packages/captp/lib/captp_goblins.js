@@ -300,6 +300,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     bytewriter,
     bytereader,
     extraPostMarshallers: marshallers,
+    marshallRecord,
   });
   const skrifOp = (symstr, ...args) => {
     const { make } = recordMakers.get(Symbol.for(symstr));
@@ -309,6 +310,19 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   const abort = (reason) => {
     skrifOp("op:abort", reason);
   };
+
+  // spurning um að láta dispatch drífa þetta í stað þessarar loforðalykkju
+  const lesLykkja = () => {
+    E.when(
+      les(),
+      opResult => {
+        lesLykkja();
+      },
+      opError => {
+      }
+    );
+  };
+  lesLykkja();
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize, yourRemoteImport3Desc });
 }
