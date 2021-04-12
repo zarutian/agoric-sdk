@@ -24,6 +24,11 @@ const BiMap => (iterable = [], self) => {
     getByValue(val) { return val2key.get(val); },
     has(key) { return key2val.has(key); }
     hasByValue(val) { return val2key.has(val); },
+    set(key, val) {
+      key2val.set(key, val);
+      val2key.set(val, key);
+      return realSelf;
+    },
   });
   return realSelf;
 };
