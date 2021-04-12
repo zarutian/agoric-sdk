@@ -6,8 +6,8 @@ const BiMap => (iterable = [], self) => {
   const val2key = new Map((new Array(iterable)).map(([key, val]) => [val, key]));
   
   return harden({
-    get Map[Symbol.species]() => BiMap,
-    
+    get [Symbol.species]() { return BiMap },
+    get size() { return key2val.size; },
   });
 };
 
