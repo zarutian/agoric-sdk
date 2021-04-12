@@ -130,7 +130,16 @@ const WeakValueFinalizingMap = (iterable, opts = {}, self) => {
         },
       });
     },
-    // todo: fully replicate the interface of Map
+    forEach(callback, thisValue) {
+      return m.forEach((val, key, map) => {
+        const value = val.deref();
+        if (value === undefined) {
+          fin(key);
+        } else {
+          return callback.call(thisValue, value, key, realSelf);
+        }
+      });
+    },
   });
   return realSelf;
 };
