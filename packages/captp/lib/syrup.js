@@ -173,7 +173,7 @@ const makeEncodingWriter = (opt) => {
     throw new Error("syrup encode error #0");
   };
   const writer = async (specimen) => {
-    return await eventualByteputter(innerwriter(specimen));
+    return await bytewriter(innerwriter(specimen));
   };
   return harden(writer);
 }
