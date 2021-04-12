@@ -13,6 +13,13 @@ const BiMap => (iterable = [], self) => {
       val2key.clear();
       return undefined;
     },
+    delete(key) {
+      const had = key2val.has(key);
+      const val = key2val.get(key);
+      key2val.delete(key);
+      val2key.delete(val);
+      return had;
+    }
   });
 };
 
