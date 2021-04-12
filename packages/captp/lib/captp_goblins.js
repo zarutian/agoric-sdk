@@ -119,14 +119,14 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   const qopts = {
     finalizer: ( qpos ) => {
       const { make } = recordMakers.get(Symbol.for("op:gc-answer"));
-      bytewriter(rwriter(make(qpos))));
+      skrif(make(qpos));
     },
     periodicRepeater,
   };
   const imopts = {
     finalizer: ( impos ) => {
       const { make } = recordMakers.get(Symbol.for("op:gc-import"));
-      bytewriter(rwriter(make(impos, false))));
+      skrif(make(impos, false));
     },
     periodicRepeater,
   };
@@ -272,7 +272,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
                // deliverOnly2remote(exp, "__whenBroken", [resolver.reject], emptyDictionary);
                // hin rétta leið:
                const { make } = recordMakers.get(Symbol.for("op:listen"));
-               bytewriter(rwriter(make(exp, resolver, false)));
+               skrif(make(exp, resolver, false));
                imports.set(obj, r.pos);
              }
              return obj;
@@ -291,19 +291,23 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 
   const deliverOnly2remote = (target, verb, args, kwargs = emptyDictionary) => {
     const { make } = recordMakers.get(Symbol.for("op:deliver-only"));
-    bytewriter(rwriter(make(target, verb, args, kwargs)));
+    skrif(make(target, verb, args, kwargs));
   };
   const deliver2remote = (target, verb, args, kwargs = emptyDictionary) => {
     const spurnPos = nextQuestionId();
     const { promise: spurn, resolver } = makeProxPromise(spurnPos);
     const { make } = recordMakers.get(Symbol.for("op:deliver"));
-    bytewriter(rwriter(make(target, verb, args, kwargs, spurnPos, resolver);
+    skrif(make(target, verb, args, kwargs, spurnPos, resolver));
     return spurn;
   };
 
+  const skrif = (opRecord) => {
+    bytewriter(rwriter(opRecord));
+  }
+
   const abort = (reason) => {
     const { make } = recordMakers.get(Symbol.for("op:abort"));
-    bytewriter(rwriter(make(reason)));
+    skrif(make(reason));
   };
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize, yourRemoteImport3Desc });
