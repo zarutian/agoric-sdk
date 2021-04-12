@@ -8,6 +8,11 @@ const BiMap => (iterable = [], self) => {
   return harden({
     get [Symbol.species]() { return BiMap },
     get size() { return key2val.size; },
+    clear() {
+      key2val.clear();
+      val2key.clear();
+      return undefined;
+    },
   });
 };
 
