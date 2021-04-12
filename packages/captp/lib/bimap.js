@@ -33,6 +33,9 @@ const BiMap => (iterable = [], self) => {
     keys() { return key2val.keys(); },
     values() { return val2key.keys(); },
     entries() { return key2val.entries(); },
+    forEach(callback, thisValue) {
+      return key2val.forEach((val, key, map) => callback.call(thisValue, val, key, realSelf));
+    },
   });
   return realSelf;
 };
