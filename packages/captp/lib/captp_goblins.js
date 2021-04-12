@@ -47,10 +47,19 @@ const emptyDictionary = new Map();
  * @param {Partial<CapTPOptions>} opts options to the connection
  */
 export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
-  const {
-          otherImport3Desc = (specimen, writer) => undefined,
-          periodicRepeater = (callback) => {},
-        } = opts;
+  var {
+        otherImport3Desc = (specimen, writer) => undefined,
+        periodicRepeater,
+      } = opts;
+  const doPeriodicCallbacks = (() => {
+    const periodicCallbacks = [];
+    if (periodicRepeater === undefined) {
+      periodicRepeater = (callback) => {
+        periodicCallbacks.push(callback);
+      }
+    }
+    return harden(() => periodicCallbacks.forEach(callback => { try { callback(); } });
+  })();
 
   const bytewriter = rawSend;
   const {bytereader, dispatch} = (() => {
@@ -72,6 +81,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     }
     const dispatch = (chunk) => {
       buffer = buffer.concat(chunk);
+      doPeriodicCallbacks();
       do {
         const reread = pendingReads.shift();
         const framhald = reread();
