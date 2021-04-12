@@ -170,7 +170,18 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   recStruct("op:abort",   ["reason"],
            // same reaction needed as for CTP_DISCONNECT in captp.js
            );
-  recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"]); // er þörf á þessari aðgerð, já _on eða E.when() eða .then() eða áskrift að loforðs fyllingu
+  // er þörf á þessari aðgerð, já _on eða E.when() eða .then() eða áskrift að loforðs fyllingu
+  recStruct("op:listen",  ["to-desc", "listener-desc", "wants-partial?"],
+            (r) => {
+              E.when(r["to-desc"],
+                (result) => {
+                  deliverOnly2remote(r["listener-desc"], "resolve", [result], emptyDictionary);
+                },
+                (err) => {
+                  deliverOnly2remote(r["listener-desc"], "reject", [err], emptyDictionary);
+                },
+              );
+            }); 
   recStruct("op:gc-export", ["export-pos", "wire-delta"],
            // todo: write a wire delta check but for now, just drop the export
            (r) => {
