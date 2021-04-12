@@ -5,7 +5,7 @@ const BiMap => (iterable = [], self) => {
   const key2val = new Map(iterable);
   const val2key = new Map((new Array(iterable)).map(([key, val]) => [val, key]));
   
-  return harden({
+  const realSelf = harden({
     get [Symbol.species]() { return BiMap },
     get size() { return key2val.size; },
     clear() {
@@ -22,7 +22,10 @@ const BiMap => (iterable = [], self) => {
     },
     get(key) { return key2val.get(key); },
     getByValue(val) { return val2key.get(val); },
+    has(key) { return key2val.has(key); }
+    hasByValue(val) { return val2key.has(val); },
   });
+  return realSelf;
 };
 
 
