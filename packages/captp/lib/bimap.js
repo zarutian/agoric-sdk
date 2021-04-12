@@ -19,7 +19,8 @@ const BiMap => (iterable = [], self) => {
       key2val.delete(key);
       val2key.delete(val);
       return had;
-    }
+    },
+    get(key) { return key2val.get(key); },
   });
 };
 
