@@ -42,7 +42,8 @@ const BiMap => (iterable = [], self) => {
 
 /* global WeakRef */ // see https://github.com/tc39/proposal-weakrefs/blob/master/README.md
 /* global FinalizationRegistry */
-const WeakValueFinalizingMap = (iterable, finalizer, periodicRepeater = () => {}) => {
+const WeakValueFinalizingMap = (iterable, opts, self) => {
+  const { finalizer, periodicRepeater = () => {} } = opts;
   const m   = new Map();
   const fin = (key) => {
     m.delete(key);
@@ -106,6 +107,16 @@ const WeakValueFinalizingMap = (iterable, finalizer, periodicRepeater = () => {}
     },
     entries() { return realSelf[Symbol.iterator](); },
     keys() {
+      const myIterator = realSelf[Symbol.iterator]();
+      return harden({
+        next() {
+          const { done, value } = myIterator.next();
+          const [lykill, gildi] = value;
+          return harden({ done, value: lykill });
+        },
+      });
+    },
+    values() {
       const myIterator = realSelf[Symbol.iterator]();
       return harden({
         next() {
