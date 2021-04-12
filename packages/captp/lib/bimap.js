@@ -40,5 +40,45 @@ const BiMap => (iterable = [], self) => {
   return realSelf;
 };
 
+/* global WeakRef */ // see https://github.com/tc39/proposal-weakrefs/blob/master/README.md
+/* global FinalizationRegistry */
+const WeakValueFinalizingMap = (finalizer, repeater = () => {}) => {
+  const m   = new Map();
+  const fin = (key) => {
+    m.delete(key);
+    finalizer(key);
+  });
+  const gc = () => {
+    void m.forEach((v, k) => {
+      if (v.deref() === undefined) { fin(k); }
+    });
+  };
+  repeater(gc);
+  const fr = new FinalizationRegistry(fin);
+  const realSelf = harden({
+    set(key, value) {
+      // tbd: gc(); // here or omitt it?
+      if (m.has(key)) { fr.unregister(key); }
+      fr.register(value, key, key);
+      return m.set(key, new WeakRef(value));
+    },
+    has(key) {
+      if (!m.has(key)) { return false; }
+      const value = m.get(key).deref();
+      if (value === undefined) {
+        fin(key); return false;
+      } else {
+        return true;
+      }
+    },
+    get(key) {
+      if (!m.has(key)) { return undefined; }
+      const value = m.get(key).deref();
+      if (value === undefined) { fin(key); }
+      return value;
+    }
+    // todo: fully replicate the interface of Map
+  });
+};
 
-export { BiMap, WeakBiMap };
+export { BiMap, WeakBiMap, WeakValueFinalizingMap };
