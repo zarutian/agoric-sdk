@@ -6,8 +6,8 @@ import liquidateBundle from './bundle-liquidateMinimum';
 import autoswapBundle from './bundle-multipoolAutoswap';
 import stablecoinBundle from './bundle-stablecoinMachine';
 
-const SECONDS_PER_HOUR = 60 * 60;
-const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
+const SECONDS_PER_HOUR = 60n * 60n;
+const SECONDS_PER_DAY = 24n * SECONDS_PER_HOUR;
 
 /**
  * @param {Object} param0
@@ -60,8 +60,8 @@ export async function installOnChain({ agoricNames, board, centralName, chainTim
     ammInstance,
     invitationIssuer,
     {
-      issuers: { Governance: govIssuer, Scones: centralIssuer },
-      brands: { Governance: govBrand, Scones: centralBrand },
+      issuers: { Governance: govIssuer, RUN: centralIssuer },
+      brands: { Governance: govBrand, RUN: centralBrand },
     },
   ] = await Promise.all([E(creatorFacet).getAMM(), E(zoe).getInvitationIssuer(), E(zoe).getTerms(instance)]);
 
@@ -78,8 +78,8 @@ export async function installOnChain({ agoricNames, board, centralName, chainTim
   const boardIdValue = [
     ['INSTANCE_BOARD_ID', instance],
     ['INSTALLATION_BOARD_ID', stablecoinMachineInstall],
-    ['SCONE_ISSUER_BOARD_ID', centralIssuer],
-    ['SCONE_BRAND_BOARD_ID', centralBrand],
+    ['RUN_ISSUER_BOARD_ID', centralIssuer],
+    ['RUN_BRAND_BOARD_ID', centralBrand],
     ['AMM_INSTALLATION_BOARD_ID', autoswapInstall],
     ['LIQ_INSTALLATION_BOARD_ID', liquidationInstall],
     ['AMM_INSTANCE_BOARD_ID', ammInstance],

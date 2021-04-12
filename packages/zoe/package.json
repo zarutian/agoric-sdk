@@ -1,6 +1,6 @@
 {
   "name": "@agoric/zoe",
-  "version": "0.13.1",
+  "version": "0.14.1",
   "description": "Zoe: the Smart Contract Framework for Offer Enforcement",
   "parsers": {
     "js": "mjs"
@@ -16,7 +16,7 @@
     "test:xs": "yarn test:xs-unit",
     "test:xs-unit": "ava-xs --verbose",
     "test:xs-unit-debug": "ava-xs --debug",
-    "test:xs-worker": "SWINGSET_WORKER_TYPE=xs-worker ava",
+    "test:xs-worker": "SWINGSET_WORKER_TYPE=xs-worker ava -c 2 test/swingsetTests/**/test-*.js",
     "build-zcfBundle": "node -r esm scripts/build-zcfBundle.js",
     "lint-fix": "yarn lint:eslint --fix && yarn lint:types",
     "lint-check": "yarn lint",
@@ -42,27 +42,27 @@
   },
   "homepage": "https://github.com/Agoric/agoric-sdk#readme",
   "dependencies": {
-    "@agoric/assert": "^0.2.4",
-    "@agoric/bundle-source": "^1.2.4",
-    "@agoric/ertp": "^0.10.1",
-    "@agoric/eventual-send": "^0.13.4",
-    "@agoric/import-bundle": "^0.2.4",
-    "@agoric/marshal": "^0.4.1",
+    "@agoric/assert": "^0.2.6",
+    "@agoric/bundle-source": "^1.3.1",
+    "@agoric/ertp": "^0.10.3",
+    "@agoric/eventual-send": "^0.13.6",
+    "@agoric/import-bundle": "^0.2.6",
+    "@agoric/marshal": "^0.4.3",
     "@agoric/nat": "^4.0.0",
-    "@agoric/notifier": "^0.3.4",
-    "@agoric/promise-kit": "^0.2.4",
-    "@agoric/same-structure": "^0.1.4",
-    "@agoric/store": "^0.4.4",
-    "@agoric/swingset-vat": "^0.14.0",
-    "@agoric/transform-metering": "^1.4.4"
+    "@agoric/notifier": "^0.3.6",
+    "@agoric/promise-kit": "^0.2.6",
+    "@agoric/same-structure": "^0.1.6",
+    "@agoric/store": "^0.4.6",
+    "@agoric/swingset-vat": "^0.15.1",
+    "@agoric/transform-metering": "^1.4.6"
   },
   "devDependencies": {
-    "@agoric/install-metering-and-ses": "^0.2.4",
-    "@agoric/install-ses": "^0.5.4",
+    "@agoric/install-metering-and-ses": "^0.2.6",
+    "@agoric/install-ses": "^0.5.6",
     "ava": "^3.12.1",
     "esm": "^3.2.25",
     "nyc": "^15.1.0",
-    "ses": "^0.12.6"
+    "ses": "^0.12.7"
   },
   "files": [
     "bundles/",
@@ -74,17 +74,6 @@
   ],
   "ava-xs": {
     "exclude": [
-      "# F test/unitTests/contracts/loan/test-borrow.js borrow, then addCollateral, then getLiquidationPromise",
-      "# amount value: 100, expected value: 101, message",
-      "loan/test-borrow.js",
-      "# https://github.com/Moddable-OpenSource/moddable/issues/604 ",
-      "test-fakePriceAuthority.js",
-      "# message: 'isOfferSafe - less than want, less than give threw: get super 32554: no home'",
-      "test-offerSafety",
-      "# F test/unitTests/contracts/test-automaticRefund.js multiple instances of automaticRefund for the same Zoe",
-      "# bad plan: 6 still to go",
-      "test-automaticRefund",
-      "test-coveredCall",
       "# We use SWINGSET_WORKER_TYPE=xs ava to run these...",
       "swingsetTests"
     ]

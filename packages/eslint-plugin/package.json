@@ -1,6 +1,6 @@
 {
   "name": "@agoric/eslint-plugin",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "description": "Agoric-specific ESLint plugin",
   "keywords": [
     "eslint",
@@ -20,7 +20,7 @@
     "requireindex": "~1.1.0"
   },
   "devDependencies": {
-    "eslint": "^6.8.0"
+    "eslint": "^7.23.0"
   },
   "engines": {
     "node": ">=0.10.0"

@@ -13,6 +13,7 @@ import { Far } from '@agoric/marshal';
 
 import { makeVaultKit } from '../src/vault';
 import { paymentFromZCFMint } from '../src/burn';
+import { SECONDS_PER_YEAR } from '../src/interest';
 
 const BASIS_POINTS = 10000n;
 
@@ -24,8 +25,8 @@ export async function start(zcf) {
   const { brand: collateralBrand } = collateralKit;
   await zcf.saveIssuer(collateralKit.issuer, 'Collateral'); // todo: CollateralETH, etc
 
-  const sconeMint = await zcf.makeZCFMint('Scones');
-  const { brand: sconeBrand } = sconeMint.getIssuerRecord();
+  const runMint = await zcf.makeZCFMint('RUN');
+  const { brand: runBrand } = runMint.getIssuerRecord();
 
   const { zcfSeat: _collateralSt, userSeat: liqSeat } = zcf.makeEmptySeatKit();
   const { zcfSeat: stableCoinSeat } = zcf.makeEmptySeatKit();
@@ -33,31 +34,31 @@ export async function start(zcf) {
   /** @type {MultipoolAutoswapPublicFacet} */
   const autoswapMock = {
     getInputPrice(amountIn, brandOut) {
-      assert.equal(brandOut, sconeBrand);
-      return amountMath.make(4n * amountIn.value, sconeBrand);
+      assert.equal(brandOut, runBrand);
+      return amountMath.make(4n * amountIn.value, runBrand);
     },
   };
 
   function stageReward(amount, _fromSeat) {
-    const priorReward = stableCoinSeat.getAmountAllocated('Scones', sconeBrand);
+    const priorReward = stableCoinSeat.getAmountAllocated('RUN', runBrand);
     return stableCoinSeat.stage({
-      Scones: amountMath.add(priorReward, amount),
+      RUN: amountMath.add(priorReward, amount),
     });
   }
 
   /** @type {InnerVaultManager} */
   const managerMock = {
     getLiquidationMargin() {
-      return makeRatio(105n, sconeBrand);
+      return makeRatio(105n, runBrand);
     },
     getInitialMargin() {
-      return makeRatio(150n, sconeBrand);
+      return makeRatio(150n, runBrand);
     },
     getLoanFee() {
-      return makeRatio(500n, sconeBrand, BASIS_POINTS);
+      return makeRatio(500n, runBrand, BASIS_POINTS);
     },
     getInterestRate() {
-      return makeRatio(200, sconeBrand, BASIS_POINTS);
+      return makeRatio((200n * SECONDS_PER_YEAR), runBrand, 3n * BASIS_POINTS);
     },
     collateralBrand,
     stageReward,
@@ -66,7 +67,7 @@ export async function start(zcf) {
   const timer = buildManualTimer(console.log);
   const options = {
     actualBrandIn: collateralBrand,
-    actualBrandOut: sconeBrand,
+    actualBrandOut: runBrand,
     priceList: [80],
     tradeList: undefined,
     timer: buildManualTimer(console.log),
@@ -77,14 +78,14 @@ export async function start(zcf) {
   const { vault, openLoan, accrueInterestAndAddToPool } = await makeVaultKit(
     zcf,
     managerMock,
-    sconeMint,
+    runMint,
     autoswapMock,
     priceAuthority,
     { chargingPeriod: 3n, recordingPeriod: 9n },
     timer.getCurrentTimestamp(),
   );
 
-  zcf.setTestJig(() => ({ collateralKit, sconeMint, vault, timer }));
+  zcf.setTestJig(() => ({ collateralKit, runMint, vault, timer }));
 
   async function makeHook(seat) {
     const { notifier, collateralPayoutP } = await openLoan(seat);
@@ -92,7 +93,7 @@ export async function start(zcf) {
     return {
       vault,
       liquidationPayout: E(liqSeat).getPayout('Collateral'),
-      sconeMint,
+      runMint,
       collateralKit,
       actions: {
         add() {
@@ -111,8 +112,8 @@ export async function start(zcf) {
     makeAdjustBalancesInvitation() {
       return vault.makeAdjustBalancesInvitation();
     },
-    mintScones(amount) {
-      return paymentFromZCFMint(zcf, sconeMint, amount);
+    mintRun(amount) {
+      return paymentFromZCFMint(zcf, runMint, amount);
     },
   });
 
