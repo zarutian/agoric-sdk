@@ -49,6 +49,7 @@ const emptyDictionary = new Map();
 export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   const {
           otherImport3Desc = (specimen, writer) => undefined,
+          periodicRepeater = (callback) => {},
         } = opts;
 
   const bytewriter = rawSend;
@@ -105,11 +106,26 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   }
   const marshallers = [];
   
+  const qopts = {
+    finalizer: ( qpos ) => {
+      const { make } = recordMakers.get(Symbol.for("op:gc-answer"));
+      bytewriter(rwriter(make(qpos))));
+    },
+    periodicRepeater,
+  };
+  const imopts = {
+    finalizer: ( impos ) => {
+      const { make } = recordMakers.get(Symbol.for("op:gc-import"));
+      bytewriter(rwriter(make(impos, false))));
+    },
+    periodicRepeater,
+  };
+
   // Frægu töflurnar fjórar
-  const questions = new WeakBiMap(); // key er promise<obj>/obj, val er okkar answer pos
-  const answers   = new BiMap();     // key er þeirra answer pos, val er promise<obj>
-  const exports   = new BiMap();     // key er okkar pos, val er local obj
-  const imports   = new WeakBiMap(); // key er proxobj, val er þeirra pos
+  const questions = WeakBiMap([], qopts);  // key er promise<obj>/obj, val er okkar answer pos
+  const answers   = BiMap();               // key er þeirra answer pos, val er promise<obj>
+  const exports   = BiMap();               // key er okkar pos, val er local obj
+  const imports   = WeakBiMap([], imopts); // key er proxobj, val er þeirra pos
 
   const nextExportId = (() => {
     var counter = 1n;
