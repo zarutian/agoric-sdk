@@ -79,6 +79,30 @@ const WeakValueFinalizingMap = (iterable, finalizer, periodicRepeater = () => {}
       return value;
     },
     [Symbol.iterator]() {
+      const myIterator = m[Symbol.iterator]();
+      return harden({
+        next() {
+          var noSat = true;
+          var lok = false;
+          var nyGildi = undefined;
+          while (notSat) {
+            const { done, value } = myIterator.next();
+            if (value === undefined) {
+              return harden({ done });
+            }
+            const [lykill, gildi] = value;
+            const val = gildi.deref();
+            if (val === undefined) {
+              fin(key);
+            } else {
+              noSat = false;
+              lok = done;
+              nyGildi = [lykill, val];
+            }
+          }
+          return harden({ done: lok, value: nyGildi });
+        },
+      });
     },
     // todo: fully replicate the interface of Map
   });
