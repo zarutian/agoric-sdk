@@ -42,9 +42,13 @@ const BiMap => (iterable = [], self) => {
 
 /* global WeakRef */ // see https://github.com/tc39/proposal-weakrefs/blob/master/README.md
 /* global FinalizationRegistry */
-const WeakValueFinalizingMap = (iterable, opts, self) => {
-  const { finalizer, periodicRepeater = () => {} } = opts;
-  const m   = new Map();
+const WeakValueFinalizingMap = (iterable, opts = {}, self) => {
+  const { finalizer = () => {},
+          periodicRepeater = () => {} } = opts;
+  const m   = new Map((new Array(iterable)).map(([k, v]) => {
+                fr.register(v, k, k);
+                return new WeakRef(v);
+              }));
   const fin = (key) => {
     m.delete(key);
     finalizer(key);
