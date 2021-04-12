@@ -6,6 +6,7 @@ import { isPromise, makePromiseKit } from '@agoric/promise-kit';
 export { E };
 
 import { makeMarshallKit, marshallRecord } from "./syrup.js";
+import { WeakBiMap, BiMap } from "./bimap.js";
 
 const idFunc = (thing) => thing;
 
@@ -105,10 +106,10 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   const marshallers = [];
   
   // Frægu töflurnar fjórar
-  const questions = new WeakMap(); // key er promise<obj>/obj, val er okkar answer pos
-  const answers   = new Map();     // key er þeirra answer pos, val er promise<obj>
-  const exports   = new Map();     // key er okkar pos, val er local obj
-  const imports   = new WeakMap(); // key er proxobj, val er þeirra pos
+  const questions = new WeakBiMap(); // key er promise<obj>/obj, val er okkar answer pos
+  const answers   = new BiMap();     // key er þeirra answer pos, val er promise<obj>
+  const exports   = new BiMap();     // key er okkar pos, val er local obj
+  const imports   = new WeakBiMap(); // key er proxobj, val er þeirra pos
 
   const nextExportId = (() => {
     var counter = 1n;
@@ -220,14 +221,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 
   recStruct("desc:import-object", ["pos"],
            (r) => {
-             var obj = undefined;
-             // not very efficient but a fast kludge to write
-             (new Array(imports.entries()).forEach(
-               ([o, p]) => {
-                 if (r.pos == p) {
-                   obj = o;
-                 }
-             });
+             var obj = imports.getByValue(r.pos);
              if (obj == undefined) {
                // a new thing being exported by the remote end
                obj = makeProxobj(r.pos);
@@ -237,14 +231,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
            });
   recStruct("desc:import-promise", ["pos"],
            (r) => {
-             var obj = undefined;
-             // not very efficient but a fast kludge to write
-             (new Array(imports.entries()).forEach(
-               ([o, p]) => {
-                 if (r.pos == p) {
-                   obj = o;
-                 }
-             });
+             var obj = imports.getByValue(r.pos);
              if (obj == undefined) {
                // a new thing being exported by the remote end
                // todo: hvurnig er áskrift að loforðsfyllingu ætluð?
@@ -257,7 +244,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
                // deliverOnly2remote(exp, "then", [resolver.resolve, resolver.reject], emptyDictionary);
                // deliverOnly2remote(exp, "__whenMoreResolved", [resolver.resolve], emptyDictionary);
                // deliverOnly2remote(exp, "__whenBroken", [resolver.reject], emptyDictionary);
-               // hin rétta leið
+               // hin rétta leið:
                const { make } = recordMakers.get(Symbol.for("op:listen"));
                bytewriter(rwriter(make(exp, resolver, false)));
                imports.set(obj, r.pos);
@@ -265,8 +252,11 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              return obj;
            });
   marshallers.push((specimen, writer) => {
-    const pos = nextExportId();
-    exports.set(pos, specimen);
+    var pos = exports.getByValue(specimen);
+    if (pos == undefined) {
+      pos = nextExportId();
+      exports.set(pos, specimen);
+    }
     const makeSel = isPromise(specimen) ? "desc:import-promise" : "desc:import-object";
     const { make } = recordMakers.get(Symbol.for(makeSel));
     // always returns a mugshot, thence this marshaller must be the penultimate one
