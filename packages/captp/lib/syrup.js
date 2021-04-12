@@ -323,8 +323,13 @@ const makeMarshallKit = (opts) => {
   sjálfgefa(opt, "unmarshallSet",        unmarshallSet);
   krefjast(opt, "marshallRecord", "marshallRecord not given");
   krefjast(opt, "unmarshallRecord", "unmarshallRecord not given");
-  const { marshallRecord } = opt;
-  const marshallers = [marshallBytestring,
+  sjálfgefa(opt, "extraPreMarshallers", []);
+  sjálfgefa(opt, "extraPostMarshallers", []);
+  const { marshallRecord,
+          extraPreMarshallers,
+          extraPostMarshallers} = opt;
+  const marshallers = [...extraPreMarshallers,
+                       marshallBytestring,
                        marshallString,
                        marshallSymbol,
                        marshallFloatSingle,
