@@ -118,15 +118,13 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   
   const qopts = {
     finalizer: ( qpos ) => {
-      const { make } = recordMakers.get(Symbol.for("op:gc-answer"));
-      skrif(make(qpos));
+      skrifOp("op:gc-answer", qpos);
     },
     periodicRepeater,
   };
   const imopts = {
     finalizer: ( impos ) => {
-      const { make } = recordMakers.get(Symbol.for("op:gc-import"));
-      skrif(make(impos, false));
+      skrifOp("op:gc-import", impos, false);
     },
     periodicRepeater,
   };
@@ -271,8 +269,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
                // deliverOnly2remote(exp, "__whenMoreResolved", [resolver.resolve], emptyDictionary);
                // deliverOnly2remote(exp, "__whenBroken", [resolver.reject], emptyDictionary);
                // hin rétta leið:
-               const { make } = recordMakers.get(Symbol.for("op:listen"));
-               skrif(make(exp, resolver, false));
+               skrifOp("op:listen", exp, resolver, false);
                imports.set(obj, r.pos);
              }
              return obj;
@@ -290,14 +287,12 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   });
 
   const deliverOnly2remote = (target, verb, args, kwargs = emptyDictionary) => {
-    const { make } = recordMakers.get(Symbol.for("op:deliver-only"));
-    skrif(make(target, verb, args, kwargs));
+    skrifOp("op:deliver-only", target, verb, args, kwargs));
   };
   const deliver2remote = (target, verb, args, kwargs = emptyDictionary) => {
     const spurnPos = nextQuestionId();
     const { promise: spurn, resolver } = makeProxPromise(spurnPos);
-    const { make } = recordMakers.get(Symbol.for("op:deliver"));
-    skrif(make(target, verb, args, kwargs, spurnPos, resolver));
+    skrifOp("op:deliver", target, verb, args, kwargs, spurnPos, resolver);
     return spurn;
   };
 
@@ -308,8 +303,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   };
 
   const abort = (reason) => {
-    const { make } = recordMakers.get(Symbol.for("op:abort"));
-    skrif(make(reason));
+    skrifOp("op:abort", reason);
   };
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize, yourRemoteImport3Desc });
