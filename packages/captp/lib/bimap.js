@@ -145,6 +145,12 @@ const WeakValueFinalizingMap = (iterable, opts = {}, self) => {
 };
 
 const WeakBiMap = (iterable, opts = {}, self) => {
+  const key2val = new WeakMap(iterable);
+  const val2key =     WeakValueFinalizingMap((new Array(iterable)).map(([k, v]) => [v, k]), opts );
+  const realSelf = harden({
+    
+  });
+  return realSelf;
 };
 
 export { BiMap, WeakBiMap, WeakValueFinalizingMap };
