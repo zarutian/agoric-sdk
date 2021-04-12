@@ -5,7 +5,7 @@ import { isPromise, makePromiseKit } from '@agoric/promise-kit';
 
 export { E };
 
-import { makeMarshallKit, marshallRecord } from "./syrup.js";
+import { makeMarshallKit, marshallRecord, makeEncodingWriter } from "./syrup.js";
 import { WeakBiMap, BiMap } from "./bimap.js";
 
 const idFunc = (thing) => thing;
@@ -301,9 +301,11 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     return spurn;
   };
 
-  const skrif = (opRecord) => {
-    bytewriter(rwriter(opRecord));
-  }
+  const skrif = makeEncodingWriter({ bytewriter, marshallers });
+  const skrifOp = (symstr, ...args) => {
+    const { make } = recordMakers.get(Symbol.for(symstr));
+    return skrif(make(...args));
+  };
 
   const abort = (reason) => {
     const { make } = recordMakers.get(Symbol.for("op:abort"));
