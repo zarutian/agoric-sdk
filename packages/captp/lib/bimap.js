@@ -30,6 +30,9 @@ const BiMap => (iterable = [], self) => {
       return realSelf;
     },
     [Symbol.iterator]() { return key2val[Symbol.iterator](); },
+    keys() { return key2val.keys(); },
+    values() { return val2key.keys(); },
+    entries() { return key2val.entries(); },
   });
   return realSelf;
 };
