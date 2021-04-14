@@ -285,6 +285,11 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     // always returns a mugshot, thence this marshaller must be the penultimate one
     return writer(make(pos));
   });
+  // varnagli;
+  marshallers.push((specimen, writer) => throw new Error("execution should never reach this point"));
+
+  const makeProxPromise = (myQuestionPos) => {
+  };
 
   const deliverOnly2remote = (target, verb, args, kwargs = emptyDictionary) => {
     skrifOp("op:deliver-only", target, verb, args, kwargs));
