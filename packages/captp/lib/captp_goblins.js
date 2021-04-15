@@ -38,6 +38,14 @@ const recordableStruct = (tagstr, memberNames, unmarshallTrap = idFunc) => {
 
 const emptyDictionary = new Map();
 
+**
+ * @typedef {Object} CapTPOptions the options to makeCapTP
+ * @property {(err: any) => void} onReject
+ * @property {typeof defaultRemotable} Remotable
+ *  property {typeof defaultFar} Far                 \ spurning um þetta tvennt þar se syrup er notað í staðinn
+ *  property {typeof defaultMakeMarshal} makeMarshal /
+ * @property {number} epoch toBeInvestigated: getur þetta verið BigInt?
+ */
 /**
  * Create a CapTP connection.
  *
