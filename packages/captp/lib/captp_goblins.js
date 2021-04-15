@@ -160,6 +160,13 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     });
   })();
 
+  const getBootstrap = () => {
+    const bootstrapPos = nextQuestionId();
+    const { make: makeAnswerDesc } = recordMakers.get(Symbol.for("desc:answer"));
+    const { promise, resolver } = makeProxPromise(makeAnswerDesc(bootstrapPos));
+    skrifOp("op:bootstrap", bootstrapPos, resolver);
+    return promise;
+  };
   recStruct("op:bootstrap", ["answer-pos", "resolve-me-desc"],
             // remote is asking for our bootstrap object
             (r) => {
