@@ -260,7 +260,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              var obj = imports.getByValue(r.pos);
              if (obj == undefined) {
                // a new thing being exported by the remote end
-               obj = makeProxobj(r.pos);
+               const { make: makeExportDesc } = recordMakers.get(Symbol.for("desc:export"));
+               { promise: obj } = makeProxPromise(makeExportDesc(r.pos));
                imports.set(obj, r.pos);
              }
              return obj;
@@ -273,8 +274,9 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
                // todo: hvurnig er áskrift að loforðsfyllingu ætluð?
                //  + temp fix: .then sent á loforðið
                //    hugsanlega rétt leið: senda __whenMoreResolved(resolver.resolve) og
-               //                                __whenBroken(resolver.reject) á loforðið
-               { promise: obj, resolver } = makeProxPromise(r.pos);
+               //                                __whenBroken(resolver.reject) á loforði
+               const { make: makeAnswerDesc } = recordMakers.get(Symbol.for("desc:answer"));
+               { promise: obj, resolver } = makeProxPromise(makeAnswerDesc(r.pos));
                const { make: makeExpRec } = recordMakers.get(Symbol.for("desc:export"));
                const exp = makeExpRec(r.pos);
                // deliverOnly2remote(exp, "then", [resolver.resolve, resolver.reject], emptyDictionary);
@@ -300,9 +302,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   // varnagli;
   marshallers.push((specimen, writer) => throw new Error("execution should never reach this point"));
 
-  const makeProxPromise = (myQuestionPos) => {
-    const { make: answerDescMake } = recordMakers.get(Symbol.for("desc:answer"));
-    const myQuestionDesc = answerDescMake(myQuestionPos);
+  const makeProxPromise = (myQuestionDesc) => {
     const handler  = {
       get(_o, prop) {
         return deliver2remote(myQuestionDesc, t, [prop], emptyDictionary)
@@ -354,7 +354,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   };
   const deliver2remote = (target, verb, args, kwargs = emptyDictionary) => {
     const spurnPos = nextQuestionId();
-    const { promise: spurn, resolver } = makeProxPromise(spurnPos);
+    const { make: makeAnswerDesc } = recordMakers.get(Symbol.for("desc:answer"));
+    const { promise: spurn, resolver } = makeProxPromise(makeAnswerDesc(spurnPos));
     skrifOp("op:deliver", target, verb, args, kwargs, spurnPos, resolver);
     return spurn;
   };
