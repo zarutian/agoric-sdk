@@ -223,14 +223,13 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
             (r) => {
               E.when(r["to-desc"],
                 (result) => {
-                  // const resolve = Symbol.for("fulfill");
-                  const resolve = "resolve";
-                  deliverOnly2remote(r["listener-desc"], resolve, [result], emptyDictionary);
+                  deliverOnly2remote(r["listener-desc"], "resolve", [result], emptyDictionary);
+               // deliverOnly2remote(r["listener-desc"], Symbol.for("fulfill"), [result]);
                 },
                 (err) => {
-                  // const reject = Symbol.for("break");
-                  const reject = "reject";
-                  deliverOnly2remote(r["listener-desc"], reject, [err], emptyDictionary);
+                  deliverOnly2remote(r["listener-desc"], "reject", [err], emptyDictionary);
+               // deliverOnly2remote(r["listener-desc"], Symbol.for("break"), [err]);
+               // deliverOnly2remote(r["listener-desc"], "smash", [err]);
                 },
               );
             }); 
@@ -358,6 +357,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     const proxProm = new HandledPromise((resolve, reject, resolveWithPresence) => {
       // resolver[Symbol.for("fulfill")] = resolve;
       // resolver[Symbol.for("break")] = reject;
+      // resolver.smash = reject;
       resolver.resolve = resolve;
       resolver.reject  = reject;
       resolver.resolveWithPresence = resolveWithPresence;
