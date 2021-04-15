@@ -307,6 +307,18 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
       get(_o, prop) {
         return deliver2remote(myQuestionDesc, t, [prop], emptyDictionary)
       },
+      getSendOnly(_o, prop) {
+        deliverOnly2remote(myQuestionDesc, t, [prop], emptyDictionary);
+        return undefined;
+      },
+      set(_o, prop, newValue) {
+        deliverOnly2remote(myQuestionDesc, t, [prop, newValue], emptyDictionary);
+        return newValue;
+      },
+      setSendOnly(_o, prop, newValue) {
+        deliverOnly2remote(myQuestionDesc, t, [prop, newValue], emptyDictionary);
+        return undefined;
+      },
       applyMethod(_o, verb, innstoumligk) {
         // hvurnig fá kwargs?
         // seinasta stak í args kanske?
