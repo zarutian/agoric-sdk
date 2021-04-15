@@ -38,7 +38,7 @@ const recordableStruct = (tagstr, memberNames, unmarshallTrap = idFunc) => {
 
 const emptyDictionary = new Map();
 
-**
+/**
  * @typedef {Object} CapTPOptions the options to makeCapTP
  * @property {(err: any) => void} onReject
  * @property {typeof defaultRemotable} Remotable
