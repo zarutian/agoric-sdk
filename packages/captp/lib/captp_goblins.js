@@ -187,8 +187,12 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              if (r.method == false) {
                resultP = target(...(r.args), r["kw-args"]);
              } else if ((r.method == true) || (r.method = Symbol.for("get")) {
-               // tbd: ég veit það ekki hvort þetta sé sú rétta leið til að styðja eventual get eður ei
-               resultP = E.get(r["to-desc"])[r.args];
+               // tbd: ég veit það ekki hvort þetta sé sú rétta leið til að styðja eventual get/set eður ei
+               if (r.args.length == 1) {
+                 resultP = E.get(r["to-desc"])[r.args[0]];
+               } else if (r.args.length == 2) {
+                 // eventual set gets ignored for now.
+               }
              } else {
                resultP = target[r.method].apply(target, [...(r.args), r["kw-args"]]);
              }
@@ -300,11 +304,15 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     const { make: answerDescMake } = recordMakers.get(Symbol.for("desc:answer"));
     const myQuestionDesc = answerDescMake(myQuestionPos);
     const handler  = {
+      get(_o, prop) {
+        return deliver2remote(myQuestionDesc, t, [prop], emptyDictionary)
+      },
       applyMethod(_o, verb, innstoumligk) {
         // hvurnig fá kwargs?
         // seinasta stak í args kanske?
         // const [...args, kwargs] = innstoumligk;
         const args = innstoumligk;
+        const kwargs = emptyDictionaryb
         return deliver2remote(myQuestionDesc, verb, args, kwargs);
       }
     };
