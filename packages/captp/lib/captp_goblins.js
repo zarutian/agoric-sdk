@@ -323,13 +323,21 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
         const kwargs = emptyDictionary;
         return deliver2remote(myQuestionDesc, false, argms, kwargs);
       },
+      applyFunctionSendOnly(_o, argms) {
+        const kwargs = emptyDictionary;
+        return deliverOnly2remote(myQuestionDesc, false, argms, kwargs);
+      },
       applyMethod(_o, verb, argms) {
         // hvurnig fá kwargs?
         // seinasta stak í args kanske?
         // const [...args, kwargs] = argms;
         const kwargs = emptyDictionary;
         return deliver2remote(myQuestionDesc, verb, argms, kwargs);
-      }
+      },
+      applyMethodSendOnly(_o, verb, argms) {
+        const kwargs = emptyDictionary;
+        return deliverOnly2remote(myQuestionDesc, verb, argms, kwargs);
+      },
     };
     const resolver = {}; // mutable object
     const proxProm = new HandledPromise((resolve, reject, resolveWithPresence) => {
