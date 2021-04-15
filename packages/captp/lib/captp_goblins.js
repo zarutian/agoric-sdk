@@ -312,20 +312,23 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
         return undefined;
       },
       set(_o, prop, newValue) {
-        deliverOnly2remote(myQuestionDesc, t, [prop, newValue], emptyDictionary);
+        deliverOnly2remote(myQuestionDesc, true, [prop, newValue], emptyDictionary);
         return newValue;
       },
       setSendOnly(_o, prop, newValue) {
-        deliverOnly2remote(myQuestionDesc, t, [prop, newValue], emptyDictionary);
+        deliverOnly2remote(myQuestionDesc, true, [prop, newValue], emptyDictionary);
         return undefined;
       },
-      applyMethod(_o, verb, innstoumligk) {
+      applyFunction(_o, argms) {
+        const kwargs = emptyDictionary;
+        return deliver2remote(myQuestionDesc, false, argms, kwargs);
+      },
+      applyMethod(_o, verb, argms) {
         // hvurnig fá kwargs?
         // seinasta stak í args kanske?
-        // const [...args, kwargs] = innstoumligk;
-        const args = innstoumligk;
-        const kwargs = emptyDictionaryb
-        return deliver2remote(myQuestionDesc, verb, args, kwargs);
+        // const [...args, kwargs] = argms;
+        const kwargs = emptyDictionary;
+        return deliver2remote(myQuestionDesc, verb, argms, kwargs);
       }
     };
     const resolver = {}; // mutable object
