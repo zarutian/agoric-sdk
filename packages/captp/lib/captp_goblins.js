@@ -300,10 +300,12 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     const { make: answerDescMake } = recordMakers.get(Symbol.for("desc:answer"));
     const myQuestionDesc = answerDescMake(myQuestionPos);
     const handler  = {
-      applyMethod(_o, verb, args) {
+      applyMethod(_o, verb, innstoumligk) {
         // hvurnig fá kwargs?
         // seinasta stak í args kanske?
-        return deliver2remote(myQuestionDesc, verb, args);
+        // const [...args, kwargs] = innstoumligk;
+        const args = innstoumligk;
+        return deliver2remote(myQuestionDesc, verb, args, kwargs);
       }
     };
     const resolver = {}; // mutable object
