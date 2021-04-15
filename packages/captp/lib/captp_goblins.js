@@ -397,3 +397,5 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 
   return harden({ abort, dispatch, getBootstrap, serialize, unserialize, yourRemoteImport3Desc });
 }
+
+// .
