@@ -172,7 +172,9 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
             (r) => {
               const promise = Promise.resolve(bootstrapObj);
               answers.set(r["answer-pos"], promise);
-              deliverOnly2remote(r["resolve-me-desc"], "resolve", [bootstrapObj], emptyDictionary);
+              // const resolve = Symbol.for("fulfill");
+              const resolve = "resolve";
+              deliverOnly2remote(r["resolve-me-desc"], resolve, [bootstrapObj], emptyDictionary);
               return undefined;
             });
   recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"],
@@ -205,9 +207,13 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              }
              answers.set(r["answer-pos"], resultP);
              E.when(resultP, (result) => {
-               deliverOnly2remote(r["resolve-me-desc"], "resolve", [result], emptyDictionary);
+               // const resolve = Symbol.for("fulfill");
+               const resolve = "resolve";
+               deliverOnly2remote(r["resolve-me-desc"], resolve, [result], emptyDictionary);
              }, (err) => {
-               deliverOnly2remote(r["resolve-me-desc"], "reject", [err], emptyDictionary);
+               // const reject = Symbol.for("break")!
+               const reject = "reject";
+               deliverOnly2remote(r["resolve-me-desc"], reject, [err], emptyDictionary);
              });
              return undefined;
            });
@@ -219,10 +225,14 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
             (r) => {
               E.when(r["to-desc"],
                 (result) => {
-                  deliverOnly2remote(r["listener-desc"], "resolve", [result], emptyDictionary);
+                  // const resolve = Symbol.for("fulfill");
+                  const resolve = "resolve";
+                  deliverOnly2remote(r["listener-desc"], resolve, [result], emptyDictionary);
                 },
                 (err) => {
-                  deliverOnly2remote(r["listener-desc"], "reject", [err], emptyDictionary);
+                  // const reject = Symbol.for("break");
+                  const reject = "reject";
+                  deliverOnly2remote(r["listener-desc"], reject, [err], emptyDictionary);
                 },
               );
             }); 
@@ -348,6 +358,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     };
     const resolver = {}; // mutable object
     const proxProm = new HandledPromise((resolve, reject, resolveWithPresence) => {
+      // resolver[Symbol.for("fulfill")] = resolve;
+      // resolver[Symbol.for("break")] = reject;
       resolver.resolve = resolve;
       resolver.reject  = reject;
       resolver.resolveWithPresence = resolveWithPresence;
