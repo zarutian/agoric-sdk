@@ -172,9 +172,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
             (r) => {
               const promise = Promise.resolve(bootstrapObj);
               answers.set(r["answer-pos"], promise);
-              // const resolve = Symbol.for("fulfill");
-              const resolve = "resolve";
-              deliverOnly2remote(r["resolve-me-desc"], resolve, [bootstrapObj], emptyDictionary);
+              deliverOnly2remote(r["resolve-me-desc"], "resolve", [bootstrapObj], emptyDictionary);
+           // deliverOnly2remote(r["resolve-me-desc"], Symbol.for("fulfill"), [bootstrapObj]);
               return undefined;
             });
   recStruct("op:deliver-only", ["to-desc", "method", "args", "kw-args"],
@@ -207,9 +206,8 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
              }
              answers.set(r["answer-pos"], resultP);
              E.when(resultP, (result) => {
-               // const resolve = Symbol.for("fulfill");
-               const resolve = "resolve";
-               deliverOnly2remote(r["resolve-me-desc"], resolve, [result], emptyDictionary);
+               // const resolve = Symbol.for("fulfill")
+               deliverOnly2remote(r["resolve-me-desc"], "resolve", [result], emptyDictionary);
              }, (err) => {
                // const reject = Symbol.for("break")!
                const reject = "reject";
