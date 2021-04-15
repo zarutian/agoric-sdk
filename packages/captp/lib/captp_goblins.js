@@ -297,6 +297,16 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   marshallers.push((specimen, writer) => throw new Error("execution should never reach this point"));
 
   const makeProxPromise = (myQuestionPos) => {
+    const handler  = {
+    };
+    const resolver = {}; // mutable object
+    const proxProm = new HandledPromise((resolve, reject, resolveWithPresence) => {
+      resolver.resolve = resolve;
+      resolver.reject  = reject;
+      resolver.resolveWithPresence = resolveWithPresence;
+    }, handler);
+    
+    return harden({ promise: proxProm, resolver: harden(resolver) });
   };
 
   const deliverOnly2remote = (target, verb, args, kwargs = emptyDictionary) => {
