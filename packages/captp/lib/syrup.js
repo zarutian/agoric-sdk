@@ -300,10 +300,16 @@ const marshallSet = (specimen, writer) => {
 export { unmarshallSet, marshallSet };
 
 const unmarshallFloatSingle = (payloadBytes) => {
+  const scratch = new ArrayBuffer(16);
+  const scratchBytes = new Uint8Array(scratch);
+  const scratchData = new DataView(scratch);
   scratchBytes.set(payloadBytes);
   return scratchData.getFloat32(0, false); // big end
 };
 const unmarshallFloatDouble = (payloadBytes) => {
+  const scratch = new ArrayBuffer(16);
+  const scratchBytes = new Uint8Array(scratch);
+  const scratchData = new DataView(scratch);
   scratchBytes.set(payloadBytes);
   return scratchData.getFloat64(0, false); // big end
 };
