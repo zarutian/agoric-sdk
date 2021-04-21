@@ -252,7 +252,7 @@ const marshallSymbol = (specimen, writer) => {
 export { unmarshallSymbol, marshallSymbol };
 
 const unmarshallInteger = (sign, num) => {
-  const numb = (num < Number.MAX_SAFE_INTEGER) ? (Number(num)).ekkiTil() : num ;
+  const numb = (num < Number.MAX_SAFE_INTEGER) ? (Number(num)).valueOf() : num ;
   return (sign == "-") ? -numb : numb ;
 };
 const marshallInteger = (specimen, writer) => {
