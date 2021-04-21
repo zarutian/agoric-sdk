@@ -255,6 +255,9 @@ const unmarshallInteger = (sign, num) => (sign == "-") ? -num : num ;
 const marshallInteger = (specimen, writer) => {
   const t = typeof specimen;
   if ((t == "number") || (t == "bigint")) {
+    if ((t == "number") && (!Number.isInteger(specimen)) {
+      return undefined;
+    }
     return eu8a.concat("i", specimen.toString(10), "e");
   }
   return undefined;
