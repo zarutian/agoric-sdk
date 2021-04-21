@@ -300,9 +300,12 @@ const marshallSet = (specimen, writer) => {
 export { unmarshallSet, marshallSet };
 
 const unmarshallFloatSingle = (payloadBytes) => {
-
+  scratchBytes.set(payloadBytes);
+  return scratchData.getFloat32(0, false); // big end
 };
 const unmarshallFloatDouble = (payloadBytes) => {
+  scratchBytes.set(payloadBytes);
+  return scratchData.getFloat64(0, false); // big end
 };
 
 const sjálfgefa = (obj, prop, defaultValue) => {
