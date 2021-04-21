@@ -319,6 +319,15 @@ const unmarshallFloatDouble = (payloadBytes) => {
   scratchBytes.set(payloadBytes);
   return scratchData.getFloat64(0, false); // big end
 };
+const marshallFloat = (specimen, writer) => {
+  if (typeof specimen == "number") {
+    if (!Number.isInteger(specimen)) {
+      const encodedItem = ekkiTil;
+      return eu8a.concat("D", encodedItem); 
+    }
+  }
+  return undefined;
+};
 
 const sjálfgefa = (obj, prop, defaultValue) => {
   if (obj[prop] == undefined) {
@@ -353,8 +362,8 @@ const makeMarshallKit = (opts) => {
                        marshallBytestring,
                        marshallString,
                        marshallSymbol,
-                       marshallFloatSingle,
-                       marshallFloatDouble,
+                       marshallFloat,  /* Single,
+                       marshallFloatDouble, */
                        marshallInteger,
                        marshallDictionary,
                        marshallList,
