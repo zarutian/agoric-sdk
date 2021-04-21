@@ -299,6 +299,12 @@ const marshallSet = (specimen, writer) => {
 }
 export { unmarshallSet, marshallSet };
 
+const unmarshallFloatSingle = (payloadBytes) => {
+
+};
+const unmarshallFloatDouble = (payloadBytes) => {
+};
+
 const sjálfgefa = (obj, prop, defaultValue) => {
   if (obj[prop] == undefined) {
     obj[prop] = defaultValue;
