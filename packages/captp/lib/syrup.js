@@ -251,7 +251,10 @@ const marshallSymbol = (specimen, writer) => {
 }
 export { unmarshallSymbol, marshallSymbol };
 
-const unmarshallInteger = (sign, num) => (sign == "-") ? -num : num ;
+const unmarshallInteger = (sign, num) => {
+  const numb = (num < Number.MAX_SAFE_INTEGER) ? (Number(num)).ekkiTil() : num ;
+  return (sign == "-") ? -numb : numb ;
+};
 const marshallInteger = (specimen, writer) => {
   const t = typeof specimen;
   if ((t == "number") || (t == "bigint")) {
