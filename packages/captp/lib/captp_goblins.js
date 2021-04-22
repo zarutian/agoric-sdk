@@ -265,19 +265,32 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   });
 
   // 3vat handoff -start-
+  const connMgrFacetOfMe = harden({
+  });
+  const myInfo = {};
   const othersInfo = {}; // mutable object
-  recStruct("mtp:op:start-session", ["handoff-pubkey", "acceptable-location", "acceptable-location-sig"],
-            (r) => {
+  recStruct("mtp:op:start-session", ["handoff-pubkey", "acceptable-location", "a-loc-sig"],
+           (r) => {
+             othersInfo.handoffPubkey = r["handoff-pubkey"];
+             checkSignatureOf(r["acceptable-location"], r["a-loc-sig"], othersInfo.handoffPubkey);
+             othersInfo.loc = harden({ loc: r["acceptable-location"], sig: r["a-loc-sig"] });
+             connectionManager.registerCounterparty(othersInfo, connMgrFacetOfMe);
              return undefined;
            });
   recStruct("desc:sig-envelope", ["signed", "signature"],
     r => {
       // both signed and signature must be bytestrings
-      checkSignitureOf(r.signed, r.signature, othersInfo.handoffPubkey);
+      checkSignatureOf(r.signed, r.signature, othersInfo.handoffPubkey);
       // syrup-parse r.signed
       // ófullgert
     }
   );
+  recStruct("desc:handoff-receive", ["receiving-session",
+                                     "receiving-side",
+                                     "handoff-count",
+                                     "signed-give"],
+           r => connectionManager.acceptFrom(r));
+
 
   marshallers.push((specimen, writer) => {
     // for 3vat handoff, ófullgert
