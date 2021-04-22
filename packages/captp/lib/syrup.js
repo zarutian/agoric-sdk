@@ -267,6 +267,11 @@ const marshallInteger = (specimen, writer) => {
 };
 export { unmarshallInteger, marshallInteger };
 
+const byteStrComp = (a, b) => {
+  // þarfaverk: klára þennan samabera
+  return 0;
+};
+
 const unmarshallDictionary = (payload) => new Map(payload);
 const marshallDictionary = (specimen, writer) => {
   if (typeof specimen == "object") {
@@ -297,7 +302,7 @@ const marshallSet = (specimen, writer) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Set) {
       const items = new Array(specimen.values());
-      const encodedItems = items.map(writer).sort(ekkiTil).reduce((acc, item) => acc.concat(item), eu8a);
+      const encodedItems = items.map(writer).sort(byteStrComp).reduce((acc, item) => acc.concat(item), eu8a);
       return eu8a.concat("#", encodedItems, "$"); 
     }
   }
