@@ -322,7 +322,11 @@ const unmarshallFloatDouble = (payloadBytes) => {
 const marshallFloat = (specimen, writer) => {
   if (typeof specimen == "number") {
     if (!Number.isInteger(specimen)) {
-      const encodedItem = ekkiTil;
+      const scratch = new ArrayBuffer(16);
+      const scratchBytes = new Uint8Array(scratch);
+      const scratchData = new DataView(scratch);
+      scratchData.setFloat64(0, specimen, false); // big end
+      const encodedItem = scratchBytes.slice(0, 8);
       return eu8a.concat("D", encodedItem); 
     }
   }
