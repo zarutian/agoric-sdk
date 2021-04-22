@@ -57,7 +57,7 @@ const emptyDictionary = new Map();
  */
 export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   var {
-        otherImport3Desc = (specimen, writer) => undefined,
+        connectionManager,
         periodicRepeater,
       } = opts;
   const doPeriodicCallbacks = (() => {
@@ -266,7 +266,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 
   marshallers.push((specimen, writer) => {
     // for 3vat handoff, ófullgert
-    // otherImport3Desc
+    // otherImport3Desc og connectionManager
     return undefined;
   });
 
@@ -414,7 +414,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   };
   lesLykkja();
 
-  return harden({ abort, dispatch, getBootstrap, serialize, unserialize, yourRemoteImport3Desc });
+  return harden({ abort, dispatch, getBootstrap, serialize, unserialize });
 }
 
 // .
