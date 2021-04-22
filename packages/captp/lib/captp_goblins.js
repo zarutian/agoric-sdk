@@ -270,6 +270,15 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
             (r) => {
              return undefined;
            });
+  recStruct("desc:sig-envelope", ["signed", "signature"],
+    r => {
+      // both signed and signature must be bytestrings
+      checkSignitureOf(r.signed, r.signature, othersInfo.handoffPubkey);
+      // syrup-parse r.signed
+      // ófullgert
+    }
+  );
+
   marshallers.push((specimen, writer) => {
     // for 3vat handoff, ófullgert
     // otherImport3Desc og connectionManager
