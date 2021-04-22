@@ -267,9 +267,18 @@ const marshallInteger = (specimen, writer) => {
 };
 export { unmarshallInteger, marshallInteger };
 
-const byteStrComp = (a, b) => {
+const byteStrComp = (alfa, beta) => {
   // þarfaverk: klára þennan samabera
-  return 0;
+  var a = alfa[0];
+  var b = beta[0];
+  var r = 0;
+  a = (a === undefined) ? 0 : a;
+  b = (b === undefined) ? 0 : b;
+  if (a == b) {
+    return byteStrComp(a.slice(1), b.slice(1));
+  }
+  r = (a < b) ? -1 : +1 ;
+  return r;
 };
 
 const unmarshallDictionary = (payload) => new Map(payload);
