@@ -270,6 +270,14 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     return undefined;
   });
 
+  recStruct("passByCopyRecord", ["contents"], (r) => harden(Object.fromEntries(new Array(r.contents.entries()))));
+  marshallers.push((specimen, writer) => {
+    if (isPassByCopyRecord(specimen)) {
+      return writer(recordMakers.get(Symbol.for("passByCopyRecord")).make(new Map(specimen.entries()));
+    }
+    return undefined;
+  });
+
   recStruct("desc:import-object", ["pos"],
            (r) => {
              var obj = imports.getByValue(r.pos);
