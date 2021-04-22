@@ -264,11 +264,18 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     return undefined;
   });
 
+  // 3vat handoff -start-
+  const othersInfo = {}; // mutable object
+  recStruct("mtp:op:start-session", ["handoff-pubkey", "acceptable-location", "acceptable-location-sig"],
+            (r) => {
+             return undefined;
+           });
   marshallers.push((specimen, writer) => {
     // for 3vat handoff, ófullgert
     // otherImport3Desc og connectionManager
     return undefined;
   });
+  // 3vat handoff -end-
 
   recStruct("passByCopyRecord", ["contents"], (r) => harden(Object.fromEntries(new Array(r.contents.entries()))));
   marshallers.push((specimen, writer) => {
