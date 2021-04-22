@@ -297,7 +297,7 @@ const marshallSet = (specimen, writer) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Set) {
       const items = new Array(specimen.values());
-      const encodedItems = items.reduce((acc, item) => acc.concat(writer(item)), eu8a);
+      const encodedItems = items.map(writer).sort(ekkiTil).reduce((acc, item) => acc.concat(item), eu8a);
       return eu8a.concat("#", encodedItems, "$"); 
     }
   }
