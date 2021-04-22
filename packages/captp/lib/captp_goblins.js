@@ -2,6 +2,7 @@
 
 import { E, HandledPromise } from '@agoric/eventual-send';
 import { isPromise, makePromiseKit } from '@agoric/promise-kit';
+import { REMOTE_STYLE, passStyleOf } from '@agoric/marshall';
 
 export { E };
 
