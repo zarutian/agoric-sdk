@@ -277,8 +277,10 @@ const marshallDictionary = (specimen, writer) => {
   if (typeof specimen == "object") {
     if (specimen instanceof Map) {
       const entries = new Array(specimen.entries());
-      const encodedEntries = entries.reduce(
-        (acc, [key, val]) => acc.concat(writer(key), writer(val)),
+      const encodedEntries = entries.map([key, val] => [writer(key), writer(val)]).sort(
+        ([akey, aval], [bkey, bval]) => byteStrComp(akey, bkey),
+      ).reduce(
+        (acc, [key, val]) => acc.concat(key, val),
         eu8a );
       return eu8a.concat("{", encodedEntries, "}");
     }
