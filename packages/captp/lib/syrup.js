@@ -48,6 +48,12 @@ const makeDecodingReader = (opt) => {
             case '9':
               length = (length * 10n) + BigInt(Number.parse(first, 10));
               break; // end of case
+            // catern's suggestion -upphaf-
+            case "+":
+              return unmarshallInteger("", length);
+            case "-":
+              return unmarshallInteger("-", length);
+            // -lok-
             default:
               const payload = await bytereader(length);
               switch (byte) {
