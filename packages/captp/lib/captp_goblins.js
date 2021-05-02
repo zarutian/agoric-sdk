@@ -43,15 +43,17 @@ const emptyDictionary = new Map();
  * @typedef {Object} CapTPOptions the options to makeCapTP
  * @property {(err: any) => void} onReject
  * @property {typeof defaultRemotable} Remotable
- *  property {typeof defaultFar} Far                 \ spurning um þetta tvennt þar se syrup er notað í staðinn
+ *  property {typeof defaultFar} Far                 \ spurning um þetta tvennt þar sem syrup er notað í staðinn
  *  property {typeof defaultMakeMarshal} makeMarshal /
  * @property {number} epoch toBeInvestigated: getur þetta verið BigInt?
+ * @property {ConnectionManager} connectionManager
+ * @property {any} periodicRepeater  tbfurtherDefined
  */
 /**
  * Create a CapTP connection.
  *
  * @param {string} ourId our name for the current side
- * @param {(obj: Record<string, any>) => void} rawSend send a Uint8Array packet
+ * @param {(obj: Uint8Array) => void} rawSend send a Uint8Array packet
  * @param {any} bootstrapObj the object to export to the other side
  * @param {Partial<CapTPOptions>} opts options to the connection
  */
@@ -268,14 +270,14 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
   const connMgrFacetOfMe = harden({
     exportingQ: (specimen) => (exports.getByValue(specimen) != undefined),
   });
-  const myInfo = {};
+  var myInfo = {};
   const othersInfo = {}; // mutable object
   recStruct("mtp:op:start-session", ["handoff-pubkey", "acceptable-location", "a-loc-sig"],
            (r) => {
              othersInfo.handoffPubkey = r["handoff-pubkey"];
              checkSignatureOf(r["acceptable-location"], r["a-loc-sig"], othersInfo.handoffPubkey);
              othersInfo.loc = harden({ loc: r["acceptable-location"], sig: r["a-loc-sig"] });
-             connectionManager.registerCounterparty(othersInfo, connMgrFacetOfMe);
+             myInfo = connectionManager.registerCounterparty(othersInfo, connMgrFacetOfMe);
              return undefined;
            });
   recStruct("desc:sig-envelope", ["signed", "signature"],
@@ -287,11 +289,11 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
       const recordHandlers = new Map();
       recordHandlers.set(Symbol.for("desc:handoff-receive"), harden({
         fields: ["receiving-session", "receiving-side", "handoff-count", "signed-give"],
-        unmarshallTrap: (r) => connectionManager.acceptFrom(r, othersInfo.handoffPubkey),
+        unmarshallTrap: (r) => connectionManager.acceptFrom(r),
       }));
       recordHandlers.set(Symbol.for("desc:handoff-give"), harden({
         fields: ["recipient-key", "exporter-location", "session", "gifter-side", "gift-id"],
-        unmarshallTrap: (r) => connectionManager.lookup3Desc(r, othersInfo.handoffPubkey, myInfo.handoffPubkey)
+        unmarshallTrap: (r) => connectionManager.lookup3Desc(r);
       }));
       recordHandlers.set(Symbol.for("desc:sig-envelope"), harden({
         fields: ["signed", "signature"],
@@ -307,7 +309,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     // for 3vat handoff, ófullgert
     // the .provideFor() case happens here.
     // otherImport3Desc og connectionManager
-    const handoffGive_enveloped = connectionManager.exportedToElsewhere(specimen, myInfo.handoffPrivkey, connMgrFacetOfMe);
+    const handoffGive_enveloped = connectionManager.exportedToElsewhere(specimen);
     if (handoffGive_enveloped != undefined) {
       return writer(handoffGive_enveloped);
     }
@@ -463,3 +465,32 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 }
 
 // .
+const makeConnectionManager = (opts) => {
+  const connections = new Map(); // þarf líklega að vera e-rskonar weakref gagnabygging
+
+  const makeConnMgrFacet = () => {
+    var connFacet;
+    var othersInfo;
+    return harden({
+      registerCounterparty(othersInfo, connMgrFacetOfMe) {
+        connFacet = connMgrFacetOfMe;
+        return ginnyUpMyInfo();
+      },
+      acceptFrom(r) {
+        // handoff-recieve
+      },
+      lookup3Desc(r) {
+        // handoff-give
+      },
+      exportedToElsewhere(specimen) {
+      },
+    });
+  };
+
+  return harden({
+    makeConnection: (copts) => {
+      // ófullgert
+      const {abort, dispatch, getBootstrap} = makeCapTP(ourId, rawSend, bootstrapObj, connOpts);
+    },
+  });
+};
