@@ -289,7 +289,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
         unmarshallTrap: (r) => connectionManager.acceptFrom(r, othersInfo.handoffPubkey),
       }));
       recordHandlers.set(Symbol.for("desc:handoff-give"), harden({
-        fields: ["recipient-key", "exporter-location", "session", xxx ],
+        fields: ["recipient-key", "exporter-location", "session", "gifter-side", "gift-id"],
         unmarshallTrap: (r) => connectionManager.lookup3Desc(r, othersInfo.handoffPubkey, myInfo.handoffPubkey)
       }));
       recordHandlers.set(Symbol.for("desc:sig-envelope"), harden({
@@ -304,7 +304,12 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 
   marshallers.push((specimen, writer) => {
     // for 3vat handoff, ófullgert
+    // the .provideFor() case happens here.
     // otherImport3Desc og connectionManager
+    const handoffGive_enveloped = connectionManager.exportedToElsewhere(specimen, myInfo.handoffPrivkey, connMgrFacetOfMe);
+    if (handoffGive_enveloped != undefined) {
+      return writer(handoffGive_enveloped);
+    }
     return undefined;
   });
   // 3vat handoff -end-
