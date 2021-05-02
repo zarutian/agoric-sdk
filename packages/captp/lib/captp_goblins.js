@@ -266,6 +266,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 
   // 3vat handoff -start-
   const connMgrFacetOfMe = harden({
+    exportingQ: (specimen) => (exports.getByValue(specimen) != undefined),
   });
   const myInfo = {};
   const othersInfo = {}; // mutable object
