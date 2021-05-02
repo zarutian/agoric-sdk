@@ -289,7 +289,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
         unmarshallTrap: (r) => connectionManager.acceptFrom(r, othersInfo.handoffPubkey),
       }));
       recordHandlers.set(Symbol.for("desc:handoff-give"), harden({
-        fields: [  xxx ],
+        fields: ["recipient-key", xxx ],
         unmarshallTrap: (r) => connectionManager.lookup3Desc(r, othersInfo.handoffPubkey, myInfo.handoffPubkey)
       }));
       recordHandlers.set(Symbol.for("desc:sig-envelope"), harden({
