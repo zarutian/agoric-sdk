@@ -283,13 +283,23 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
       checkSignatureOf(r.signed, r.signature, othersInfo.handoffPubkey);
       // syrup-parse r.signed
       // ófullgert
+      const recordHandlers = new Map();
+      recordHandlers.set(Symbol.for("desc:handoff-receive"), harden({
+        fields: ["receiving-session", "receiving-side", "handoff-count", "signed-give"],
+        unmarshallTrap: (r) => connectionManager.acceptFrom(r, othersInfo.handoffPubkey),
+      }));
+      recordHandlers.set(Symbol.for("desc:handoff-give"), harden({
+        fields: [  xxx ],
+        unmarshallTrap: (r) => connectionManager.lookup3Desc(r, othersInfo.handoffPubkey, myInfo.handoffPubkey)
+      }));
+      recordHandlers.set(Symbol.for("desc:sig-envelope"), harden({
+        fields: ["signed", "signature"],
+        // no unmarshallTrap
+      }));
+      
+      return syrup_parse(r.signed, recordHandlers);
     }
   );
-  recStruct("desc:handoff-receive", ["receiving-session",
-                                     "receiving-side",
-                                     "handoff-count",
-                                     "signed-give"],
-           r => connectionManager.acceptFrom(r));
 
 
   marshallers.push((specimen, writer) => {
