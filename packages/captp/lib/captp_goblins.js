@@ -268,7 +268,11 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
 
   // 3vat handoff -start-
   const connMgrFacetOfMe = harden({
-    exportingQ: (specimen) => (exports.getByValue(specimen) != undefined),
+    importing: (specimen) => {
+     if (imports.has(specimen))   { return ["i", imports.get(specimen)]; }
+     if (questions.has(specimen)) { return ["q", questions.get(specimen)]; }
+     return ["n", null];
+    }
   });
   var myInfo = {};
   const othersInfo = {}; // mutable object
@@ -309,7 +313,7 @@ export function makeCapTP(ourId, rawSend, bootstrapObj = undefined, opts = {}) {
     // for 3vat handoff, ófullgert
     // the .provideFor() case happens here.
     // otherImport3Desc og connectionManager
-    const handoffGive_enveloped = connectionManager.exportedToElsewhere(specimen);
+    const handoffGive_enveloped = connectionManager.importedFromElsewhere(specimen);
     if (handoffGive_enveloped != undefined) {
       return writer(handoffGive_enveloped);
     }
@@ -472,8 +476,10 @@ const makeConnectionManager = (opts) => {
     var connFacet;
     var othersInfo;
     return harden({
-      registerCounterparty(othersInfo, connMgrFacetOfMe) {
+      registerCounterparty(othersInfo_, connMgrFacetOfMe) {
         connFacet = connMgrFacetOfMe;
+        othersInfo = othersInfo_;
+        connections.set(connFacet, othersInfo);
         return ginnyUpMyInfo();
       },
       acceptFrom(r) {
@@ -482,7 +488,24 @@ const makeConnectionManager = (opts) => {
       lookup3Desc(r) {
         // handoff-give
       },
-      exportedToElsewhere(specimen) {
+      importedFromElsewhere(specimen) {
+        const importingConnFacetsAndPos = (new Array(connections.keys()))
+          .filter(fjes => fjes != connFacet)
+          .map(fjes => [fjes, fjes.imported(specimen)])
+          .filter([fjes, [t, pos]] => t != "n");
+        // it is highly unusual to see more than one importedFromElsewhere
+        if (importingConnFacetsAndPos.length == 0) {
+          return undefined;
+        }
+        // to be implemented:
+        //   make an desc:sig-envelope'd desc:handoff-give
+        //   with importingConnFacet othersInfo 
+        //     on where that is
+        //     what their handoff pubkey is
+        //     session name
+        //     session side
+        //     gift nonce or nym  or was this their export or answer pos?
+        //  signed with this connFacet handoff privkey
       },
     });
   };
