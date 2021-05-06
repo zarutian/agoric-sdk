@@ -484,6 +484,8 @@ const makeConnectionManager = (opts) => {
       },
       acceptFrom(r) {
         // handoff-recieve
+        const othersInfos = (new Array(connection.entries())
+                            .filter([c, o] => o.handoffPubkey == r["handoff-key"]);
       },
       lookup3Desc(r) {
         // handoff-give
