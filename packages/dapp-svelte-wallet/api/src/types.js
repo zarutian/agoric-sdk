@@ -113,7 +113,7 @@
 
 /**
  * @typedef {string} OfferStatus
- * @type {"pending" | "complete" | "decline" | "cancel" | "rejected"}
+ * @type {"pending" | "complete" | "accept" | "decline" | "cancel" | "rejected"}
  */
 
 /**
