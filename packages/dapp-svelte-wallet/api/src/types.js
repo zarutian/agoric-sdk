@@ -4,6 +4,10 @@
  */
 
 /**
+ * @typedef {import('@agoric/zoe').ProposalRecord} ProposalRecord
+ */
+
+/**
  * @typedef {string | string[]} Petname A petname can either be a plain string
  * or a path for which the first element is a petname for the origin, and the
  * rest of the elements are a snapshot of the names that were first given by that
@@ -109,11 +113,12 @@
  * @property {any} requestContext
  * @property {string} id is set by dapp
  * @property {undefined | OfferStatus} status is set by wallet
+ * @property {ProposalRecord} proposalTemplate is set by dapp
  */
 
 /**
  * @typedef {string} OfferStatus
- * @type {"pending" | "complete" | "accept" | "decline" | "cancel" | "rejected"}
+ * @type {'pending' | 'complete' | 'accept' | 'decline' | 'cancel' | 'rejected'}
  */
 
 /**
