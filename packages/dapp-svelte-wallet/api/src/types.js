@@ -108,6 +108,12 @@
  * @typedef {Object} OfferState
  * @property {any} requestContext
  * @property {string} id
+ * @propetty {OfferStatus} status
+ */
+
+/**
+ * @typedef {string} OfferStatus
+ * @type {undefined | "pending" | "complete" | "decline" | "cancel" | "rejected"}
  */
 
 /**
