@@ -107,13 +107,13 @@
 /**
  * @typedef {Object} OfferState
  * @property {any} requestContext
- * @property {string} id
- * @propetty {OfferStatus} status
+ * @property {string} id is set by dapp
+ * @property {undefined | OfferStatus} status is set by wallet
  */
 
 /**
  * @typedef {string} OfferStatus
- * @type {undefined | "pending" | "complete" | "decline" | "cancel" | "rejected"}
+ * @type {"pending" | "complete" | "decline" | "cancel" | "rejected"}
  */
 
 /**
