@@ -79,7 +79,7 @@ export const makeEscrowStorage = () => {
   // Proposal is cleaned, but payments are not
 
   /** @type {DepositPayments} */
-  const depositPayments = async (proposal, payments, timeoutPromise) => {
+  const depositPayments = async (proposal, payments, timeoutPromise, onDepositFailure) => {
     const { give, want } = proposal;
     const giveKeywords = Object.keys(give);
     const wantKeywords = Object.keys(want);
@@ -121,7 +121,8 @@ export const makeEscrowStorage = () => {
         return doDepositPayment(payments[keyword], give[keyword], timeoutPromise);
       }),
     );
-    const timeoutValue = await timeoutPromise;
+    let timeoutValue = undefined;
+    await E.when(timeoutPromise, val => { timeoutValue });
     const isTimeoutValue = specimen => {
       if (specimen.status === "fulfilled") {
         return (specimen.value === timeoutValue);
@@ -131,8 +132,21 @@ export const makeEscrowStorage = () => {
     let amountsDeposited;
     if (amountsDeposited_t1.reduce(
       (acc, item) => (acc || (item.status === "rejected") || isTimeoutValue(item) ),
-      false
+      false,
     )) {
+      const backPayments = amountsDeposited_t1.map(
+        (item, idx) => {
+          if ((item.status === "rejected") || isTimeoutValue(item)) {
+            return payments[giveKeywords[idx]];
+          } else {
+            const purse = brandToPurse.get(item.value.brand);
+            return E(purse).withdraw(item.value);
+          }
+        }
+      );
+      return onDepositFailure(backPayments);
+    } else {
+      amountsDeposited = amountsDeposited_t1.map(item => item.value);
     }
 
     const emptyAmountsForWantKeywords = wantKeywords.map(keyword =>
