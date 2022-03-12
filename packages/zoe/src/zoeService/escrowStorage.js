@@ -70,15 +70,16 @@ export const makeEscrowStorage = () => {
    * @param {Amount} amount
    * @returns {Promise<Amount>}
    */
-  const doDepositPayment = (paymentP, amount) => {
+  const doDepositPayment = (paymentP, amount, timeoutP) => {
     const purse = brandToPurse.get(amount.brand);
-    return E.when(paymentP, payment => E(purse).deposit(payment, amount));
+    const depositP = E.when(paymentP, payment => E(purse).deposit(payment, amount));
+    return Promise.race([depositP, timeoutP]);
   };
 
   // Proposal is cleaned, but payments are not
 
   /** @type {DepositPayments} */
-  const depositPayments = async (proposal, payments) => {
+  const depositPayments = async (proposal, payments, timeoutPromise) => {
     const { give, want } = proposal;
     const giveKeywords = Object.keys(give);
     const wantKeywords = Object.keys(want);
@@ -107,7 +108,7 @@ export const makeEscrowStorage = () => {
     // offer safety and payout liveness are still meaningful as long
     // as issuers are well-behaved. For more, see
     // https://github.com/Agoric/agoric-sdk/issues/1271
-    const amountsDeposited = await Promise.all(
+    const amountsDeposited_t1 = await Promise.allSettled(
       giveKeywords.map(keyword => {
         assert(
           payments[keyword] !== undefined,
@@ -117,8 +118,18 @@ export const makeEscrowStorage = () => {
             paymentKeywords,
           )}`,
         );
-        return doDepositPayment(payments[keyword], give[keyword]);
+        return doDepositPayment(payments[keyword], give[keyword], timeoutPromise);
       }),
+    );
+    const amountsDeposited = amountsDeposited_t1.map(
+      deposited => {
+        if (deposited.status === "fulfilled") {
+          // tbd: look for the value of what the timeoutPromise resolved to and iff it is found as deposited then throw?
+          return deposited.value;
+        } else if (deposited.status === "rejected") {
+          throw deposited.reason;
+        }
+      },
     );
 
     const emptyAmountsForWantKeywords = wantKeywords.map(keyword =>
