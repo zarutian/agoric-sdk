@@ -51,6 +51,7 @@ const makeZoeKit = (
     displayInfo: harden({ decimalPlaces: 6, assetKind: AssetKind.NAT }),
   },
   zcfSpec = { name: 'zcf' },
+  makeTimeout,
 ) => {
   // We must pass the ZoeService to `makeStartInstance` before it is
   // defined. See below where the promise is resolved.
@@ -108,6 +109,7 @@ const makeZoeKit = (
     getInstanceAdmin,
     depositPayments,
     getAssetKindByBrand,
+    makeTimeout,
   );
 
   // Make the methods that allow users to easily and credibly get
