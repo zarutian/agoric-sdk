@@ -121,16 +121,19 @@ export const makeEscrowStorage = () => {
         return doDepositPayment(payments[keyword], give[keyword], timeoutPromise);
       }),
     );
-    const amountsDeposited = amountsDeposited_t1.map(
-      deposited => {
-        if (deposited.status === "fulfilled") {
-          // tbd: look for the value of what the timeoutPromise resolved to and iff it is found as deposited then throw?
-          return deposited.value;
-        } else if (deposited.status === "rejected") {
-          throw deposited.reason;
-        }
-      },
-    );
+    const timeoutValue = await timeoutPromise;
+    const isTimeoutValue = specimen => {
+      if (specimen.status === "fulfilled") {
+        return (specimen.value === timeoutValue);
+      }
+      return false;
+    }
+    let amountsDeposited;
+    if (amountsDeposited_t1.reduce(
+      (acc, item) => (acc || (item.status === "rejected") || isTimeoutValue(item) ),
+      false
+    )) {
+    }
 
     const emptyAmountsForWantKeywords = wantKeywords.map(keyword =>
       AmountMath.makeEmptyFromAmount(want[keyword]),
