@@ -23,6 +23,7 @@ export const makeOfferMethod = (
   getInstanceAdmin,
   depositPayments,
   getAssetKindByBrand,
+  makeTimeout,
 ) => {
   /** @type {Offer} */
   const offer = async (
@@ -52,9 +53,22 @@ export const makeOfferMethod = (
       );
     }
 
+    const timeoutPromise = makeTimeout();
+    const onDepositFailure = (backpayments) => {
+      // tbd: what the hell comes here?
+      // idea:
+      if (offerArgs !== undefined) {
+        if (offerArgs.onDepositFailure !== undefined) {
+          (E.sendOnly(offerArgs.onDepositFailure))(harden(backpayments));
+        }
+      }
+      throw new Error("Deposition failed.");
+    }
     const initialAllocation = await depositPayments(
       proposal,
       paymentKeywordRecord,
+      timeoutPromise,
+      onDepositFailure,
     );
     // AWAIT ///
 
