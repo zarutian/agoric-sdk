@@ -1,6 +1,6 @@
 // @ts-check
 
-import { AmountMath } from '@agoric/ertp';
+import { AmountMath, AmountKind } from '@agoric/ertp';
 import { E } from '@agoric/eventual-send';
 import { makeWeakStore } from '@agoric/store';
 import { assert, details as X, q } from '@agoric/assert';
@@ -15,7 +15,7 @@ import { arrayToObj, objectMap } from '../objArrayConversion.js';
  * Store the pool purses whose purpose is to escrow assets, with one
  * purse per brand.
  */
-export const makeEscrowStorage = () => {
+export const makeEscrowStorage = (misbehavingPaymentsBrand) => {
   /** @type {WeakStore<Brand, ERef<Purse>>} */
   const brandToPurse = makeWeakStore('brand');
 
@@ -78,7 +78,7 @@ export const makeEscrowStorage = () => {
   // Proposal is cleaned, but payments are not
 
   /** @type {DepositPayments} */
-  const depositPayments = async (proposal, payments, timeoutPromise) => {
+  const depositPayments = async (proposal, payments, makeTimeout) => {
     const { give, want } = proposal;
     const giveKeywords = Object.keys(give);
     const wantKeywords = Object.keys(want);
@@ -98,7 +98,7 @@ export const makeEscrowStorage = () => {
       );
     });
 
-    const proposalKeywords = harden([...giveKeywords, ...wantKeywords]);
+    const proposalKeywords = [...giveKeywords, ...wantKeywords];
 
     // If any of these deposits hang or fail, then depositPayments
     // hangs or fails, the offer does not succeed, and any funds that
@@ -111,54 +111,61 @@ export const makeEscrowStorage = () => {
     // 2022-03-13 Zarutian:
     //   Here is what I propose, add an 'MisbehavingPayments'
     //   keyword and stuff the misbehaving payments into the amount
-    const amountsDeposited_t1 = await Promise.allSettled(
-      giveKeywords.map(keyword => {
-        assert(
-          payments[keyword] !== undefined,
-          X`The ${q(
-            keyword,
-          )} keyword in proposal.give did not have an associated payment in the paymentKeywordRecord, which had keywords: ${q(
-            paymentKeywords,
-          )}`,
-        );
-        return doDepositPayment(payments[keyword], give[keyword], timeoutPromise);
-      }),
-    );
-    let timeoutValue = undefined;
-    await E.when(timeoutPromise, val => { timeoutValue });
-    const isTimeoutValue = specimen => {
-      if (specimen.status === "fulfilled") {
-        return (specimen.value === timeoutValue);
-      }
-      return false;
-    }
-    let amountsDeposited;
-    if (amountsDeposited_t1.reduce(
-      (acc, item) => (acc || (item.status === "rejected") || isTimeoutValue(item) ),
-      false,
-    )) {
-      const backPayments = amountsDeposited_t1.map(
-        (item, idx) => {
-          if ((item.status === "rejected") || isTimeoutValue(item)) {
-            return payments[giveKeywords[idx]];
-          } else {
-            const purse = brandToPurse.get(item.value.brand);
-            return E(purse).withdraw(item.value);
-          }
-        }
+    //   there.
+    const timeoutP = makeTimeout();
+    const amountsDepositedPs = giveKeywords.map(keyword => {
+      assert(
+        payments[keyword] !== undefined,
+        X`The ${q(
+          keyword,
+        )} keyword in proposal.give did not have an associated payment in the paymentKeywordRecord, which had keywords: ${q(
+          paymentKeywords,
+        )}`,
       );
-      return onDepositFailure(backPayments);
-    } else {
-      amountsDeposited = amountsDeposited_t1.map(item => item.value);
-    }
+      return doDepositPayment(payments[keyword], give[keyword]);
+    });
+    
+    // a rather complicated await point
+    // expect the timeoutPromise to be rejected when the timeout has occured
+    const t1 = await Promise.allSettled(amountsDepositedPs.map(
+      depositedP => Promise.race([depostedP, timeoutP]),
+    ));
+    const t2 = t1.reduce(
+      (acc, item, idx) => {
+        if (item.status === "rejected) {
+          return AmountMath.add(acc, {
+            [paymentKeywords[idx]]: [payments[paymentKeywords[idx]], depositedP[idx]],
+          });
+        }
+        return acc;
+      },
+      AmountMath.makeEmpty(misbehavingPaymentsBrand, AmountKind.SET),
+    );
+    const amountsDeposited = t1.map(
+      (item, idx) => {
+        if (item.status === "fulfilled") {
+          return item.value;
+        } else {
+          AmountMath.makeEmptyFromAmount(give[paymentKeywords[idx]]);
+        }
+      },
+    );
 
     const emptyAmountsForWantKeywords = wantKeywords.map(keyword =>
       AmountMath.makeEmptyFromAmount(want[keyword]),
     );
 
+    if (!AmountMath.isEmpty(t2)) {
+      proposalKeywords.push('MisbehavingPayments');
+      return arrayToObj(
+        [...amountsDeposited, ...emptyAmountsForWantKeywords, t2],
+        harden(proposalKeywords),
+      );
+    }
+
     const initialAllocation = arrayToObj(
       [...amountsDeposited, ...emptyAmountsForWantKeywords],
-      proposalKeywords,
+      harden(proposalKeywords),
     );
 
     return initialAllocation;
