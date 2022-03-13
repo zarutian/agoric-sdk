@@ -70,16 +70,15 @@ export const makeEscrowStorage = () => {
    * @param {Amount} amount
    * @returns {Promise<Amount>}
    */
-  const doDepositPayment = (paymentP, amount, timeoutP) => {
+  const doDepositPayment = (paymentP, amount) => {
     const purse = brandToPurse.get(amount.brand);
-    const depositP = E.when(paymentP, payment => E(purse).deposit(payment, amount));
-    return Promise.race([depositP, timeoutP]);
+    return E.when(paymentP, payment => E(purse).deposit(payment, amount));
   };
 
   // Proposal is cleaned, but payments are not
 
   /** @type {DepositPayments} */
-  const depositPayments = async (proposal, payments, timeoutPromise, onDepositFailure) => {
+  const depositPayments = async (proposal, payments, timeoutPromise) => {
     const { give, want } = proposal;
     const giveKeywords = Object.keys(give);
     const wantKeywords = Object.keys(want);
@@ -108,6 +107,10 @@ export const makeEscrowStorage = () => {
     // offer safety and payout liveness are still meaningful as long
     // as issuers are well-behaved. For more, see
     // https://github.com/Agoric/agoric-sdk/issues/1271
+
+    // 2022-03-13 Zarutian:
+    //   Here is what I propose, add an 'MisbehavingPayments'
+    //   keyword and stuff the misbehaving payments into the amount
     const amountsDeposited_t1 = await Promise.allSettled(
       giveKeywords.map(keyword => {
         assert(
