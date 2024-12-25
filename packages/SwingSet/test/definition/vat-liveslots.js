@@ -1,20 +1,17 @@
-/* global harden */
+import { Far, getInterfaceOf } from '@endo/far';
 
-export function buildRootObject(vatPowers) {
+export function buildRootObject() {
   let counter = 0;
-  return harden({
+  return Far('root', {
     increment() {
       counter += 1;
     },
     read() {
       return counter;
     },
-    tildot() {
-      return vatPowers.transformTildot('x~.foo(arg1)');
-    },
     remotable() {
-      const r = vatPowers.Remotable('iface1');
-      return vatPowers.getInterfaceOf(r);
+      const r = Far('iface1');
+      return getInterfaceOf(r);
     },
   });
 }

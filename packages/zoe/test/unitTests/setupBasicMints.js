@@ -1,45 +1,48 @@
-import { makeIssuerKit } from '@agoric/ertp';
-import { makeZoe } from '../../src/zoeService/zoe';
-import fakeVatAdmin from './contracts/fakeVatAdmin';
+import { makeIssuerKit, AmountMath } from '@agoric/ertp';
+import { makeScalarMapStore } from '@agoric/store';
+import { makeZoeForTest } from '../../tools/setup-zoe.js';
+import { makeFakeVatAdmin } from '../../tools/fakeVatAdmin.js';
 
-const setup = () => {
-  const moolaBundle = makeIssuerKit('moola');
-  const simoleanBundle = makeIssuerKit('simoleans');
-  const bucksBundle = makeIssuerKit('bucks');
-  const allBundles = {
-    moola: moolaBundle,
-    simoleans: simoleanBundle,
-    bucks: bucksBundle,
+export const setup = () => {
+  const moolaKit = makeIssuerKit('moola');
+  const simoleanKit = makeIssuerKit('simoleans');
+  const bucksKit = makeIssuerKit('bucks');
+  const allIssuerKits = {
+    moola: moolaKit,
+    simoleans: simoleanKit,
+    bucks: bucksKit,
   };
-  const amountMaths = new Map();
-  const brands = new Map();
+  /** @type {MapStore<string, Brand<'nat'>>} */
+  const brands = makeScalarMapStore('brandName');
 
-  for (const k of Object.getOwnPropertyNames(allBundles)) {
-    amountMaths.set(k, allBundles[k].amountMath);
-    brands.set(k, allBundles[k].brand);
+  for (const k of Object.getOwnPropertyNames(allIssuerKits)) {
+    brands.init(k, allIssuerKits[k].brand);
   }
 
-  const zoe = makeZoe(fakeVatAdmin);
+  const { admin: fakeVatAdmin, vatAdminState } = makeFakeVatAdmin();
+  const zoe = makeZoeForTest(fakeVatAdmin);
 
-  return harden({
-    moolaIssuer: moolaBundle.issuer,
-    moolaMint: moolaBundle.mint,
-    moolaR: moolaBundle,
-    moolaKit: moolaBundle,
-    simoleanIssuer: simoleanBundle.issuer,
-    simoleanMint: simoleanBundle.mint,
-    simoleanR: simoleanBundle,
-    simoleanKit: simoleanBundle,
-    bucksIssuer: bucksBundle.issuer,
-    bucksMint: bucksBundle.mint,
-    bucksR: bucksBundle,
-    amountMaths,
+  /** @type {(brand: Brand<'nat'>) => (value: bigint) => Amount<'nat'>} */
+  const makeSimpleMake = brand => value => AmountMath.make(brand, value);
+
+  const result = {
+    moolaIssuer: moolaKit.issuer,
+    moolaMint: moolaKit.mint,
+    moolaKit,
+    simoleanIssuer: simoleanKit.issuer,
+    simoleanMint: simoleanKit.mint,
+    simoleanKit,
+    bucksIssuer: bucksKit.issuer,
+    bucksMint: bucksKit.mint,
+    bucksKit,
     brands,
-    moola: moolaBundle.amountMath.make,
-    simoleans: simoleanBundle.amountMath.make,
-    bucks: bucksBundle.amountMath.make,
+    moola: makeSimpleMake(moolaKit.brand),
+    simoleans: makeSimpleMake(simoleanKit.brand),
+    bucks: makeSimpleMake(bucksKit.brand),
     zoe,
-  });
+    vatAdminState,
+  };
+  harden(result);
+  return result;
 };
 harden(setup);
-export { setup };

@@ -1,8 +1,9 @@
 {
   "bootstrap": "bootstrap",
+  "defaultManagerType": "xs-worker",
   "bundles": {
     "zcf": {
-      "sourceSpec": "@agoric/zoe/contractFacet"
+      "sourceSpec": "@agoric/zoe/contractFacet.js"
     }
   },
   "vats": {
@@ -19,7 +20,7 @@
       "sourceSpec": "vat-dave.js"
     },
     "zoe": {
-      "sourceSpec": "vat-zoe.js",
+      "sourceSpec": "@agoric/vats/src/vat-zoe.js",
       "parameters": {
         "zcfBundleName": "zcf"
       }
@@ -42,7 +43,7 @@
             [  0,  0,  0 ],
             [  0,  7,  1 ]
           ],
-          "publicAuctionOk": [
+          "secondPriceAuctionOk": [
             [  1,  0,  0 ],
             [  0, 11,  0 ],
             [  0,  7,  0 ],
@@ -67,6 +68,14 @@
           "sellTicketsOk": [
             [  0,  0,  0 ],
             [ 22,  0,  0 ]
+          ],
+          "otcDeskOk": [
+            [10000, 10000, 10000],
+            [10000, 10000, 10000]
+          ],
+          "badTimer": [
+            [3, 0, 0],
+            [0, 0, 0]
           ]
         }
       }

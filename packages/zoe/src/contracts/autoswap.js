@@ -1,59 +1,85 @@
-// @ts-check
-
-import { assert } from '@agoric/assert';
+import { assert } from '@endo/errors';
+import { Far } from '@endo/marshal';
+import { AmountMath, isNatValue } from '@agoric/ertp';
 
 // Eventually will be importable from '@agoric/zoe-contract-support'
 import {
   getInputPrice,
+  getOutputPrice,
   calcLiqValueToMint,
   calcValueToRemove,
   assertProposalShape,
-  assertUsesNatMath,
-  trade,
-} from '../contractSupport';
-
-import '../../exported';
+  assertNatAssetKind,
+  calcSecondaryRequired,
+} from '../contractSupport/index.js';
 
 /**
  * Autoswap is a rewrite of Uniswap. Please see the documentation for
  * more https://agoric.com/documentation/zoe/guide/contracts/autoswap.html
  *
- * When the contract is instantiated, the two tokens are specified in the
- * terms.issuers. The party that calls startInstance gets an invitation
- * to add liquidity. The same invitation is available by calling
- * `E(publicFacet).makeAddLiquidityInvitation()`. Separate invitations are available for
- * adding and removing liquidity, and for doing a swap. Other API operations
- * support monitoring the price and the size of the liquidity pool.
+ * When the contract is instantiated, the two tokens (Central and Secondary) are
+ * specified in the issuerKeywordRecord. There is no behavioral difference
+ * between the two when trading; the names were chosen for consistency with our
+ * constant product AMM. When trading, use the keywords In and Out to specify
+ * the amount to be paid in, and the amount to be received.
  *
- * @type {ContractStartFn}
+ * When adding or removing liquidity, the amounts deposited must be in
+ * proportion to the current balances in the pool. The amount of the Central
+ * asset is used as the basis. The Secondary assets must be added in proportion.
+ * If less Secondary is provided than required, we refuse the offer. If more is
+ * provided than is required, we return the excess.
+ *
+ * Before trading can take place, it is necessary to add liquidity using
+ * makeAddLiquidityInvitation(). Separate invitations are available for adding
+ * and removing liquidity, and for doing swaps. Other API operations support
+ * price checks and checking the size of the liquidity pool.
+ *
+ * The swap operation requires either the input amount or the output amount to
+ * be specified. makeSwapInInvitation treats the give amount as definitive,
+ * while makeSwapOutInvitation honors the want amount. With swapIn, a want
+ * amount can be specified, and if the offer can't be satisfied, the offer will
+ * be refunded. Similarly with swapOut, the want amount will be satisfied if
+ * possible. If more is provided as the give amount than necessary, the excess
+ * will be refunded. If not enough is provided, the offer will be refunded.
+ *
+ * The publicFacet can make new invitations (makeSwapInInvitation,
+ * makeSwapOutInvitation, makeAddLiquidityInvitation, and
+ * makeRemoveLiquidityInvitation), tell how much would be paid for a given input
+ * (getInputPrice), or how much would be earned by depositing a specified amount
+ * (getOutputPrice). In addition, there are requests for the LiquidityIssuer
+ * (getLiquidityIssuer), the current outstanding liquidity (getLiquiditySupply),
+ * and the current balances in the pool (getPoolAllocation).
+ *
+ * @param {ZCF} zcf
  */
 const start = async zcf => {
   // Create a local liquidity mint and issuer.
   const liquidityMint = await zcf.makeZCFMint('Liquidity');
   // AWAIT  ////////////////////
 
-  const {
-    issuer: liquidityIssuer,
-    amountMath: liquidityAmountMath,
-  } = liquidityMint.getIssuerRecord();
-  let liqTokenSupply = 0;
+  const { issuer: liquidityIssuer, brand: liquidityBrand } =
+    liquidityMint.getIssuerRecord();
+  let liqTokenSupply = 0n;
 
   // In order to get all the brands, we must call zcf.getTerms() after
   // we create the liquidityIssuer
-  const {
-    brands,
-    maths: { TokenA: tokenAMath, TokenB: tokenBMath },
-  } = zcf.getTerms();
-  Object.values(brands).forEach(brand => assertUsesNatMath(zcf, brand));
-  /** @typedef {Map<Brand,Keyword>} */
+  const { brands } = zcf.getTerms();
+  for (const brand of Object.values(brands)) {
+    assertNatAssetKind(zcf, brand);
+  }
+  /** @type {Map<Brand,Keyword>} */
   const brandToKeyword = new Map(
     Object.entries(brands).map(([keyword, brand]) => [brand, keyword]),
   );
-  /** @return {string} */
+  /**
+   * @param {Brand} brand
+   * @returns {string}
+   */
   const getPoolKeyword = brand => {
     assert(brandToKeyword.has(brand), 'getPoolKeyword: brand not found');
-    // @ts-ignore
-    return brandToKeyword.get(brand);
+    const keyword = brandToKeyword.get(brand);
+    assert.typeof(keyword, 'string');
+    return keyword;
   };
 
   const { zcfSeat: poolSeat } = zcf.makeEmptySeatKit();
@@ -62,187 +88,307 @@ const start = async zcf => {
     return poolSeat.getAmountAllocated(keyword, brand);
   };
 
-  /** @type {OfferHandler} */
-  const swapHandler = swapSeat => {
+  function consummate(tradeAmountIn, tradeAmountOut, swapSeat) {
+    zcf.atomicRearrange(
+      harden([
+        [
+          swapSeat,
+          poolSeat,
+          { In: tradeAmountIn },
+          { [getPoolKeyword(tradeAmountIn.brand)]: tradeAmountIn },
+        ],
+        [
+          poolSeat,
+          swapSeat,
+          { [getPoolKeyword(tradeAmountOut.brand)]: tradeAmountOut },
+          { Out: tradeAmountOut },
+        ],
+      ]),
+    );
+
+    swapSeat.exit();
+    return `Swap successfully completed.`;
+  }
+
+  const assertSwapProposal = seat =>
+    assertProposalShape(seat, {
+      want: { Out: null },
+      give: { In: null },
+    });
+
+  /**
+   * Swap one asset for another. In specifies the asset being provided and Out
+   * specifies the wanted asset. The amount of Out returned is calculated based
+   * on the In amount. If the calculation produces a value less than the
+   * specified want, the trade will fail in offer safety.
+   *
+   * @type {OfferHandler}
+   */
+  const swapInHandler = swapSeat => {
+    assertSwapProposal(swapSeat);
+    assert(
+      !AmountMath.isEmpty(getPoolAmount(brands.Central)),
+      `Pool not initialized`,
+    );
+
     const {
       give: { In: amountIn },
       want: { Out: wantedAmountOut },
     } = swapSeat.getProposal();
-    const outputValue = getInputPrice(
-      harden({
-        inputValue: amountIn.value,
-        inputReserve: getPoolAmount(amountIn.brand).value,
-        outputReserve: getPoolAmount(wantedAmountOut.brand).value,
-      }),
-    );
-    const amountOut = zcf
-      .getAmountMath(wantedAmountOut.brand)
-      .make(outputValue);
 
-    trade(
-      zcf,
-      {
-        seat: poolSeat,
-        gains: {
-          [getPoolKeyword(amountIn.brand)]: amountIn,
-        },
-        losses: {
-          [getPoolKeyword(amountOut.brand)]: amountOut,
-        },
-      },
-      {
-        seat: swapSeat,
-        gains: { Out: amountOut },
-        losses: { In: amountIn },
-      },
+    assert(isNatValue(amountIn.value));
+
+    const outputValue = getInputPrice(
+      amountIn.value,
+      getPoolAmount(amountIn.brand).value,
+      getPoolAmount(wantedAmountOut.brand).value,
     );
-    swapSeat.exit();
-    return `Swap successfully completed.`;
+    const tradeAmountOut = AmountMath.make(wantedAmountOut.brand, outputValue);
+    return consummate(amountIn, tradeAmountOut, swapSeat);
   };
 
-  /** @type {OfferHandler} */
-  const addLiquidityHandler = liqSeat => {
-    const userAllocation = liqSeat.getCurrentAllocation();
-
-    // Calculate how many liquidity tokens we should be minting.
-    // Calculations are based on the values represented by TokenA.
-    // If the current supply is zero, start off by just taking the
-    // value at TokenA and using it as the value for the
-    // liquidity token.
-    const liquidityValueOut = calcLiqValueToMint(
-      harden({
-        liqTokenSupply,
-        inputValue: userAllocation.TokenA.value,
-        inputReserve: getPoolAmount(userAllocation.TokenA.brand).value,
-      }),
+  /**
+   * Swap one asset for another. In specifies the asset being provided and Out
+   * specifies the wanted asset. The In amount is calculated based on the Out
+   * amount. If the In amount provided is insufficient the trade is refused.
+   *
+   * @type {OfferHandler}
+   */
+  const swapOutHandler = swapSeat => {
+    assertSwapProposal(swapSeat);
+    assert(
+      !AmountMath.isEmpty(getPoolAmount(brands.Central)),
+      'Pool not initialized',
     );
-    const liquidityAmountOut = liquidityAmountMath.make(liquidityValueOut);
-    liquidityMint.mintGains({ Liquidity: liquidityAmountOut }, poolSeat);
+
+    const {
+      give: { In: amountIn },
+      want: { Out: wantedAmountOut },
+    } = swapSeat.getProposal();
+
+    assert(isNatValue(wantedAmountOut.value));
+    assert.typeof(amountIn.value, 'bigint');
+
+    const tradePrice = getOutputPrice(
+      wantedAmountOut.value,
+      getPoolAmount(amountIn.brand).value,
+      getPoolAmount(wantedAmountOut.brand).value,
+    );
+    assert(tradePrice <= amountIn.value, 'amountIn insufficient');
+    const tradeAmountIn = AmountMath.make(amountIn.brand, tradePrice);
+
+    return consummate(tradeAmountIn, wantedAmountOut, swapSeat);
+  };
+
+  const addLiquidity = (seat, secondaryAmount) => {
+    const userAllocation = seat.getCurrentAllocation();
+    const centralPool = getPoolAmount(brands.Central).value;
+    assert(!AmountMath.isEmpty(userAllocation.Central), 'Pool is empty');
+    const centralIn = userAllocation.Central.value;
+
+    const liquidityValueOut = calcLiqValueToMint(
+      liqTokenSupply,
+      centralIn,
+      /** @type {bigint} */ (centralPool),
+    );
+    const liquidityAmountOut = AmountMath.make(
+      liquidityBrand,
+      liquidityValueOut,
+    );
+    liquidityMint.mintGains(
+      harden({ Liquidity: liquidityAmountOut }),
+      poolSeat,
+    );
     liqTokenSupply += liquidityValueOut;
 
-    trade(
-      zcf,
-      {
-        seat: poolSeat,
-        gains: {
-          TokenA: userAllocation.TokenA,
-          TokenB: userAllocation.TokenB,
-        },
-      },
-      { seat: liqSeat, gains: { Liquidity: liquidityAmountOut } },
+    const liquidityDeposited = {
+      Central: AmountMath.make(brands.Central, centralIn),
+      Secondary: secondaryAmount,
+    };
+    zcf.atomicRearrange(
+      harden([
+        [seat, poolSeat, liquidityDeposited],
+        [poolSeat, seat, { Liquidity: liquidityAmountOut }],
+      ]),
+    );
+    seat.exit();
+    return 'Added liquidity.';
+  };
+
+  const initiateLiquidity = liqSeat => {
+    const userAllocation = liqSeat.getCurrentAllocation();
+    return addLiquidity(liqSeat, userAllocation.Secondary);
+  };
+
+  /**
+   * Add liquidity. We use the amount of the Central asset as the basis, and
+   * require that Secondary assets be added in proportion. If less Secondary is
+   * provided than required, we refuse the offer. If more is provided than is
+   * required, we return the excess.
+   *
+   * If this is the first time liquidity was added, we accept all of both
+   * Primary and Secondary, to establish the initial trading ratio. In this
+   * case, we create liquidity equal to the value of Central asset contributed.
+   *
+   * @type {OfferHandler}
+   */
+  const addLiquidityHandler = liqSeat => {
+    assertProposalShape(liqSeat, {
+      give: { Central: null, Secondary: null },
+      want: { Liquidity: null },
+    });
+    if (AmountMath.isEmpty(getPoolAmount(brands.Central))) {
+      return initiateLiquidity(liqSeat);
+    }
+
+    const userAllocation = liqSeat.getCurrentAllocation();
+    const secondaryIn = userAllocation.Secondary;
+
+    assert(isNatValue(userAllocation.Central.value));
+    assert(isNatValue(secondaryIn.value));
+
+    // To calculate liquidity, we'll need to calculate alpha from the primary
+    // token's value before, and the value that will be added to the pool
+    const secondaryOut = AmountMath.make(
+      secondaryIn.brand,
+      calcSecondaryRequired(
+        userAllocation.Central.value,
+        getPoolAmount(brands.Central).value,
+        getPoolAmount(brands.Secondary).value,
+        secondaryIn.value,
+      ),
     );
 
-    liqSeat.exit();
-    return 'Added liquidity.';
+    // Central was specified precisely so offer must provide enough secondary.
+    assert(
+      AmountMath.isGTE(secondaryIn, secondaryOut),
+      'insufficient Secondary deposited',
+    );
+
+    return addLiquidity(liqSeat, secondaryOut);
   };
 
   /** @type {OfferHandler} */
   const removeLiquidityHandler = removeLiqSeat => {
-    // TODO (hibbert) should we burn tokens?
-    const userAllocation = removeLiqSeat.getCurrentAllocation();
-    const liquidityValueIn = userAllocation.Liquidity.value;
+    assertProposalShape(removeLiqSeat, {
+      want: { Central: null, Secondary: null },
+      give: { Liquidity: null },
+    });
 
-    const newUserTokenAAmount = tokenAMath.make(
+    // TODO (hibbert) should we burn tokens?
+
+    const userAllocation = /** @type {{Liquidity: Amount<'nat'>}} */ (
+      removeLiqSeat.getCurrentAllocation()
+    );
+    const liquidityIn = userAllocation.Liquidity;
+    assert(!AmountMath.isEmpty(liquidityIn), 'Pool is empty');
+    const liquidityValueIn = liquidityIn.value;
+    assert(isNatValue(liquidityValueIn));
+
+    const newUserCentralAmount = AmountMath.make(
+      brands.Central,
       calcValueToRemove(
-        harden({
-          liqTokenSupply,
-          poolValue: getPoolAmount(userAllocation.TokenA.brand).value,
-          liquidityValueIn,
-        }),
+        liqTokenSupply,
+        getPoolAmount(brands.Central).value,
+        liquidityValueIn,
       ),
     );
-    const newUserTokenBAmount = tokenBMath.make(
+    const newUserSecondaryAmount = AmountMath.make(
+      brands.Secondary,
       calcValueToRemove(
-        harden({
-          liqTokenSupply,
-          poolValue: getPoolAmount(userAllocation.TokenB.brand).value,
-          liquidityValueIn,
-        }),
+        liqTokenSupply,
+        getPoolAmount(brands.Secondary).value,
+        liquidityValueIn,
       ),
     );
 
     liqTokenSupply -= liquidityValueIn;
 
-    trade(
-      zcf,
-      {
-        seat: poolSeat,
-        gains: { Liquidity: userAllocation.Liquidity },
-      },
-      {
-        seat: removeLiqSeat,
-        gains: {
-          TokenA: newUserTokenAAmount,
-          TokenB: newUserTokenBAmount,
-        },
-      },
+    const liquidityRemoved = {
+      Central: newUserCentralAmount,
+      Secondary: newUserSecondaryAmount,
+    };
+
+    zcf.atomicRearrange(
+      harden([
+        [removeLiqSeat, poolSeat, { Liquidity: userAllocation.Liquidity }],
+        [poolSeat, removeLiqSeat, liquidityRemoved],
+      ]),
     );
 
     removeLiqSeat.exit();
     return 'Liquidity successfully removed.';
   };
 
-  const addLiquidityExpected = harden({
-    give: { TokenA: null, TokenB: null },
-    want: { Liquidity: null },
-  });
-
-  const removeLiquidityExpected = harden({
-    want: { TokenA: null, TokenB: null },
-    give: { Liquidity: null },
-  });
-
-  const swapExpected = {
-    want: { Out: null },
-    give: { In: null },
-  };
-
   const makeAddLiquidityInvitation = () =>
-    zcf.makeInvitation(
-      assertProposalShape(addLiquidityHandler, addLiquidityExpected),
-      'autoswap add liquidity',
-    );
+    zcf.makeInvitation(addLiquidityHandler, 'autoswap add liquidity');
 
   const makeRemoveLiquidityInvitation = () =>
-    zcf.makeInvitation(
-      assertProposalShape(removeLiquidityHandler, removeLiquidityExpected),
-      'autoswap remove liquidity',
-    );
+    zcf.makeInvitation(removeLiquidityHandler, 'autoswap remove liquidity');
 
-  const makeSwapInvitation = () =>
-    zcf.makeInvitation(
-      assertProposalShape(swapHandler, swapExpected),
-      'autoswap swap',
-    );
+  const makeSwapInInvitation = () =>
+    zcf.makeInvitation(swapInHandler, 'autoswap swap');
+
+  const makeSwapOutInvitation = () =>
+    zcf.makeInvitation(swapOutHandler, 'autoswap swap');
 
   /**
-   * `getCurrentPrice` calculates the result of a trade, given a certain amount
-   * of digital assets in.
-   * @param {Amount} amountIn - the amount of digital
+   * `getOutputForGivenInput` calculates the result of a trade, given a certain
+   * amount of digital assets in.
+   *
+   * @param {Amount<'nat'>} amountIn - the amount of digital
    * assets to be sent in
-   * @param brandOut - The brand of asset desired
+   * @param {Brand<'nat'>} brandOut - The brand of asset desired
    */
-  const getCurrentPrice = (amountIn, brandOut) => {
+  const getOutputForGivenInput = (amountIn, brandOut) => {
     const inputReserve = getPoolAmount(amountIn.brand).value;
     const outputReserve = getPoolAmount(brandOut).value;
+    assert(isNatValue(amountIn.value));
+    if (AmountMath.isEmpty(amountIn)) {
+      return AmountMath.makeEmpty(brandOut);
+    }
     const outputValue = getInputPrice(
-      harden({
-        inputValue: amountIn.value,
-        inputReserve,
-        outputReserve,
-      }),
+      amountIn.value,
+      inputReserve,
+      outputReserve,
     );
-    return zcf.getAmountMath(brandOut).make(outputValue);
+    return AmountMath.make(brandOut, outputValue);
   };
 
-  const getPoolAllocation = poolSeat.getCurrentAllocation;
+  /**
+   * `getInputForGivenOutput` calculates the amount of assets required to be
+   * provided in order to obtain a specified gain.
+   *
+   * @param {Amount<'nat'>} amountOut - the amount of digital assets desired
+   * @param {Brand<'nat'>} brandIn - The brand of asset desired
+   */
+  const getInputForGivenOutput = (amountOut, brandIn) => {
+    const inputReserve = getPoolAmount(brandIn).value;
+    const outputReserve = getPoolAmount(amountOut.brand).value;
+    assert(isNatValue(amountOut.value));
+    if (AmountMath.isEmpty(amountOut)) {
+      return AmountMath.makeEmpty(brandIn);
+    }
+    const outputValue = getOutputPrice(
+      amountOut.value,
+      inputReserve,
+      outputReserve,
+    );
+    return AmountMath.make(brandIn, outputValue);
+  };
+
+  const getPoolAllocation = () => poolSeat.getCurrentAllocation();
 
   /** @type {AutoswapPublicFacet} */
-  const publicFacet = harden({
-    getCurrentPrice,
+  const publicFacet = Far('publicFacet', {
+    getInputPrice: getOutputForGivenInput,
+    getOutputPrice: getInputForGivenOutput,
     getLiquidityIssuer: () => liquidityIssuer,
+    getLiquiditySupply: () => liqTokenSupply,
     getPoolAllocation,
-    makeSwapInvitation,
+    makeSwapInvitation: makeSwapInInvitation,
+    makeSwapInInvitation,
+    makeSwapOutInvitation,
     makeAddLiquidityInvitation,
     makeRemoveLiquidityInvitation,
   });

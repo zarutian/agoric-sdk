@@ -1,15 +1,15 @@
-/* global harden */
+import { Far } from '@endo/far';
 
 export function buildRootObject(vatPowers, vatParameters) {
   const { D, testLog } = vatPowers;
-  const handler = harden({
+  const handler = Far('handler', {
     inbound(...args) {
       testLog('inbound');
       testLog(JSON.stringify(args));
     },
   });
 
-  return harden({
+  return Far('root', {
     async bootstrap(vats, devices) {
       const { argv } = vatParameters;
       harden(argv);

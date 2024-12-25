@@ -1,8 +1,8 @@
-/* global harden */
-import { E } from '@agoric/eventual-send';
+import { Far, E } from '@endo/far';
+import { Fail } from '@endo/errors';
 
 export function buildRootObject(vatPowers, vatParameters) {
-  return harden({
+  return Far('root', {
     bootstrap(vats) {
       const mode = vatParameters.argv[0];
       if (mode === 'one') {
@@ -13,7 +13,7 @@ export function buildRootObject(vatPowers, vatParameters) {
             err => vatPowers.testLog(`b.rejected ${err}`),
           );
       } else {
-        throw Error(`unknown mode ${mode}`);
+        Fail`unknown mode ${mode}`;
       }
     },
   });

@@ -1,9 +1,8 @@
-/* global harden */
-import { E } from '@agoric/eventual-send';
+import { Far, E } from '@endo/far';
 
 export function buildRootObject(vatPowers) {
   const log = vatPowers.testLog;
-  const obj0 = {
+  const obj0 = Far('root', {
     callRight(arg1, right) {
       log(`left.callRight ${arg1}`);
       E(right)
@@ -11,6 +10,6 @@ export function buildRootObject(vatPowers) {
         .then(a => log(`left.then ${a}`));
       return 3;
     },
-  };
-  return harden(obj0);
+  });
+  return obj0;
 }

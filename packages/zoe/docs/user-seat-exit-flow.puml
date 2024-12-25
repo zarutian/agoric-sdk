@@ -7,7 +7,7 @@ package ZoeService <<Rectangle>> {
 
   object ZoeSeatAdmin
   ZoeSeatAdmin : exit()
-  ZoeSeatAdmin : replaceAllocation()
+  ZoeSeatAdmin : ...
 }
 
 package ZCF <<Rectangle>> {
@@ -15,13 +15,14 @@ package ZCF <<Rectangle>> {
   ZCFSeat : exit()
   ZCFSeat : ...
 
-  object ZCFSeatAdmin
-  ZCFSeatAdmin : commit()
-
   object ExitObj
   ExitObj : exit()
+  ExitObj : ...
 }
 
+ZoeService -[hidden]> ZCF
+UserSeat -[hidden]> ZoeSeatAdmin
 UserSeat --|> ExitObj : (1) exit
-ExitObj --|> ZoeSeatAdmin: (2) exit
+ExitObj --|> ZCFSeat: (2) exit
+ZCFSeat --|> ZoeSeatAdmin: (3) exit
 @enduml

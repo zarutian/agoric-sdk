@@ -1,0 +1,52 @@
+{
+  "name": "@agoric/cache",
+  "version": "0.3.2",
+  "description": "Agoric's simple cache interface",
+  "type": "module",
+  "main": "src/main.js",
+  "repository": "https://github.com/Agoric/agoric-sdk",
+  "scripts": {
+    "build": "exit 0",
+    "test": "ava",
+    "test:c8": "c8 --all $C8_OPTIONS ava",
+    "test:xs": "exit 0",
+    "lint-fix": "yarn lint:eslint --fix",
+    "lint": "run-s --continue-on-error lint:*",
+    "lint:types": "tsc",
+    "lint:eslint": "eslint --ext .js,.ts ."
+  },
+  "keywords": [],
+  "author": "Agoric",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@agoric/internal": "^0.3.2",
+    "@agoric/notifier": "^0.6.2",
+    "@agoric/store": "^0.9.2",
+    "@agoric/vat-data": "^0.5.2",
+    "@endo/far": "^1.1.9",
+    "@endo/marshal": "^1.6.2"
+  },
+  "devDependencies": {
+    "@agoric/zoe": "^0.26.2",
+    "ava": "^5.3.0",
+    "c8": "^10.1.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": "^18.12 || ^20.9"
+  },
+  "ava": {
+    "files": [
+      "test/**/*.test.*"
+    ],
+    "require": [
+      "@endo/init/debug.js"
+    ],
+    "timeout": "20m"
+  },
+  "typeCoverage": {
+    "atLeast": 94.13
+  }
+}

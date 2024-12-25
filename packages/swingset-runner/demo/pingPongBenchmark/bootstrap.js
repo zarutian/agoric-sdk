@@ -1,14 +1,15 @@
-import { E } from '@agoric/eventual-send';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/marshal';
 
 const log = console.log;
 
 log(`=> loading bootstrap.js`);
 
-export function buildRootObject(_vatPowers) {
+export function buildRootObject() {
   log(`=> setup called`);
   let alice;
   let bob;
-  return harden({
+  return Far('root', {
     bootstrap(vats) {
       alice = vats.alice;
       bob = vats.bob;

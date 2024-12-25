@@ -1,21 +1,62 @@
-export { secondPriceLogic, closeAuction } from './auctions';
+// @jessie-check
 
 export {
   getInputPrice,
+  getOutputPrice,
   calcLiqValueToMint,
   calcValueToRemove,
-} from './bondingCurves';
+  calcSecondaryRequired,
+} from './bondingCurves.js';
 
-export { natSafeMath } from './safeMath';
+export { natSafeMath } from './safeMath.js';
 
-export { makeStateMachine } from './stateMachine';
+export { makeStateMachine } from './stateMachine.js';
+
+export {
+  atomicRearrange,
+  atomicTransfer,
+  fromOnly,
+  toOnly,
+} from './atomicTransfer.js';
 
 export {
   defaultAcceptanceMsg,
-  trade,
   swap,
+  fitProposalShape,
   assertProposalShape,
   assertIssuerKeywords,
   satisfies,
-  assertUsesNatMath,
-} from './zoeHelpers';
+  assertNatAssetKind,
+  swapExact,
+  depositToSeat,
+  withdrawFromSeat,
+  saveAllIssuers,
+  offerTo,
+} from './zoeHelpers.js';
+
+export {
+  makeRatio,
+  makeRatioFromAmounts,
+  floorMultiplyBy,
+  floorDivideBy,
+  ceilMultiplyBy,
+  ceilDivideBy,
+  assertIsRatio,
+  invertRatio,
+  oneMinus,
+  addRatios,
+  multiplyRatios,
+  ratiosSame,
+  quantize,
+  ratioGTE,
+  subtractRatios,
+  ratioToNumber,
+} from './ratio.js';
+
+export * from './durability.js';
+export * from './prepare-ownable.js';
+export * from './priceAuthority.js';
+export * from './priceQuote.js';
+export * from './statistics.js';
+export * from './recorder.js';
+export * from './topics.js';

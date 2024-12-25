@@ -1,0 +1,63 @@
+{
+  "name": "@agoric/casting",
+  "version": "0.4.2",
+  "description": "Agoric's OCap broadcasting system",
+  "type": "module",
+  "main": "src/main.js",
+  "repository": "https://github.com/Agoric/agoric-sdk",
+  "scripts": {
+    "build": "exit 0",
+    "prepack": "tsc --build tsconfig.build.json",
+    "postpack": "git clean -f '*.d.ts*' '*.tsbuildinfo'",
+    "demo": "node -e 'import(\"./test/fake-rpc-server.js\").then(ns => ns.develop())'",
+    "test": "ava",
+    "test:c8": "c8 --all $C8_OPTIONS ava",
+    "test:xs": "exit 0",
+    "lint-fix": "yarn lint:eslint --fix",
+    "lint": "run-s --continue-on-error lint:*",
+    "lint:types": "tsc",
+    "lint:eslint": "eslint --ext .js,.ts ."
+  },
+  "keywords": [],
+  "author": "Agoric",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@agoric/internal": "^0.3.2",
+    "@agoric/notifier": "^0.6.2",
+    "@agoric/store": "^0.9.2",
+    "@cosmjs/encoding": "^0.32.3",
+    "@cosmjs/proto-signing": "^0.32.3",
+    "@cosmjs/stargate": "^0.32.3",
+    "@cosmjs/tendermint-rpc": "^0.32.3",
+    "@endo/errors": "^1.2.8",
+    "@endo/far": "^1.1.9",
+    "@endo/init": "^1.1.7",
+    "@endo/lockdown": "^1.0.13",
+    "@endo/marshal": "^1.6.2",
+    "@endo/promise-kit": "^1.1.8"
+  },
+  "devDependencies": {
+    "@agoric/cosmic-proto": "^0.4.0",
+    "@endo/ses-ava": "^1.2.8",
+    "ava": "^5.3.0",
+    "c8": "^10.1.2",
+    "express": "^5.0.1",
+    "ws": "^7.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": "^18.12 || ^20.9"
+  },
+  "ava": {
+    "files": [
+      "test/**/*.test.*"
+    ],
+    "timeout": "20m",
+    "workerThreads": false
+  },
+  "typeCoverage": {
+    "atLeast": 88.99
+  }
+}

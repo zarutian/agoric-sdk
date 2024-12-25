@@ -1,3 +1,5 @@
+import { Far } from '@endo/marshal';
+
 function makePR() {
   let r;
   const p = new Promise((resolve, _reject) => {
@@ -6,14 +8,14 @@ function makePR() {
   return [p, r];
 }
 
-export function buildRootObject(_vatPowers) {
+export function buildRootObject() {
   let r = null;
   let value = 0;
-  return harden({
+  return Far('root', {
     init() {
       let p;
-      // eslint-disable-next-line prefer-const
-      [p, r] = makePR();
+
+      void ([p, r] = makePR());
       return p;
     },
     gen() {

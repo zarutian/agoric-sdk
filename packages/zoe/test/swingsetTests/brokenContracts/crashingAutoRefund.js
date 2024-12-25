@@ -1,63 +1,50 @@
-// @ts-check
+import { Far } from '@endo/marshal';
 
 import {
   swap,
   assertIssuerKeywords,
   assertProposalShape,
-} from '../../../src/contractSupport';
-
-import '../../../exported';
+} from '../../../src/contractSupport/index.js';
 
 /**
  * This is an atomic swap contract to test Zoe handling contract failures.
  *
- * This contract exceeds metering limits or throws exceptions in various
+ * This contract throws exceptions in various
  * situations. We want to see that each is handled correctly.
  *
- * @type {ContractStartFn}
+ * @type {ContractStartFn<any>}
  */
 const start = zcf => {
   const terms = zcf.getTerms();
-  let offersCount = 0;
+  let offersCount = 0n;
 
   assertIssuerKeywords(zcf, harden(['Asset', 'Price']));
 
   if (terms.throw) {
-    throw new Error('blowup in makeContract');
-  } else if (terms.meter) {
-    // @ts-ignore
-    return new Array(1e9);
+    throw Error('blowup in makeContract');
   }
 
   const safeAutoRefund = seat => {
-    offersCount += 1;
+    offersCount += 1n;
     seat.exit();
     return `The offer was accepted`;
   };
   const makeSafeInvitation = () =>
     zcf.makeInvitation(safeAutoRefund, 'getRefund');
 
-  const meterExceeded = () => {
-    offersCount += 1;
-    return new Array(1e9);
-  };
-  const makeExcessiveInvitation = () =>
-    zcf.makeInvitation(meterExceeded, 'getRefund');
-
   const throwing = () => {
-    offersCount += 1;
-    throw new Error('someException');
+    offersCount += 1n;
+    throw Error('someException');
   };
   const makeThrowingInvitation = () =>
     zcf.makeInvitation(throwing, 'getRefund');
 
-  const swapOfferExpected = harden({
-    give: { Asset: null },
-    want: { Price: null },
-  });
-
   const makeMatchingInvitation = firstSeat => {
-    offersCount += 1;
+    assertProposalShape(firstSeat, {
+      give: { Asset: null },
+      want: { Price: null },
+    });
+    offersCount += 1n;
     const { want, give } = firstSeat.getProposal();
 
     return zcf.makeInvitation(
@@ -70,29 +57,27 @@ const start = zcf => {
     );
   };
 
-  const makeSwapInvitation = () =>
-    zcf.makeInvitation(
-      assertProposalShape(makeMatchingInvitation, swapOfferExpected),
-      'firstOffer',
-    );
+  const zcfShutdown = completion => zcf.shutdown(completion);
+  /** @type {import('@agoric/swingset-vat').ShutdownWithFailure} */
+  const zcfShutdownWithFailure = reason => zcf.shutdownWithFailure(reason);
 
-  offersCount += 1;
-  const publicFacet = harden({
+  const makeSwapInvitation = () =>
+    zcf.makeInvitation(makeMatchingInvitation, 'firstOffer');
+
+  offersCount += 1n;
+  const publicFacet = Far('publicFacet', {
     getOffersCount: () => {
-      offersCount += 1;
+      offersCount += 1n;
       return offersCount;
     },
     makeSafeInvitation,
     makeSwapInvitation,
-    makeExcessiveInvitation,
     makeThrowingInvitation,
-    meterException: () => {
-      offersCount += 1;
-      return new Array(1e9);
-    },
+    zcfShutdown,
+    zcfShutdownWithFailure,
     throwSomething: () => {
-      offersCount += 1;
-      throw new Error('someException');
+      offersCount += 1n;
+      throw Error('someException');
     },
   });
 

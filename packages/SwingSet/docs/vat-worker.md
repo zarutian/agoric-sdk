@@ -6,7 +6,7 @@ To support a variety of vat execution engines, each vat is isolated into a "Vat 
 
 The kernel moves from one "Crank" to the next by pulling an action off the run-queue and executing it. There are two kinds of actions: a message delivery, and a promise resolution notification. Each action will cause a single "Delivery" object to be constructed and delivered to a specific vat, however which vat will receive it is not known until the action is examined.
 
-When the run-queue action is `send`, the action will contain a "target" and a messge to be sent. This `target` will either be an object reference or a promise reference. For object references, the kernel object table is consulted to determine which vat owns that object. For promise references, the promise table says what state that promise is in:
+When the run-queue action is `send`, the action will contain a "target" and a message to be sent. This `target` will either be an object reference or a promise reference. For object references, the kernel object table is consulted to determine which vat owns that object. For promise references, the promise table says what state that promise is in:
 
 * if the promise is resolved to an object, the object table is used, just as if the message were sent to the object directly
 * if the promise is resolved to data or rejected, an error result is generated and a new notification action is pushed onto the end of the run-queue (to reject the message's result promise)
@@ -23,22 +23,26 @@ If instead, the run-queue action is `notify`, the action will name a promise (wh
 The `Delivery` object is a hardened Array of data (Objects, Arrays, and Strings, all of which can be serialized as JSON), whose first element is a type. It will take one of the following shapes:
 
 * `['message', targetSlot, msg]`
-* `['notify', vpid, vp]`
+* `['notify', resolutions]`
+* `['dropExports', vrefs]`
 
 In the `message` form, `targetSlot` is a object/promise reference (a string like `o+13` or `p-24`), which identifies the object or promise to which the message is being sent. This target can be a promise if the message is being pipelined to the result of some earlier message.
 
 The `msg` field is an object shaped like `{ method, args, result }`, where `method` is a string (the method name being invoked), `args` is a "capdata" structure (an object `{ body, slots }`, where `body` is a JSON-formatted string, and `slots` is an array of object/promise references), and `result` is either `null` or a promise reference string (the promise that should be resolved by the executing vat if/when the message processing is complete).
 
-In the `notify` form, `vpid` is a promise reference that names the promise being resolved. `vp` is a record that describes the resolution. It will take one of the following forms:
+In the `notify` form, `resolutions` is an array of one or more resolution descriptors, each of which is an array of the form:
 
-* `{ state: 'fulfilledToPresence', slot }` (where `slot` is an object reference string)
-* `{ state: 'fulfilledToData', data }` (where `data` is a capdata structure)
-* `{ state: 'rejected', data }` (again `data` is a capdata structure)
-* (a future form might use `state: 'forwarded'`, but that is not implemented yet)
+* `[vpid, promiseDescriptor]`
+
+`vpid` is a promise reference that names the promise being resolved. `promiseDescriptor` is a record that describes the resolution, in the form:
+
+* `{ rejected, data }`
+
+`rejected` is a boolean value, where `true` indicates that the promise is being fulfilled and `false` indicates that `data` is a capdata structure that describes the value the promise is being fulfilled to or rejected as.
 
 This Delivery object begins life in the kernel as a `KernelDelivery` object, in which all of the object/promise references ("slots") are kernel-centric. Object references will look like `ko123`, and promise references will look like `kp456`.
 
-The kernel uses a vat-specific "translator" to convery this `KernelDelivery` into a `VatDelivery` object, in which the slots are vat-centric (`o+NN`, `p-NN`, etc). This conversion goes through the vat's "c-list", and may mutate the c-list as necessary (when the vat is introduced to an object that it did not already have access to). One form of mutation is the deletion of entries for promises that have been resolved: vats and the kernel follow a shared policy so they can forget these references simultaneously.
+The kernel uses a vat-specific "translator" to convert this `KernelDelivery` into a `VatDelivery` object, in which the slots are vat-centric (`o+NN`, `p-NN`, etc). This conversion goes through the vat's "c-list", and may mutate the c-list as necessary (when the vat is introduced to an object that it did not already have access to). One form of mutation is the deletion of entries for promises that have been resolved: vats and the kernel follow a shared policy so they can forget these references simultaneously.
 
 The kernel then invokes the target vat's `VatManager`'s `.deliver()` method with the `VatDelivery` as its one argument. `deliver()` is expected to return a Promise that fires with a `KernelDeliveryResult` object when the vat is idle once more. The result indicates whether the Vat finished execution of the delivery without fault, or if e.g. the vat suffered a metering underflow or attempted to use a missing c-list entry. At this point, the kernel will commit state changes and/or react to the vat being terminated.
 
@@ -49,18 +53,21 @@ The VatManager is given access to a `VatSyscallHandler` function. This takes a `
 * `['send', target, msg]`
 * `['callNow', target, method, args]`
 * `['subscribe', vpid]`
-* `['fulfillToPresence', vpid, slot]`
-* `['fulfillToData', vpid, data]`
-* `['reject', vpid, data]`
+* `['resolve', resolutions]`
+* `['vatstoreGet', key]`
+* `['vatstoreSet', key, data]`
+* `['vatstoreDelete', key]`
+* `['dropImports', slots]`
 
 As with deliveries (but in reverse), the translator converts this from vat-centric identifiers into kernel-centric ones, and emits a `KernelSyscall` object, with one of these forms:
 
 * `['send', target, msg]`
 * `['invoke', target, method, args]`
 * `['subscribe', vatid, kpid]`
-* `['fulfillToPresence', kpid, slot]`
-* `['fulfillToData', kpid, data]`
-* `['reject', kpid, data]`
+* `['resolve', vatid, resolutions]`
+* `['vatstoreGet', vatid, key]`
+* `['vatstoreSet', vatid, key, data]`
+* `['vatstoreDelete', vatid, key]`
 
 The `KernelSyscallHandler` accepts one of these objects and executes the syscall. Most syscalls modify kernel state (by appending an item to the run-queue, or modifying promise- and object- tables) and then return an empty result. `invoke` is special in that it will synchronously invoke some device and then return a result that contains arbitrary data. In any event, the KernelSyscallHandler returns a `KernelSyscallResult` object, which has one of the following forms:
 
@@ -79,7 +86,7 @@ The entire sequence looks like:
 "Devices" were originally intended to be just like vats, except with access to external endowments, allowing them to influence (and be influenced by) the outside world, unmediated by the kernel. Devices are the only way for a swingset to do any IO. Consequences of this model became quickly apparent:
 
 * deterministic operation cannot be guaranteed in the face of endowments
-* therefore orthgonal persistence was removed, along with the transcript
+* therefore orthogonal persistence was removed, along with the transcript
 * Promises are harder to reason about without orthogonal persistence, so they were removed
 * we have use cases that require synchronous invocation of device code
 * that requires a new vat syscall, and a new device delivery

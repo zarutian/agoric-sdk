@@ -1,8 +1,10 @@
+import { Far } from '@endo/marshal';
+
 const log = console.log;
 
-export function buildRootObject(_vatPowers) {
+export function buildRootObject() {
   let resolver;
-  return harden({
+  return Far('root', {
     first() {
       log('=> Bob: in first');
       const answer = new Promise((theResolver, _theRejector) => {

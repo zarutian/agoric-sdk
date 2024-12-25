@@ -1,34 +1,44 @@
-import { makeIssuerKit } from '@agoric/ertp';
-import { makeZoe } from '../../src/zoeService/zoe';
-import fakeVatAdmin from './contracts/fakeVatAdmin';
+import { makeIssuerKit, AmountMath, AssetKind } from '@agoric/ertp';
+import { makeZoeForTest } from '../../tools/setup-zoe.js';
+import { makeFakeVatAdmin } from '../../tools/fakeVatAdmin.js';
 
 const setupNonFungible = () => {
-  const ccBundle = makeIssuerKit('CryptoCats', 'strSet');
-  const rpgBundle = makeIssuerKit('MMORPG Items', 'set');
+  const ccBundle = makeIssuerKit('CryptoCats', AssetKind.SET);
+  const rpgBundle = makeIssuerKit('MMORPG Items', AssetKind.SET);
   const allBundles = { cc: ccBundle, rpg: rpgBundle };
+  /** @type {Map<string, Mint>} */
   const mints = new Map();
+  /** @type {Map<string, Issuer>} */
   const issuers = new Map();
-  const amountMaths = new Map();
+  /** @type {Map<string, Brand>} */
   const brands = new Map();
 
   for (const k of Object.getOwnPropertyNames(allBundles)) {
     mints.set(k, allBundles[k].mint);
     issuers.set(k, allBundles[k].issuer);
-    amountMaths.set(k, allBundles[k].amountMath);
     brands.set(k, allBundles[k].brand);
   }
 
-  function createRpgItem(name, power, desc = undefined) {
+  /**
+   *
+   * @param {string} name
+   * @param {string} power
+   * @param {string} [desc]
+   */
+  function createRpgItem(name, power, desc) {
     return harden([{ name, description: desc || name, power }]);
   }
-  const zoe = makeZoe(fakeVatAdmin);
+  const { admin: fakeVatAdmin, vatAdminState } = makeFakeVatAdmin();
+  const zoe = makeZoeForTest(fakeVatAdmin);
 
-  const ccIssuer = issuers.get('cc');
-  const rpgIssuer = issuers.get('rpg');
-  const ccMint = mints.get('cc');
-  const rpgMint = mints.get('rpg');
-  const cryptoCats = allBundles.cc.amountMath.make;
-  const rpgItems = allBundles.rpg.amountMath.make;
+  const ccIssuer = ccBundle.issuer;
+  const rpgIssuer = rpgBundle.issuer;
+  const ccMint = ccBundle.mint;
+  const rpgMint = rpgBundle.mint;
+  /** @param {SetValue} value */
+  const cryptoCats = value => AmountMath.make(allBundles.cc.brand, value);
+  /** @param {SetValue} value */
+  const rpgItems = value => AmountMath.make(allBundles.rpg.brand, value);
   return {
     ccIssuer,
     rpgIssuer,
@@ -36,10 +46,10 @@ const setupNonFungible = () => {
     rpgMint,
     cryptoCats,
     rpgItems,
-    amountMaths,
     brands,
     createRpgItem,
     zoe,
+    vatAdminState,
   };
 };
 harden(setupNonFungible);

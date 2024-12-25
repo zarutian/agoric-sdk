@@ -1,0 +1,14 @@
+{
+  "bootstrap": "bootstrap",
+  "defaultManagerType": "xs-worker",
+  "bundles": {
+    "dude": {
+      "sourceSpec": "vat-dude-terminate.js"
+    }
+  },
+  "vats": {
+    "bootstrap": {
+      "sourceSpec": "bootstrap-die-cleanly.js"
+    }
+  }
+}

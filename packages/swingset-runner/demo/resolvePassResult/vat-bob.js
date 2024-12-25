@@ -1,7 +1,9 @@
+import { Far } from '@endo/marshal';
+
 const log = console.log;
 
-export function buildRootObject(_vatPowers) {
-  return harden({
+export function buildRootObject() {
+  return Far('root', {
     first() {
       log('=> Bob: in first');
       return `Bob's first answer`;

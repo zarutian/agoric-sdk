@@ -1,8 +1,5 @@
 # SwingSet Vat
 
-[![Build Status][circleci-svg]][circleci-url]
-[![dependency status][deps-svg]][deps-url]
-[![dev dependency status][dev-deps-svg]][dev-deps-url]
 [![License][license-image]][license-url]
 
 This repository contains another proof-of-concept Vat host, like
@@ -18,7 +15,7 @@ this is insufficient to provide persistence across restarts.
 
 More docs are in the works. For now, try:
 
-```
+```console
 $ npm install
 $ npm test
 $ bin/vat run demo/encouragementBot
@@ -29,7 +26,7 @@ expected to stabilize for a while.
 
 ## REPL Shell
 
-```
+```console
 $ bin/vat shell demo/encouragementBot
 vat>
 ```
@@ -207,7 +204,7 @@ If wavy dot syntax is used on a Promise which rejects, the method is not invoked
 the return promise's `rejection` function is called instead:
 
 ```js
-const badP = Promise.reject(new Error());
+const badP = Promise.reject(Error());
 const p2 = badP~.foo();
 p2.then(undefined, rej => console.log('rejected', rej));
 // prints 'rejected'
@@ -274,11 +271,5 @@ Presences preserve identity as they move from one Vat to another:
 Promises are *not* intended to preserve identity. Vat code should not compare
 objects for identity until they pass out of a `.then()` resolution handler.
 
-[circleci-svg]: https://circleci.com/gh/Agoric/SwingSet.svg?style=svg
-[circleci-url]: https://circleci.com/gh/Agoric/SwingSet
-[deps-svg]: https://david-dm.org/Agoric/SwingSet.svg
-[deps-url]: https://david-dm.org/Agoric/SwingSet
-[dev-deps-svg]: https://david-dm.org/Agoric/SwingSet/dev-status.svg
-[dev-deps-url]: https://david-dm.org/Agoric/SwingSet?type=dev
 [license-image]: https://img.shields.io/badge/License-Apache%202.0-blue.svg
 [license-url]: LICENSE

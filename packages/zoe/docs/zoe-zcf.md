@@ -1,57 +1,176 @@
-## Zoe and ZCF
+# Zoe and ZCF
 
-At the current time, Zoe is split into two parts: the part that contains common pieces shared across all contracts (called "zoe" for now) and ZCF, the Zoe contract facet that contracts communicate with. The main part is expected to eventually be divided into a an escrow service (which would hold deposited assets) and a coordinator, constituting the main point of contact along with the invite issuer. Each time a contract is instantiated with startInstance(), a new vat is created, and the code for ZCF (the Zoe Contract Facet) is executed, immediately running the code for the contract itself. 
+Zoe, the package, is split into two parts: the Zoe Service (what users
+interact with) and the Zoe Contract Facet (aka ZCF, an API exposed to
+contract code that interacts with the Zoe Service). The Zoe service is
+in a single, continuously-running vat on its own. Each time a contract
+is instantiated with `E(zoe).startInstance()`, a new vat is created
+with a fresh ZCF object, and the contract code is executed. (From here
+on, `zoe` the object refers to the Zoe Service.)
 
- * [Plan for current split](https://github.com/Agoric/agoric-sdk/issues/553)
- * [PR for split](https://github.com/Agoric/agoric-sdk/pull/1288)
  * ![Zoe-Zcf interaction diagram](./zoe-zcf.png)
 
-### interactions between Zoe and Zcf
+## Files in the Zoe Service and ZCF
 
-Zoe has a single InviteMint, which it uses to mint Invitations which verify the authenticity of contracts and seats. Zoe freely shares the corresponding Issuer, so everyone can recognize valid Invitatations.
+Zoe has been split up into a number of smaller files which isolate and
+attenuate authority. For example, all escrow purses are created in
+`escrowStorage.js` and there is no access to the purses outside the
+file. Instead, a few functions are returned, including the ability to
+`createPurses`, `depositPayments`, and `withdrawPayments`. This makes
+analysis of authority somewhat simpler: to see who/what has the power
+to withdraw from the escrow purses, trace the usages of
+`withdrawPayments`. In this case, it is only used once, to create a
+payout when a seat is exited. (In hindsight, this file probably should
+have been part of a larger division that also included checks of offer
+safety and rights conservation during reallocations, as Zoe 2.0 does
+in the Escrow Service). To learn more about this approach, see
+[Handling Authority in ERTP and Zoe](./handling-authority.md).
 
-Zoe is created by CosmicSwingset. Any user can call `E(zoe).install(bundle)` to create a new installation of a contract. From that point, anyone can use  the installation to get access to the code and to get assurances from Zoe that a particular instance of that contract is running that code.
+Below are some other files that are organized in this way, with their
+purposes:
 
-Anyone with an installationHandle can ask Zoe to create a new instance of a contract with a particular assignment of keywords to Brands, and specified terms. When Zoe receives the `E(zoe).startInstance()` call, it creates a new vat (getting the vat's root object in return) and a private copy of the internal zoeForZcf facet for that contract.
+* installationStorage.js
+   - Handles everything related to installations, and exposes two
+     functions: `install` and `unwrapInstallation`
+* makeInvitation.js
+   - attenuates the ability to mint NFTs with the invitation brand
+* instanceAdminStorage.js
+   - Stores the instanceAdmins (the internal objects in Zoe which
+     store state for the contract instances)
+* issuerStorage.js
+   - Stores all issuers that have been registered with Zoe and
+     retrieves and stores their brands and displayInfo
+* instanceRecordStorage.js
+   - Stores information about a contract instance, such
+     as the terms, issuers, brands, etc. 
+* createZCFVat.js
+   - Attenuates the ability to create a new vat by only exposing a
+     function that creates a new vat with ZCF code and not other code.
 
-Zoe then calls `E(zcfRoot).startContract(contractParams)` to start the contract. The parameters include the zoe service's public facet, the source bundle, instanceData, zoeForZcf, and Zoe's inviteIssuer.
+## Interactions between Zoe and Zcf
 
-Zcf evaluates the contract bundle, makes a ZCF facet for the contract's use, and evaluates the contract. The contract returns the initial invitation to Zcf. Zcf bundles up that invitation with an internal facet (zcfForZoe) and returns it to Zoe, which returns `{ invite, instanceRecord }`.
+The Zoe Service is started on-chain in `packages/vats/vat-zoe.js`  Any
+user can call `E(zoe).install(bundle)` to deploy code on-chain and
+thus create a new "installation" for the contract code. An
+installation is an object that can be used for its identity to compare
+whether the code used in different contract instances is the same. In
+the future
+([Issue](https://github.com/Agoric/agoric-sdk/issues/3871)), a user
+will be able to get the hash of the code from an installation, so that a user can
+compare the hash with the hash of code hosted off-chain.
 
+Anyone with an `installation` can ask the Zoe Service to create a new
+instance of a contract with a particular assignment of keywords to
+Brands, and specified terms. When the Zoe Service receives the
+`E(zoe).startInstance()` call, it creates a new vat (getting the vat's
+root object in return) and a new object `zoeInstanceAdminForZcf` which
+serves as the ZCF vat's main connection to Zoe. 
 
+Zoe then calls `E(zcfRoot).executeContract()` to start the contract.
+The parameters include a promise for the Zoe Service, the source
+bundle, the invitation Issuer, `zoeInstanceAdminForZcf`, the instance
+record, issuer records, and any private arguments.
+
+The code in the ZCF Vat evaluates the contract bundle, makes a ZCF
+object for the contract's use, and calls the contract's start
+function (which must be exported as either `start` or `prepare`).
+The contract can return any or all of the following: a
+`publicFacet` (accessible to anyone with the contract instance), a
+`creatorFacet` (an ocap only given to the owner of a contract), and a
+`creatorInvitation` (an invitation only given to the owner of a
+contract). ZCF passes these on from the contract to Zoe and Zoe
+returns them to the caller of `E(zoe).startInstance()`. ZCF also
+returns to Zoe an object solely for communicating an offer to ZCF:
+`handleOfferObj`.
 ### Making an Invitation and Exercising an Offer
 
-The invite issuer is held by Zoe, which is also responsible for payout liveness. Zcf wants requests to exit the contract to be serialized through its execution queue so its outstanding requests don't lose races. To effectuate this, Zcf wraps an inviteHandler object around the offerHook, and passes this to Zoe to associate with the invitation. 
+The Zoe Service creates and holds the mint for invitations. The Zoe
+Service freely shares the corresponding issuer, so everyone can verify
+invitations.
 
-When an invitation is exercised (`E(zoe).offer(invitation, ...)`), Zoe records the deposit, creates the payout promises, then sets up its data structures, and notifies Zcf. Zcf records what it needs to know about the offer, then returns an object to handle completion requests (if required) to Zoe. Zoe saves the completion object for later use, then invokes the inviteHandler to run the code associated with the new seat, and returns the offerResultRecord to the user.
+When an invitation is exercised (`E(zoe).offer(invitation, ..., payments, ...)`), Zoe
+burns the invitation, escrows the payments, calls
+`E(handleOfferObj).handleOffer`, which informs ZCF that a new offer
+has been made, and returns a newly created `userSeat`. `handleOffer`
+in ZCF calls the `offerHandler`, the particular function that the
+contract code registered when it called `zcf.makeInvitation`. ZCF
+records what it needs to know about the offer, then returns two things
+to Zoe: a promise for the offerResult (the return value from the
+`offerHandler`) and an `exitObj` that Zoe saves for later use.
 
-### Zoe's state
+In order to ensure that the `zcf` object in the contract vat has
+synchronous access to the most up-to-date information about
+seats that have exited, if a user calls `userSeat.tryExit()`, the
+Zoe Service calls `E(exitObj).exit()`. This ensures that even when the
+user originates the request, the exit process always goes through the
+contract vat first.
 
-Zoe has a table of installations, which saves the source code for contracts, and provides assurance to clients of contracts that the code that is running is what they expect. Those installations are used to create contract instances, which can be parameterized with terms to customize the contract.
+### Security Claims and Further Details
 
-Zoe has a single  table of instances. This is used to track the public and private data associated with each contract instance. The public data is used to construct the instanceRecord, which will be returned when `getInstanceRecord()` is called. Zoe also stores each instances set of offerHandles, so if can call `complete()` if the zcf vat becomes unresponsive. Zoe also has an internal facet to the zcf, which it uses when adding new offers to a contract.
+Creating a new contract installation is the only way in which users
+can add code to the Agoric blockchain. The contract code should not be
+able to adversely affect the functioning of the Zoe Contract Facet,
+despite being within the same vat.
 
-Zoe keeps all deposited funds in unsegregated purses. The amount associated with each offer is recorded in an offerTable, which is kept in sync with parallel tables in each instance of zcf. There is an updater/notifier pair in the Zoe version of those tables, which can be obtained directly from Zoe. Zoe also holds onto payout promises for each offer, which it resolves when completing the offers.
+For example, “rights conservation” and “offer safety” are enforced in
+the contract facet, and no contract should be able to violate either.
+All contract code must not be able to adversely affect the functioning
+of the Zoe Service.
 
-Both Zoe and Zcf keep tables of Issuer, Brands, and AmountMaths for convenience.
+Eventually, the Zoe Service may be split into multiple vats, but for now, all of the assets that Zoe escrows (including the assets for all of the users of the contracts that run on the Agoric chain) are escrowed in the single Zoe Service vat.
 
-### Security Claims
+Contracts by default are private: unless the contract gives you an object by which you can get access, you do not have *any* access to the contract.
 
+Zoe specifically uses the [@agoric/ertp](../../ERTP) implementation for contract
+invitations, but when Zoe escrows assets for use in contracts, Zoe does not verify that the assets were made using the latest [@agoric/ertp](../../ERTP) implementation. 
 
-Zoe creates a separate vat for each instance of a contract. Zoe provides an internal facet (zoeForZcf) that Zcf can use, but doesn't make accessible to contracts or anyone else. The zoeForZcf facet has the instanceHandle curried in, so Zoe can tell which contract each is for. Zcf makes an interface (zcfForZoe) accessible to Zoe that Zoe doesn't share with anyone.
+A user can only receive an invitation to a contract instance if the contract code calls `zcf.makeInvitation(...`, which goes through the proper channels and asks Zoe to mint the invitation. No other contract code or other channel can create an invitation for a contract instance.
 
-Zoe deposits and commingles all the funds that are offered by contracts and their clients. Zcf is informed of the amounts, and can rearrange them using reallocate, but has no accees to the funds, other than funds it deposits directly.
+In addition to allowing developers to deploy code and create their own contract instances on the Agoric chain, Zoe provides protections to users of contracts:
 
-When a contract vat terminates, Zoe will detect that, and will call completeOffer() on all remaining offers.
+* Offer safety: a guarantee that when the user receives a payout from a smart contract, it will be what they wanted or a full refund of what they offered
+* Payout liveness: a guarantee that the user will receive a payout in a timely fashion according to the conditions in their offer
 
-When an offer is made to Zoe, Zoe will escrow the funds and notify the appropriate zcf. That zcf will create a closeObject if the exit condition calls for it, and pass it back (via Zoe) to the client. If Zcf is still functioning when that closeObject is invoked, the position will be closed out. If Zcf is non-responsive, Zoe will eventually be notified so it can clean up.
+In order for Zoe to enforce offer safety and payout liveness:
+* Zoe escrows assets for users. Contracts do not have access to the users’ assets. 
+When users make an “offer” through Zoe, users must specify what they are giving and what they want in return. This is in the form of a `proposal` object record with `want` and `give` properties, with specific ERTP amounts given and wanted.
+* Instead of getting direct access to assets, contract code can only work with “allocations” - records within Zoe of which amounts are currently allocated to which seat. 
+* Contract code can reallocate amounts among seats but *only if* two safety properties hold:
+  - Offer safety: for this particular seat, is the user’s want satisfied, or the user’s give satisfied? At least one must be satisfied or the reallocation fails.
+  - Rights conservation: For all the seats we are reallocating over,
+    have we accidentally gained or lost tokens? If so, the
+    reallocation fails.
+* ZCF in the contract vat enforces offer safety and rights conservation on every reallocation. Because allocations start in a position of offer safety (the initial allocation is what the user gave), and can only change if offer safety holds, allocations are always in an offer safe state for every offer. Additionally, rights (assets/tokens) are always conserved, as any reallocation must maintain the same amount as before. 
+* All payouts to users must go through Zoe. When a user makes an offer, they specify an “exit” rule. For example, the exit rule “onDemand” allows a user to exit the contract instance at any time according to the wishes of the user. “onDemand” is the strongest user protection. Other exit rules are “waived” (the user entirely waives the right to exit and can only exit when the contract code exits the corresponding seat) and “afterDeadline” (the seat will automatically exit the contract after the deadline specified, according to the timer specified.). Note that the contract code can exit a seat at any time, so by the time a user decides to exit, the contract code could have already exited that seat. 
+* Payout liveness requires that if the exit rule is “onDemand”, and the user tries to exit the seat, the contract code cannot prevent the user from receiving a payout, and the user receives their payout from Zoe in a time consistent with the normal processing time of withdrawing payments. 
 
-Zoe keeps a shared table of issuers. Each Zcf has a cached table containing just the issuers relevant for that contract instance.
+IMPORTANT: The full payout liveness guaranteed by Zoe is conditional on well-behaved issuers. Zoe does not protect users nor promise to protect users from misbehaving issuers. For example, when Zoe tries to create a payout for a user, Zoe is withdrawing payments from the purses that Zoe holds in escrow. Under the hood, this is interacting with the issuers for these different assets. It is very possible that one of the issuers never returns a payment or returns something other than a payment, or many other ways of misbehaving. This is not a violation of payout liveness, as users are required to carefully choose the issuers that they rely on, and Zoe can only enforce payout liveness for well-behaved issuers.
 
-Zoe enforces rights conservation and offer safety on every reallocation, so no zcf instance can get access to funds beyond what it properly manages.
+A misbehaving issuer should only affect Zoe in the following ways:
+1. Bad payout payments: 
+   - When a user has an allocation that includes an amount for a misbehaving issuer, the user will still receive a payout object.
+   - In the payout object, the user receives separate promises for
+     each payment, which resolve separately. If a misbehaving issuer
+     does not return a payment or never resolves the promise for the
+     payment, the other payments in the payout are unaffected.
+   - Only the payment for the misbehaving issuer is affected.
+2. Creating a purse hangs or fails:
+   - Zoe attempts to create an empty purse when first hearing of an issuer from the creator of a contract instance (in `startInstance`) or the contract code (`saveIssuer`) itself. 
+   - If `E(issuer).makeEmptyPurse()` errors, the `startInstance` or `saveIssuer` calls should error as well. 
+3. Getting the brand/displayInfo hangs or fails:
+   - Zoe stores the brand and displayInfo (decimalPlaces and other information to use for display in UI) for an issuer.
+   - If this fails, ‘startInstance’ or ‘saveIssuer’ should fail.
+4. Depositing hangs or fails:
+   - When a user makes an offer, and depositing a payment into Zoe’s purse for that issuer fails or hangs, then the offer call does not succeed, and any funds that were successfully deposited into the Zoe purses are no longer accessible to the user.
+   - We have a ticket for giving the user a refund of what was already
+     deposited, and offer safety and payout liveness are still
+     meaningful as long as issuers are well-behaved. For more, see
+     https://github.com/Agoric/agoric-sdk/issues/1271
+   - See packages/zoe/src/zoeService/escrowStorage.js for the Zoe code that does deposits and payout withdrawals.
 
-Zoe validates requests from Zcfs to verify that they only access their own offers and their own instance data.
+- Users can get a surprise payout payment of a brand that they didn’t specify in their proposal, if the contract code allocates an amount of that brand to their seat. This could be a misbehaving issuer, so the user’s risk is not limited to only what they specify in their proposal. However, the only downside is that the unexpected payment is junk and cannot be deposited/used, which may not be important to the user.
+ - If a user decides to rely on a misbehaving issuer, other users of the same contract who did not rely on the misbehaving issuer should not be affected.
+ - Contract instances that use misbehaving issuers should not negatively affect other contract instances.
+ - Misbehaving issuers should not be able to affect the deposit/withdrawal process for other issuers in the Zoe Service.
 
-Zoe and Zcf maintain parallel copies of the offer table, so they both know the amounts allocated to each offer. Inital offers are created through Zoe and communicated to the relevant Zcf. Requests to change the allocation originate at the Zcf, and are forwarded to Zoe, so it can keep up-to-date in order to handle completion correctly if the Zcf stops communicating. Since requests to the closeObjects go to Zcf first, they will be serialized with other requests from the contract if the contract is still functioning.
-
-
+We want to ensure there are no potential race conditions in updating allocations. An offer creates an initial allocation from the Zoe side into ZCF, but all subsequent updates come from ZCF to Zoe. We must ensure that an update from Zoe into ZCF can never cross paths with an update from ZCF into Zoe. 

@@ -1,7 +1,0 @@
-// -*- js -*-
-export default function setup(syscall, _state, _helpers, vatPowers) {
-  function deliver(target, method, args) {
-    vatPowers.testLog(JSON.stringify({ target, method, args }));
-  }
-  return { deliver };
-}

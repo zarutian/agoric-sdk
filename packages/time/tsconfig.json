@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {},
+  "include": [
+    "build",
+    "index.js",
+    "scripts",
+    "src",
+    "test",
+    "tools",
+  ],
+}

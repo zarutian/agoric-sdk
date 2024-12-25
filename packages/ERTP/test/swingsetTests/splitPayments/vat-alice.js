@@ -1,14 +1,18 @@
-import { E } from '@agoric/eventual-send';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/marshal';
+import { AmountMath } from '../../../src/index.js';
+import { split } from '../../../src/legacy-payment-helpers.js';
 
 function makeAliceMaker(log) {
-  return harden({
-    make(issuer, unitOps, oldPaymentP) {
-      const alice = harden({
+  return Far('aliceMaker', {
+    make(issuer, brand, oldPaymentP) {
+      const alice = Far('alice', {
         async testSplitPayments() {
           log('oldPayment balance:', await E(issuer).getAmountOf(oldPaymentP));
-          const splitPayments = await E(issuer).split(
+          const splitPayments = await split(
+            E(issuer).makeEmptyPurse(),
             oldPaymentP,
-            await E(unitOps).make(10),
+            AmountMath.make(brand, 10n),
           );
           log(
             'splitPayment[0] balance: ',
@@ -26,9 +30,9 @@ function makeAliceMaker(log) {
 }
 
 export function buildRootObject(vatPowers) {
-  return harden({
-    makeAliceMaker(host) {
-      return harden(makeAliceMaker(vatPowers.testLog, host));
+  return Far('root', {
+    makeAliceMaker() {
+      return makeAliceMaker(vatPowers.testLog);
     },
   });
 }

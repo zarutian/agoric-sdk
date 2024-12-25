@@ -15,6 +15,7 @@ build
 *.iml
 node_modules
 t[0-9]/
+t[0-9].*/
 
 ve[0-9]/
 ve[0-9]-client/
@@ -24,8 +25,9 @@ chains
 solo
 solo/
 
-# emacs
+# emacs and vim
 *~
+[._]*.sw[a-p]
 
 # Logs
 logs
@@ -85,6 +87,6 @@ typings/
 
 # next.js build output
 .next
-lib/git-revision.txt
-agoric/
-/binding.gyp
+
+# rosetta-cli executable 
+bin/rosetta-cli

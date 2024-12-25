@@ -1,0 +1,71 @@
+{
+  "name": "@agoric/swingset-liveslots",
+  "version": "0.10.2",
+  "description": "SwingSet ocap support layer",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": "^18.12 || ^20.9"
+  },
+  "scripts": {
+    "build": "exit 0",
+    "test": "ava",
+    "test:xs": "exit 0",
+    "lint-fix": "yarn lint:eslint --fix",
+    "lint": "run-s --continue-on-error lint:*",
+    "lint:types": "tsc",
+    "lint:eslint": "eslint ."
+  },
+  "dependencies": {
+    "@endo/errors": "^1.2.8",
+    "@agoric/internal": "^0.3.2",
+    "@agoric/store": "^0.9.2",
+    "@endo/env-options": "^1.1.8",
+    "@endo/eventual-send": "^1.2.8",
+    "@endo/exo": "^1.5.7",
+    "@endo/far": "^1.1.9",
+    "@endo/init": "^1.1.7",
+    "@endo/marshal": "^1.6.2",
+    "@endo/nat": "^5.0.13",
+    "@endo/pass-style": "^1.4.7",
+    "@endo/patterns": "^1.4.7",
+    "@endo/promise-kit": "^1.1.8"
+  },
+  "devDependencies": {
+    "ava": "^5.3.0",
+    "@agoric/kmarshal": "^0.1.0"
+  },
+  "files": [
+    "src/**/*.js",
+    "src/**/*.d.ts",
+    "test/**/*.js",
+    "tools",
+    "exported.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Agoric/agoric-sdk.git"
+  },
+  "author": "Agoric",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/Agoric/agoric-sdk/issues"
+  },
+  "homepage": "https://github.com/Agoric/agoric-sdk#readme",
+  "ava": {
+    "files": [
+      "test/**/*.test.*"
+    ],
+    "require": [
+      "@endo/init/debug.js"
+    ],
+    "timeout": "20m",
+    "workerThreads": false
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "typeCoverage": {
+    "atLeast": 75.24
+  }
+}

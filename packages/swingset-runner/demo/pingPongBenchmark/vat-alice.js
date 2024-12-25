@@ -1,14 +1,15 @@
-import { E } from '@agoric/eventual-send';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/marshal';
 
 const log = console.log;
 
-export function buildRootObject(_vatPowers) {
+export function buildRootObject() {
   let myNickname;
   let otherNickname = 'unknown';
   let otherContact = null;
 
   function makeContact() {
-    return harden({
+    return Far('contact', {
       myNameIs(nickname) {
         otherNickname = nickname;
         log(`${myNickname}: contact is now named ${otherNickname}`);
@@ -19,7 +20,7 @@ export function buildRootObject(_vatPowers) {
     });
   }
 
-  return harden({
+  return Far('root', {
     setNickname(nickname) {
       myNickname = nickname;
     },

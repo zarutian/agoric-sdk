@@ -1,10 +1,8 @@
-/* global harden */
-
-import { E } from '@agoric/eventual-send';
+import { Far, E } from '@endo/far';
 
 export function buildRootObject(vatPowers) {
   const log = vatPowers.testLog;
-  return harden({
+  return Far('root', {
     talkToBot(pbot, botName) {
       log(`=> user.talkToBot is called with ${botName}`);
       E(pbot)

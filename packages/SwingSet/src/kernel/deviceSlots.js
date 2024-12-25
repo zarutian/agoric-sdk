@@ -1,9 +1,12 @@
-/* global harden */
-
-import { mustPassByPresence, makeMarshal } from '@agoric/marshal';
-import { assert, details } from '@agoric/assert';
-import { insistVatType, makeVatSlot, parseVatSlot } from '../parseVatSlots';
-import { insistCapData } from '../capdata';
+import { Remotable, makeMarshal } from '@endo/marshal';
+import { passStyleOf } from '@endo/far';
+import { assert, Fail } from '@endo/errors';
+import {
+  insistVatType,
+  makeVatSlot,
+  parseVatSlot,
+} from '../lib/parseVatSlots.js';
+import { insistCapData } from '../lib/capdata.js';
 
 // 'makeDeviceSlots' is a subset of makeLiveSlots, for device code
 
@@ -14,6 +17,7 @@ export function makeDeviceSlots(
   forDeviceName,
   endowments,
   testLog,
+  deviceParameters,
 ) {
   assert(state.get && state.set, 'deviceSlots.build got bad "state" argument');
   assert(
@@ -27,10 +31,14 @@ export function makeDeviceSlots(
     }
   }
 
-  function makePresence(id) {
-    return harden({
+  function makePresence(id, iface = undefined) {
+    const result = {
       [`_importID_${id}`]() {},
-    });
+    };
+    if (iface === undefined) {
+      return harden(result);
+    }
+    return Remotable(iface, undefined, result);
   }
 
   const outstandingProxies = new WeakSet();
@@ -64,7 +72,7 @@ export function makeDeviceSlots(
     if (!valToSlot.has(val)) {
       // must be a new export
       // lsdebug('must be a new export', JSON.stringify(val));
-      mustPassByPresence(val);
+      assert.equal(passStyleOf(val), 'remotable');
       const slot = exportPassByPresence();
       parseVatSlot(slot); // assertion
       valToSlot.set(val, slot);
@@ -73,20 +81,20 @@ export function makeDeviceSlots(
     return valToSlot.get(val);
   }
 
-  function convertSlotToVal(slot) {
+  function convertSlotToVal(slot, iface = undefined) {
     if (!slotToVal.has(slot)) {
       let val;
       const { type, allocatedByVat } = parseVatSlot(slot);
-      assert(!allocatedByVat, details`I don't remember allocating ${slot}`);
+      !allocatedByVat || Fail`I don't remember allocating ${slot}`;
       if (type === 'object') {
         // this is a new import value
         // lsdebug(`assigning new import ${slot}`);
-        val = makePresence(slot);
+        val = makePresence(slot, iface);
         // lsdebug(` for presence`, val);
       } else if (type === 'device') {
-        throw Error(`devices should not be given other devices '${slot}'`);
+        throw Fail`devices should not be given other devices '${slot}'`;
       } else {
-        throw Error(`unrecognized slot type '${type}'`);
+        throw Fail`unrecognized slot type '${type}'`;
       }
       slotToVal.set(slot, val);
       valToSlot.set(val, slot);
@@ -94,18 +102,25 @@ export function makeDeviceSlots(
     return slotToVal.get(slot);
   }
 
-  const m = makeMarshal(convertValToSlot, convertSlotToVal);
+  const m = makeMarshal(convertValToSlot, convertSlotToVal, {
+    marshalName: `device:${forDeviceName}`,
+    serializeBodyFormat: 'smallcaps',
+    // TODO Temporary hack.
+    // See https://github.com/Agoric/agoric-sdk/issues/2780
+    errorIdNum: 50_000,
+  });
 
   function PresenceHandler(importSlot) {
     return {
-      get(target, prop) {
-        lsdebug(`PreH proxy.get(${prop})`);
-        if (prop !== `${prop}`) {
+      get(_target, prop) {
+        lsdebug(`PreH proxy.get(${String(prop)})`);
+        if (typeof prop !== 'string' && typeof prop !== 'symbol') {
           return undefined;
         }
         const p = (...args) => {
-          const capdata = m.serialize(harden(args));
-          syscall.sendOnly(importSlot, prop, capdata);
+          const methargs = [prop, args];
+          const capdata = m.serialize(harden(methargs));
+          syscall.sendOnly(importSlot, capdata);
         };
         return p;
       },
@@ -122,14 +137,10 @@ export function makeDeviceSlots(
     // a sendOnly() rather than a send(), so it doesn't return a Promise. And
     // since devices don't accept Promises either, SO(x) must be given a
     // presence, not a promise that might resolve to a presence.
-
-    if (outstandingProxies.has(x)) {
-      throw new Error('SO(SO(x)) is invalid');
-    }
+    !outstandingProxies.has(x) || Fail`SO(SO(x)) is invalid`;
     const slot = valToSlot.get(x);
-    if (!slot || parseVatSlot(slot).type !== 'object') {
-      throw new Error(`SO(x) must be called on a Presence, not ${x}`);
-    }
+    (slot && parseVatSlot(slot).type === 'object') ||
+      Fail`SO(x) must be called on a Presence, not ${x}`;
     const handler = PresenceHandler(slot);
     const p = harden(new Proxy({}, handler));
     outstandingProxies.add(p);
@@ -160,10 +171,12 @@ export function makeDeviceSlots(
     setDeviceState,
     testLog,
     endowments,
+    deviceParameters,
+    serialize: m.serialize, // We deliberately do not provide m.deserialize
   });
-  mustPassByPresence(rootObject);
+  assert.equal(passStyleOf(rootObject), 'remotable');
 
-  const rootSlot = makeVatSlot('device', true, 0);
+  const rootSlot = makeVatSlot('device', true, 0n);
   valToSlot.set(rootObject, rootSlot);
   slotToVal.set(rootSlot, rootObject);
 
@@ -172,6 +185,13 @@ export function makeDeviceSlots(
 
   // this function throws an exception if anything goes wrong, or if the
   // device node itself throws an exception during invocation
+  /**
+   *
+   * @param {string} deviceID
+   * @param {string} method
+   * @param {SwingSetCapData} args
+   * @returns {DeviceInvocationResult}
+   */
   function invoke(deviceID, method, args) {
     insistVatType('device', deviceID);
     insistCapData(args);
@@ -181,23 +201,27 @@ export function makeDeviceSlots(
     );
     const t = slotToVal.get(deviceID);
     if (!(method in t)) {
-      throw new TypeError(
+      throw TypeError(
         `target[${method}] does not exist, has ${Object.getOwnPropertyNames(
           t,
         )}`,
       );
     }
-    if (!(t[method] instanceof Function)) {
-      throw new TypeError(
-        `target[${method}] is not a function, typeof is ${typeof t[
-          method
-        ]}, has ${Object.getOwnPropertyNames(t)}`,
+    const fn = t[method];
+    const ftype = typeof fn;
+    if (ftype !== 'function') {
+      throw TypeError(
+        `target[${method}] is not a function, typeof is ${ftype}, has ${Object.getOwnPropertyNames(
+          t,
+        )}`,
       );
     }
-    const res = t[method](...m.unserialize(args));
-    const vres = harden(['ok', m.serialize(res)]);
+    const res = fn.apply(t, m.unserialize(args));
+    const vres = m.serialize(res);
+    /** @type { DeviceInvocationResultOk } */
+    const ires = harden(['ok', vres]);
     lsdebug(` results ${vres.body} ${JSON.stringify(vres.slots)}`);
-    return vres;
+    return ires;
   }
 
   return harden({ invoke });

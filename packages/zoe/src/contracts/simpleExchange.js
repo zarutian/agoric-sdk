@@ -1,26 +1,25 @@
-// @ts-check
-
 import { makeNotifierKit } from '@agoric/notifier';
+import { Far } from '@endo/marshal';
 
-import '../../exported';
 import {
   swap,
   satisfies,
   assertProposalShape,
   assertIssuerKeywords,
-} from '../contractSupport/zoeHelpers';
+} from '../contractSupport/zoeHelpers.js';
 
 /**
  * SimpleExchange is an exchange with a simple matching algorithm, which allows
  * an unlimited number of parties to create new orders or accept existing
  * orders. The notifier allows callers to find the current list of orders.
+ * https://agoric.com/documentation/zoe/guide/contracts/simple-exchange.html
  *
  * The SimpleExchange uses Asset and Price as its keywords. The contract treats
  * the two keywords symmetrically. New offers can be created and existing offers
  * can be accepted in either direction.
  *
- * { give: { 'Asset', simoleans(5) }, want: { 'Price', quatloos(3) } }
- * { give: { 'Price', quatloos(8) }, want: { 'Asset', simoleans(3) } }
+ * { give: { 'Asset', simoleans(5n) }, want: { 'Price', quatloos(3) } }
+ * { give: { 'Price', quatloos(8) }, want: { 'Asset', simoleans(3n) } }
  *
  * The Asset is treated as an exact amount to be exchanged, while the
  * Price is a limit that may be improved on. This simple exchange does
@@ -28,12 +27,11 @@ import {
  *
  * The publicFacet is returned from the contract.
  *
- * @type {ContractStartFn}
+ * @param {ZCF} zcf
  */
 const start = zcf => {
   let sellSeats = [];
   let buySeats = [];
-  // eslint-disable-next-line no-use-before-define
   const { notifier, updater } = makeNotifierKit(getBookOrders());
 
   assertIssuerKeywords(zcf, harden(['Asset', 'Price']));
@@ -95,51 +93,44 @@ const start = zcf => {
     return counterOffers;
   }
 
-  const sellAssetForPrice = harden({
-    give: { Asset: null },
-    want: { Price: null },
-  });
-
   const sell = seat => {
+    assertProposalShape(seat, {
+      give: { Asset: null },
+      want: { Price: null },
+    });
     buySeats = swapIfCanTradeAndUpdateBook(buySeats, sellSeats, seat);
-    return 'Trade Successful';
+    return 'Order Added';
   };
-
-  const sellHandler = assertProposalShape(sell, sellAssetForPrice);
-
-  const buyAssetForPrice = harden({
-    give: { Price: null },
-    want: { Asset: null },
-  });
 
   const buy = seat => {
+    assertProposalShape(seat, {
+      give: { Price: null },
+      want: { Asset: null },
+    });
     sellSeats = swapIfCanTradeAndUpdateBook(sellSeats, buySeats, seat);
-    return 'Trade Successful';
+    return 'Order Added';
   };
-
-  const buyHandler = assertProposalShape(buy, buyAssetForPrice);
 
   /** @type {OfferHandler} */
   const exchangeOfferHandler = seat => {
     // Buy Order
     if (seat.getProposal().want.Asset) {
-      return buyHandler(seat);
+      return buy(seat);
     }
     // Sell Order
     if (seat.getProposal().give.Asset) {
-      return sellHandler(seat);
+      return sell(seat);
     }
     // Eject because the offer must be invalid
-    throw seat.kickOut(
-      new Error(`The proposal did not match either a buy or sell order.`),
+    throw seat.fail(
+      Error(`The proposal did not match either a buy or sell order.`),
     );
   };
 
   const makeExchangeInvitation = () =>
     zcf.makeInvitation(exchangeOfferHandler, 'exchange');
 
-  /** @type {SimpleExchangePublicFacet} */
-  const publicFacet = harden({
+  const publicFacet = Far('SimpleExchangePublicFacet', {
     makeInvitation: makeExchangeInvitation,
     getNotifier: () => notifier,
   });

@@ -9,15 +9,13 @@ lib-cov
 
 # Coverage directory used by tools like istanbul
 coverage
+coverage.txt
 
-# nyc test coverage
-.nyc_output
+# Profiling output
+*.heapsnapshot
 
 # Grunt intermediate storage (http://gruntjs.com/creating-plugins#storing-task-files)
 .grunt
-
-# Bower dependency directory (https://bower.io/)
-bower_components
 
 # node-waf configuration
 .lock-wscript
@@ -44,18 +42,40 @@ typings/
 # Output of 'npm pack'
 *.tgz
 
-# Yarn Integrity file
-.yarn-integrity
+# Yarn (https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored)
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
 
 # dotenv environment variables file
 .env
 
-# next.js build output
+# build output
+_agstate
 .next
-
-# bundles
+build
+bundles
 bundle-*.js
+compiled
+dist
+api-docs
+
+# misc
 /.vagrant
 .DS_Store
 .vscode/
 .idea/
+
+/packages-graph*
+
+chaintest
+_testoutput.txt
+
+
+junit.xml
+endo-sha.txt
+.aider*

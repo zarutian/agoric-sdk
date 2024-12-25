@@ -1,31 +1,35 @@
-// @ts-check
+// @jessie-check
 
-import Nat from '@agoric/nat';
+import { Fail } from '@endo/errors';
+import { Nat, isNat } from '@endo/nat';
 
-import '../types';
+/** @import {MathHelpers, NatValue} from '../types.js' */
 
-const identity = 0;
+const empty = 0n;
 
 /**
- * Fungible digital assets use the natMathHelpers to manage balances -
- * the operations are merely arithmetic on natural, non-negative
- * numbers.
+ * Fungible digital assets use the natMathHelpers to manage balances - the
+ * operations are merely arithmetic on natural, non-negative numbers.
  *
- * Natural numbers are used for fungible erights such as money because
- * rounding issues make floats problematic. All operations should be
- * done with the smallest whole unit such that the NatMathHelpers never
- * deals with fractional parts.
- * @type {MathHelpers}
+ * Natural numbers are used for fungible erights such as money because rounding
+ * issues make floats problematic. All operations should be done with the
+ * smallest whole unit such that the `natMathHelpers` never deals with
+ * fractional parts.
+ *
+ * @type {MathHelpers<NatValue>}
  */
-const natMathHelpers = harden({
-  doCoerce: Nat,
-  doGetEmpty: _ => identity,
-  doIsEmpty: nat => nat === identity,
+export const natMathHelpers = harden({
+  doCoerce: nat => {
+    // TODO: tighten the definition of Nat in @agoric/nat to throw on `number`
+    assert.typeof(nat, 'bigint');
+    isNat(nat) || Fail`value ${nat} must be a natural number`;
+    return Nat(nat);
+  },
+  doMakeEmpty: () => empty,
+  doIsEmpty: nat => nat === empty,
   doIsGTE: (left, right) => left >= right,
   doIsEqual: (left, right) => left === right,
-  doAdd: (left, right) => Nat(left + right),
+  // BigInts don't observably overflow
+  doAdd: (left, right) => left + right,
   doSubtract: (left, right) => Nat(left - right),
 });
-
-harden(natMathHelpers);
-export default natMathHelpers;

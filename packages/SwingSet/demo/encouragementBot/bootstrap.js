@@ -1,11 +1,10 @@
-/* global harden */
-import { E } from '@agoric/eventual-send';
+import { Far, E } from '@endo/far';
 
 console.log(`=> loading bootstrap.js`);
 
 export function buildRootObject(vatPowers) {
   const log = vatPowers.testLog;
-  return harden({
+  return Far('root', {
     bootstrap(vats) {
       console.log('=> bootstrap() called');
       E(vats.user)

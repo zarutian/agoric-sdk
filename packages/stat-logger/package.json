@@ -1,7 +1,8 @@
 {
   "name": "@agoric/stat-logger",
-  "version": "0.3.0",
+  "version": "0.4.28",
   "description": "Simple library for logging and graphing performance statistics",
+  "type": "module",
   "main": "src/index.js",
   "repository": "https://github.com/Agoric/agoric-sdk",
   "author": "Agoric",
@@ -9,21 +10,34 @@
   "scripts": {
     "build": "exit 0",
     "test": "exit 0",
-    "lint-fix": "eslint --fix '**/*.js'",
-    "lint-check": "eslint '**/*.js'"
+    "test:xs": "exit 0",
+    "lint": "run-s --continue-on-error lint:*",
+    "lint-fix": "yarn lint:eslint --fix",
+    "lint:eslint": "eslint ."
   },
   "dependencies": {
+    "@endo/errors": "^1.2.8"
+  },
+  "peerDependencies": {
     "canvas": "^2.6.1",
-    "vega": "^5.10.0",
+    "vega": "^5.22.1",
     "vega-canvas": "^1.2.1"
   },
-  "devDependencies": {
-    "esm": "^3.2.25",
-    "tap-spec": "^5.0.0",
-    "tape": "^4.10.2",
-    "tape-promise": "^4.0.0"
+  "peerDependenciesMeta": {
+    "canvas": {
+      "optional": true
+    },
+    "vega": {
+      "optional": true
+    },
+    "vega-canvas": {
+      "optional": true
+    }
   },
   "publishConfig": {
     "access": "public"
+  },
+  "typeCoverage": {
+    "atLeast": 63.11
   }
 }

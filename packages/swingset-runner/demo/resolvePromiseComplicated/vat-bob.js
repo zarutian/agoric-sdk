@@ -1,11 +1,12 @@
-import { E } from '@agoric/eventual-send';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/marshal';
 
 const log = console.log;
 
-export function buildRootObject(_vatPowers) {
+export function buildRootObject() {
   let resolver;
   let carol;
-  return harden({
+  return Far('root', {
     first(carolVat) {
       log('=> Bob: in first');
       const answer = new Promise((theResolver, _theRejector) => {
@@ -23,7 +24,7 @@ export function buildRootObject(_vatPowers) {
         r => log(`=> Bob: the parameter to second resolved to '${r}'`),
         e => log(`=> Bob: the parameter to second rejected as '${e}'`),
       );
-      Promise.resolve().then(E(carol).bar(p));
+      void Promise.resolve().then(E(carol).bar(p));
       log('=> Bob: second done');
       return `Bob's second answer`;
     },

@@ -1,6 +1,10 @@
-// @ts-check
+// @jessie-check
 
-import { importBundle } from '@agoric/import-bundle';
+// NB: cannot import, breaks bundle building
+/* global globalThis */
+
+import { importBundle } from '@endo/import-bundle';
+import { handlePWarning } from '../handleWarning.js';
 
 const evalContractBundle = (bundle, additionalEndowments = {}) => {
   // Make the console more verbose.
@@ -11,6 +15,9 @@ const evalContractBundle = (bundle, additionalEndowments = {}) => {
 
   const defaultEndowments = {
     console: louderConsole,
+    // See https://github.com/Agoric/agoric-sdk/issues/9515
+    assert: globalThis.assert,
+    VatData: globalThis.VatData,
   };
 
   const fullEndowments = Object.create(null, {
@@ -24,6 +31,7 @@ const evalContractBundle = (bundle, additionalEndowments = {}) => {
   const installation = importBundle(bundle, {
     endowments: fullEndowments,
   });
+  handlePWarning(installation);
   return installation;
 };
 

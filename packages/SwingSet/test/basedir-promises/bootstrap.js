@@ -1,16 +1,16 @@
-/* global harden */
+import { makePromiseKit } from '@endo/promise-kit';
+import { Far, E } from '@endo/far';
 
-import { E } from '@agoric/eventual-send';
-import { makePromiseKit } from '@agoric/promise-kit';
+import { Fail } from '@endo/errors';
 
 export function buildRootObject(vatPowers, vatParameters) {
   const log = vatPowers.testLog;
-  return harden({
+  return Far('root', {
     bootstrap(vats) {
       const mode = vatParameters.argv[0];
       if (mode === 'flush') {
-        Promise.resolve().then(log('then1'));
-        Promise.resolve().then(log('then2'));
+        void Promise.resolve('then1').then(log);
+        void Promise.resolve('then2').then(log);
       } else if (mode === 'e-then') {
         E(vats.left)
           .callRight(1, vats.right)
@@ -29,17 +29,17 @@ export function buildRootObject(vatPowers, vatParameters) {
         p2.then(x => log(`b.resolved ${x}`));
         log(`b.call2`);
       } else if (mode === 'local1') {
-        const t1 = harden({
+        const t1 = Far('t1', {
           foo(arg) {
             log(`local.foo ${arg}`);
             return 2;
           },
         });
         const p1 = E(t1).foo(1);
-        p1.then(x => log(`b.resolved ${x}`));
+        void p1.then(x => log(`b.resolved ${x}`));
         log(`b.local1.finish`);
       } else if (mode === 'local2') {
-        const t1 = harden({
+        const t1 = Far('t1', {
           foo(arg) {
             log(`local.foo ${arg}`);
             return 3;
@@ -50,16 +50,14 @@ export function buildRootObject(vatPowers, vatParameters) {
         p2.then(x => log(`b.resolved ${x}`));
         log(`b.local2.finish`);
       } else if (mode === 'send-promise1') {
-        const t1 = harden({
+        const t1 = Far('t1', {
           foo(arg) {
             log(`local.foo ${arg}`);
             return 3;
           },
         });
         const { promise: p1, resolve: r1 } = makePromiseKit();
-        console.log(`here1`, Object.isFrozen(p1));
         const p2 = E(vats.left).takePromise(p1);
-        console.log(`here2`);
         p2.then(x => log(`b.resolved ${x}`));
         r1(t1);
         log(`b.send-promise1.finish`);
@@ -76,7 +74,7 @@ export function buildRootObject(vatPowers, vatParameters) {
         p2.then(x => log(`b.resolved ${x}`));
         log(`b.call-promise1.finish`);
       } else {
-        throw Error(`unknown mode ${mode}`);
+        Fail`unknown mode ${mode}`;
       }
     },
   });

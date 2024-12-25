@@ -1,3 +1,5 @@
+import { Far } from '@endo/marshal';
+
 const log = console.log;
 
 function makePR() {
@@ -8,20 +10,20 @@ function makePR() {
   return [p, r];
 }
 
-export function buildRootObject(_vatPowers) {
+export function buildRootObject() {
   let r1;
   let r2;
-  return harden({
+  return Far('root', {
     first() {
       log('=> Bob: first begins');
       let p1;
-      [p1, r1] = makePR();
+      void ([p1, r1] = makePR());
       return p1;
     },
     second(p) {
       log('=> Bob: second begins');
       let p2;
-      [p2, r2] = makePR();
+      void ([p2, r2] = makePR());
       r1([p2]);
       p.then(
         r => log(`=> Bob: second(p) resolved to '${r}'`),

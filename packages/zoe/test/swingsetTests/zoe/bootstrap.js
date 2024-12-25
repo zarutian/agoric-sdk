@@ -1,17 +1,7 @@
-import { E } from '@agoric/eventual-send';
-import { makeIssuerKit } from '@agoric/ertp';
-import buildManualTimer from '../../../tools/manualTimer';
-
-/* eslint-disable import/no-unresolved, import/extensions */
-import automaticRefundBundle from './bundle-automaticRefund';
-import coveredCallBundle from './bundle-coveredCall';
-import publicAuctionBundle from './bundle-publicAuction';
-import atomicSwapBundle from './bundle-atomicSwap';
-import simpleExchangeBundle from './bundle-simpleExchange';
-import autoswapBundle from './bundle-autoswap';
-import sellItemsBundle from './bundle-sellItems';
-import mintAndSellNFTBundle from './bundle-mintAndSellNFT';
-/* eslint-enable import/no-unresolved, import/extensions */
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/marshal';
+import { makeIssuerKit, AmountMath } from '@agoric/ertp';
+import buildManualTimer from '../../../tools/manualTimer.js';
 
 const setupBasicMints = () => {
   const all = [
@@ -21,20 +11,22 @@ const setupBasicMints = () => {
   ];
   const mints = all.map(objs => objs.mint);
   const issuers = all.map(objs => objs.issuer);
-  const amountMaths = all.map(objs => objs.amountMath);
+  const brands = all.map(objs => objs.brand);
 
   return harden({
     mints,
     issuers,
-    amountMaths,
+    brands,
   });
 };
 
 const makeVats = (log, vats, zoe, installations, startingValues) => {
   const timer = buildManualTimer(log);
-  const { mints, issuers, amountMaths } = setupBasicMints();
+  const { mints, issuers, brands } = setupBasicMints();
   const makePayments = values =>
-    mints.map((mint, i) => mint.mintPayment(amountMaths[i].make(values[i])));
+    mints.map((mint, i) =>
+      mint.mintPayment(AmountMath.make(brands[i], BigInt(values[i]))),
+    );
   const [aliceValues, bobValues, carolValues, daveValues] = startingValues;
 
   // Setup Alice
@@ -59,6 +51,7 @@ const makeVats = (log, vats, zoe, installations, startingValues) => {
     aliceP,
     bobP,
   };
+  let logMessage = 'alice and bob';
 
   if (carolValues) {
     const carolP = E(vats.carol).build(
@@ -69,6 +62,7 @@ const makeVats = (log, vats, zoe, installations, startingValues) => {
       timer,
     );
     result.carolP = carolP;
+    logMessage = 'alice, bob, and carol';
   }
 
   if (daveValues) {
@@ -80,31 +74,39 @@ const makeVats = (log, vats, zoe, installations, startingValues) => {
       timer,
     );
     result.daveP = daveP;
+    logMessage = 'alice, bob, carol and dave';
   }
 
-  log(`=> alice, bob, carol and dave are set up`);
+  log(`=> ${logMessage} are set up`);
   return harden(result);
 };
 
 export function buildRootObject(vatPowers, vatParameters) {
-  const obj0 = {
+  const { D } = vatPowers;
+  const { argv } = vatParameters;
+  return Far('root', {
     async bootstrap(vats, devices) {
       const vatAdminSvc = await E(vats.vatAdmin).createVatAdminService(
         devices.vatAdmin,
       );
-      const zoe = await E(vats.zoe).buildZoe(vatAdminSvc);
-      const installations = {
-        automaticRefund: await E(zoe).install(automaticRefundBundle.bundle),
-        coveredCall: await E(zoe).install(coveredCallBundle.bundle),
-        publicAuction: await E(zoe).install(publicAuctionBundle.bundle),
-        atomicSwap: await E(zoe).install(atomicSwapBundle.bundle),
-        simpleExchange: await E(zoe).install(simpleExchangeBundle.bundle),
-        autoswap: await E(zoe).install(autoswapBundle.bundle),
-        sellItems: await E(zoe).install(sellItemsBundle.bundle),
-        mintAndSellNFT: await E(zoe).install(mintAndSellNFTBundle.bundle),
-      };
+      /** @type {{zoeService: ERef<ZoeService>}} */
+      const { zoeService: zoe } = await E(vats.zoe).buildZoe(
+        vatAdminSvc,
+        undefined,
+        'zcf',
+      );
+      const installations = {};
+      const installedPs = vatParameters.contractNames.map(name =>
+        E(vatAdminSvc)
+          .getNamedBundleCap(name)
+          .then(bcap => E(zoe).installBundleID(D(bcap).getBundleID()))
+          .then(installation => {
+            installations[name] = installation;
+          }),
+      );
+      await Promise.all(installedPs);
 
-      const [testName, startingValues] = vatParameters.argv;
+      const [testName, startingValues] = argv;
 
       const { aliceP, bobP, carolP, daveP } = makeVats(
         vatPowers.testLog,
@@ -115,6 +117,5 @@ export function buildRootObject(vatPowers, vatParameters) {
       );
       await E(aliceP).startTest(testName, bobP, carolP, daveP);
     },
-  };
-  return harden(obj0);
+  });
 }

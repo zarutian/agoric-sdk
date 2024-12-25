@@ -1,0 +1,54 @@
+{
+  "name": "@agoric/swing-store",
+  "version": "0.9.1",
+  "description": "Persistent storage for SwingSet",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "repository": "https://github.com/Agoric/agoric-sdk",
+  "author": "Agoric",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "exit 0",
+    "test": "ava",
+    "test:c8": "c8 --all $C8_OPTIONS ava",
+    "test:xs": "exit 0",
+    "lint-fix": "yarn lint:eslint --fix",
+    "lint": "run-s --continue-on-error lint:*",
+    "lint:types": "tsc",
+    "lint:eslint": "eslint ."
+  },
+  "dependencies": {
+    "@endo/errors": "^1.2.8",
+    "@agoric/internal": "^0.3.2",
+    "@endo/base64": "^1.0.9",
+    "@endo/bundle-source": "^3.5.0",
+    "@endo/check-bundle": "^1.0.12",
+    "@endo/nat": "^5.0.13",
+    "better-sqlite3": "^9.1.1"
+  },
+  "devDependencies": {
+    "@endo/init": "^1.1.7",
+    "@types/better-sqlite3": "^7.6.9",
+    "ava": "^5.3.0",
+    "c8": "^10.1.2",
+    "tmp": "^0.2.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "ava": {
+    "files": [
+      "test/**/*.test.*"
+    ],
+    "require": [
+      "@endo/init/debug.js"
+    ],
+    "timeout": "2m"
+  },
+  "typeCoverage": {
+    "atLeast": 79.04
+  }
+}

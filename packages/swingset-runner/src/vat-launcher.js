@@ -1,6 +1,7 @@
-import { E } from '@agoric/eventual-send';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/marshal';
 
-/**
+/*
  * Vat to launch other vats.
  *
  * This vat is designed to enable a statically configured swingset vat group to
@@ -23,9 +24,10 @@ import { E } from '@agoric/eventual-send';
 export function buildRootObject(_vatPowers, vatParameters) {
   let bootstrapRoot;
 
-  return harden({
+  return Far('root', {
     async bootstrap(vats, devices) {
       const vatMaker = E(vats.vatAdmin).createVatAdminService(devices.vatAdmin);
+      const criticalVatKey = await E(vats.vatAdmin).getCriticalVatKey();
       const vatRoots = {};
       for (const vatName of Object.keys(vatParameters.config.vats)) {
         const vatDesc = vatParameters.config.vats[vatName];
@@ -36,18 +38,21 @@ export function buildRootObject(_vatPowers, vatParameters) {
         if (vatParameters.config.bootstrap === vatName) {
           subvatParameters.argv = vatParameters.argv;
         }
+        let critical = vatDesc.critical;
+        if (critical) {
+          critical = criticalVatKey;
+        }
         // prettier-ignore
-        // eslint-disable-next-line no-await-in-loop
         const vat = await E(vatMaker).createVatByName(
           bundleName,
-          { metered: vatParameters.metered, vatParameters: subvatParameters },
+          { vatParameters: harden(subvatParameters), critical },
         );
         vatRoots[vatName] = vat.root;
       }
       vatRoots.vatAdmin = vats.vatAdmin;
       bootstrapRoot = vatRoots[vatParameters.config.bootstrap];
       // prettier-ignore
-      return E(bootstrapRoot).bootstrap(vatRoots, devices);
+      return E(bootstrapRoot).bootstrap(harden(vatRoots), devices);
     },
     runBenchmarkRound() {
       return E(bootstrapRoot).runBenchmarkRound();

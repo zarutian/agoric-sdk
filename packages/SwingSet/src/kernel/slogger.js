@@ -1,42 +1,151 @@
-/* global harden */
-import { assert } from '@agoric/assert';
+import { q } from '@endo/errors';
 
 const IDLE = 'idle';
 const STARTUP = 'startup';
 const DELIVERY = 'delivery';
 
-export function makeDummySlogger(makeConsole) {
+function makeCallbackRegistry(callbacks) {
+  const todo = new Set(Object.keys(callbacks));
   return harden({
-    addVat: () => 0,
-    vatConsole: () => makeConsole('disabled slogger'),
-    startup: () => () => 0, // returns nop finish() function
-    delivery: () => () => 0,
-    syscall: () => () => 0,
+    /**
+     * Robustly wrap a method with a callbacks[method] function, if defined.  We
+     * incur no runtime overhead if the given callback method isn't defined.
+     *
+     * @param {string} method wrap with callbacks[method]
+     * @param {(...args: Array<unknown>) => unknown} impl the original
+     * implementation of the method
+     * @returns {(...args: Array<unknown>) => unknown} the wrapped method if the
+     * callback is defined, or original method if not
+     */
+    registerCallback(method, impl) {
+      todo.delete(method);
+      const cb = callbacks[method];
+      if (!cb) {
+        // No registered callback, just use the implementation directly.
+        // console.error('no registered callback for', method);
+        return impl;
+      }
+
+      return (...args) => {
+        // Invoke the implementation first.
+        const ret = impl(...args);
+        try {
+          // Allow the callback to observe the call synchronously, and affect
+          // the finisher function, but not to throw an exception.
+          const cbRet = cb(method, args, ret);
+          if (typeof ret === 'function') {
+            // We wrap the finisher in the callback's return value.
+            return (...finishArgs) => {
+              try {
+                return cbRet(...finishArgs);
+              } catch (e) {
+                console.error(
+                  `failed to call registered ${method}.finish function:`,
+                  e,
+                );
+              }
+              return ret(...args);
+            };
+          }
+          // We just return the callback's return value.
+          return cbRet;
+        } catch (e) {
+          console.error('failed to call registered', method, 'callback:', e);
+        }
+        return ret;
+      };
+    },
+    /**
+     * Declare that all the methods have been registered.
+     *
+     * @param {string} errorUnusedMsg message to display if there are callback
+     * names that don't correspond to a registration
+     */
+    doneRegistering(errorUnusedMsg = `Unrecognized callback names:`) {
+      const cbNames = [...todo.keys()];
+      if (!cbNames.length) {
+        return;
+      }
+      console.warn(errorUnusedMsg, cbNames.map(q).sort().join(', '));
+    },
   });
 }
 
-export function makeSlogger(writeObj) {
-  const write = writeObj ? e => writeObj(harden(e)) : () => 0;
+/**
+ * @param {*} slogCallbacks
+ * @param {Pick<Console, 'debug'|'log'|'info'|'warn'|'error'>} dummyConsole
+ * @returns {KernelSlog}
+ */
+export function makeDummySlogger(slogCallbacks, dummyConsole) {
+  const { registerCallback: reg, doneRegistering } =
+    makeCallbackRegistry(slogCallbacks);
+  const dummySlogger = harden({
+    provideVatSlogger: reg('provideVatSlogger', () =>
+      harden({
+        vatSlog: {
+          delivery: () => () => 0,
+        },
+      }),
+    ),
+    vatConsole: reg('vatConsole', () => dummyConsole),
+    startup: reg('startup', () => () => 0), // returns nop finish() function
+    replayVatTranscript: reg('replayVatTranscript', () => () => 0),
+    delivery: reg('delivery', () => () => 0),
+    syscall: reg('syscall', () => () => 0),
+    changeCList: reg('changeCList', () => () => 0),
+    terminateVat: reg('terminateVat', () => () => 0),
+    write: () => 0,
+  });
+  doneRegistering(`Unrecognized makeDummySlogger slogCallbacks names:`);
+  // @ts-expect-error xxx
+  return dummySlogger;
+}
+
+/**
+ * @param {*} slogCallbacks
+ * @param {*} writeObj
+ * @returns {KernelSlog}
+ */
+export function makeSlogger(slogCallbacks, writeObj) {
+  const safeWrite = e => {
+    try {
+      writeObj(e);
+    } catch (err) {
+      console.error('WARNING: slogger write error', err);
+    }
+  };
+  const write = writeObj ? safeWrite : () => 0;
 
   const vatSlogs = new Map(); // vatID -> vatSlog
 
   function makeVatSlog(vatID) {
     let state = IDLE; // or STARTUP or DELIVERY
     let crankNum;
-    let deliveryNum = 0;
+    let deliveryNum;
     let syscallNum;
+    let replay = false;
 
-    function assertOldState(exp, msg) {
-      assert(state === exp, `vat ${vatID} in ${state}, not ${exp}: ${msg}`);
+    function checkOldState(exp, msg) {
+      if (state !== exp) {
+        console.error(
+          `WARNING: slogger state confused: vat ${vatID} in ${state}, not ${exp}: ${msg}`,
+        );
+        write({ type: 'slogger-confused', vatID, state, exp, msg });
+      }
     }
 
-    function vatConsole(origConsole) {
+    function vatConsole(sourcedConsole) {
       const vc = {};
       for (const level of ['debug', 'log', 'info', 'warn', 'error']) {
-        vc[level] = (...args) => {
-          origConsole[level](...args);
+        vc[level] = (sourceTag, ...args) => {
+          if (replay) {
+            // Don't duplicate stale console output.
+            return;
+          }
+          sourcedConsole[level](sourceTag, ...args);
           const when = { state, crankNum, vatID, deliveryNum };
-          write({ type: 'console', ...when, level, args });
+          const source = sourceTag === 'ls' ? 'liveslots' : sourceTag;
+          write({ type: 'console', source, ...when, level, args });
         };
       }
       return harden(vc);
@@ -44,28 +153,31 @@ export function makeSlogger(writeObj) {
 
     function startup() {
       // provide a context for console calls during startup
-      assertOldState(IDLE, 'did startup get called twice?');
+      checkOldState(IDLE, 'did startup get called twice?');
       state = STARTUP;
+      write({ type: 'vat-startup-start', vatID });
       function finish() {
-        assertOldState(STARTUP, 'startup-finish called twice?');
+        checkOldState(STARTUP, 'startup-finish called twice?');
         state = IDLE;
+        write({ type: 'vat-startup-finish', vatID });
       }
       return harden(finish);
     }
 
     // kd: kernelDelivery, vd: vatDelivery
-    function delivery(newCrankNum, kd, vd) {
-      assertOldState(IDLE, 'reentrant delivery?');
+    function delivery(newCrankNum, newDeliveryNum, kd, vd, inReplay = false) {
+      checkOldState(IDLE, 'reentrant delivery?');
       state = DELIVERY;
       crankNum = newCrankNum;
-      const when = { crankNum, vatID, deliveryNum };
+      deliveryNum = newDeliveryNum;
+      replay = inReplay;
+      const when = { crankNum, vatID, deliveryNum, replay };
       write({ type: 'deliver', ...when, kd, vd });
-      deliveryNum += 1;
       syscallNum = 0;
 
       // dr: deliveryResult
       function finish(dr) {
-        assertOldState(DELIVERY, 'delivery-finish called twice?');
+        checkOldState(DELIVERY, 'delivery-finish called twice?');
         write({ type: 'deliver-result', ...when, dr });
         state = IDLE;
       }
@@ -74,38 +186,104 @@ export function makeSlogger(writeObj) {
 
     // ksc: kernelSyscallObject, vsc: vatSyscallObject
     function syscall(ksc, vsc) {
-      assertOldState(DELIVERY, 'syscall invoked outside of delivery');
-      const when = { crankNum, vatID, deliveryNum, syscallNum };
+      checkOldState(DELIVERY, 'syscall invoked outside of delivery');
+      const when = { crankNum, vatID, deliveryNum, syscallNum, replay };
       write({ type: 'syscall', ...when, ksc, vsc });
       syscallNum += 1;
 
       // ksr: kernelSyscallResult, vsr: vatSyscallResult
       function finish(ksr, vsr) {
-        assertOldState(DELIVERY, 'syscall finished after delivery?');
+        checkOldState(DELIVERY, 'syscall finished after delivery?');
         write({ type: 'syscall-result', ...when, ksr, vsr });
       }
       return harden(finish);
     }
-    return harden({ vatConsole, startup, delivery, syscall });
+
+    // mode: 'import' | 'export' | 'drop'
+    function changeCList(crank, mode, kobj, vobj) {
+      write({ type: 'clist', crankNum: crank, mode, vatID, kobj, vobj });
+    }
+
+    function terminateVat(shouldReject, info) {
+      write({ type: 'terminate', vatID, shouldReject, info });
+    }
+
+    return harden({
+      vatConsole,
+      startup,
+      delivery,
+      syscall,
+      changeCList,
+      terminateVat,
+    });
   }
 
-  function addVat(vatID, dynamic, description) {
-    assert(!vatSlogs.has(vatID), `already have slog for ${vatID}`);
+  function provideVatSlogger(
+    vatID,
+    dynamic,
+    description,
+    name,
+    vatSourceBundle,
+    managerType,
+    vatParameters,
+  ) {
+    const found = vatSlogs.get(vatID);
+    if (found) {
+      return { vatSlog: found, starting: false };
+    }
     const vatSlog = makeVatSlog(vatID);
     vatSlogs.set(vatID, vatSlog);
-    write({ type: 'create-vat', vatID, dynamic, description });
-    return vatSlog;
+    write({
+      type: 'create-vat',
+      vatID,
+      dynamic,
+      description,
+      name,
+      managerType,
+      vatParameters,
+      vatSourceBundle,
+    });
+    return { vatSlog, starting: true };
+  }
+
+  function replayVatTranscript(vatID) {
+    write({ type: 'replay-transcript-start', vatID });
+    function finish() {
+      write({ type: 'replay-transcript-finish', vatID });
+    }
+    return harden(finish);
   }
 
   // function annotateVat(vatID, data) {
   //   write({ type: 'annotate-vat', vatID, data });
   // }
 
-  return harden({
-    addVat,
-    vatConsole: (vatID, ...args) => vatSlogs.get(vatID).vatConsole(...args),
-    startup: (vatID, ...args) => vatSlogs.get(vatID).startup(...args),
-    delivery: (vatID, ...args) => vatSlogs.get(vatID).delivery(...args),
-    syscall: (vatID, ...args) => vatSlogs.get(vatID).syscall(...args),
+  const { registerCallback: reg, doneRegistering } =
+    makeCallbackRegistry(slogCallbacks);
+  const slogger = harden({
+    provideVatSlogger: reg('provideVatSlogger', provideVatSlogger),
+    vatConsole: reg('vatConsole', (vatID, ...args) =>
+      provideVatSlogger(vatID).vatSlog.vatConsole(...args),
+    ),
+    startup: reg('startup', (vatID, ...args) =>
+      provideVatSlogger(vatID).vatSlog.startup(...args),
+    ),
+    replayVatTranscript,
+    delivery: reg('delivery', (vatID, ...args) =>
+      provideVatSlogger(vatID).vatSlog.delivery(...args),
+    ),
+    syscall: reg('syscall', (vatID, ...args) =>
+      provideVatSlogger(vatID).vatSlog.syscall(...args),
+    ),
+    changeCList: reg('changeCList', (vatID, ...args) =>
+      provideVatSlogger(vatID).vatSlog.changeCList(...args),
+    ),
+    terminateVat: reg('terminateVat', (vatID, ...args) =>
+      provideVatSlogger(vatID).vatSlog.terminateVat(...args),
+    ),
+    write,
   });
+  doneRegistering(`Unrecognized makeSlogger slogCallbacks names:`);
+  // @ts-expect-error xxx
+  return slogger;
 }

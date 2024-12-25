@@ -1,11 +1,12 @@
-/* global harden */
-
 function sub() {
   return 4;
 }
 
 function delveForeverIntoTheRecursiveDepths() {
-  return delveForeverIntoTheRecursiveDepths();
+  // Two calls defeat tail call optimization in engines such as XS.
+  return (
+    delveForeverIntoTheRecursiveDepths() + delveForeverIntoTheRecursiveDepths()
+  );
 }
 
 export function meterMe(log2, explode = 'no') {
@@ -17,13 +18,17 @@ export function meterMe(log2, explode = 'no') {
   }
   try {
     if (explode === 'compute') {
-      // eslint-disable-next-line no-constant-condition, no-empty
+      // eslint-disable-next-line no-empty
       while (true) {}
     } else if (explode === 'stack') {
       delveForeverIntoTheRecursiveDepths();
     } else if (explode === 'allocate') {
       // eslint-disable-next-line no-unused-vars
       const universe = Array(4e9); // more like 1e24, really
+      let big = '1234';
+      for (;;) {
+        big += big;
+      }
     }
     log2.push('done');
     // console.log(`survived the attempted explosion`);

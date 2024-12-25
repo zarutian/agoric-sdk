@@ -1,0 +1,17 @@
+{
+  "entryPoints": [
+    "packages/*"
+  ],
+  "exclude": [
+  ],
+  "name": "API documentation of Agoric SDK ",
+  "entryPointStrategy": "packages",
+  "out": "api-docs",
+  "includeVersion": true,
+  "visibilityFilters": {
+    "@alpha": false,
+    "@internal": false,
+    "private": false,
+  },
+  "logLevel": "Verbose"
+}

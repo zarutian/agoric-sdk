@@ -1,4 +1,5 @@
-import { E } from '@agoric/eventual-send';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/marshal';
 
 const log = console.log;
 
@@ -9,7 +10,7 @@ export function buildRootObject(_vatPowers, options) {
   function waitFor(who, p) {
     p.then(
       answer => {
-        if (0 < count && count < 50) {
+        if (count > 0 && count < 50) {
           log(`Alice: Bob answers with value ${answer[0]}`);
         }
         if (answer[0] < count || count < 0) {
@@ -23,7 +24,7 @@ export function buildRootObject(_vatPowers, options) {
     );
   }
 
-  return harden({
+  return Far('root', {
     bootstrap(vats) {
       count = options.argv[0] ? Number(options.argv[0]) : 3;
       const bob = vats.bob;

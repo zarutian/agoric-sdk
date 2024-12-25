@@ -1,70 +1,37 @@
-REPOSITORY = agoric/cosmic-swingset
-REPOSITORY_SDK = agoric/agoric-sdk
+REPOSITORY = ghcr.io/agoric/cosmic-swingset
+REPOSITORY_SDK = ghcr.io/agoric/agoric-sdk
 SS := ../cosmic-swingset/
-TAG := $(shell test ! -f ../../package.json || sed -ne 's/.*"version": "\(.*\)".*/\1/p' ../../package.json)
+DOCKER_BUILD ?= docker build
 
-# Don't push alpha tags as ":latest".
-DONT_PUSH_LATEST := $(if $(findstring -,$(TAG)),:,)
+TAG := unreleased
+
+default: docker-build
 
 docker-show-fat:
 	date > show-fat-bust-cache.stamp
-	docker build --file=Dockerfile.show-fat ../..
+	$(DOCKER_BUILD) --file=Dockerfile.show-fat ../..
 
-docker-build: docker-build-base docker-build-sdk docker-build-solo \
-	docker-build-pserver docker-build-setup docker-build-setup-solo
+docker-build: docker-build-sdk docker-build-solo \
+	docker-build-setup docker-build-ssh-node
 
 docker-build-sdk:
-	docker build -t $(REPOSITORY_SDK):latest --file=Dockerfile.sdk ../..
+	bargs=`node ../xsnap/src/build.js --show-env | sed -e 's/^/ --build-arg=/'`; \
+	$(DOCKER_BUILD) $$bargs \
+		-t $(REPOSITORY_SDK):$(TAG) --file=Dockerfile.sdk ../..
+	docker tag $(REPOSITORY_SDK):$(TAG) $(REPOSITORY_SDK):latest
 
 docker-build-setup:
-	docker build -t $(REPOSITORY)-setup:latest .
-
-docker-build-base:
-	hash=`git rev-parse --short HEAD`; \
-	  dirty=`git diff --quiet || echo -dirty`; \
-	  echo "$$hash$$dirty" > $(SS)lib/git-revision.txt
-	docker build -t $(REPOSITORY):latest $(SS)
-
-docker-build-pserver:
-	docker build -t $(REPOSITORY)-pserver:latest $(SS)provisioning-server
+	$(DOCKER_BUILD) --build-arg=TAG=$(TAG)  -t $(REPOSITORY)-setup:$(TAG) .
+	docker tag $(REPOSITORY)-setup:$(TAG) $(REPOSITORY)-setup:latest
 
 docker-build-solo:
-	docker build -t $(REPOSITORY)-solo:latest $(SS)lib/ag-solo
+	$(DOCKER_BUILD) --build-arg=TAG=$(TAG) -t $(REPOSITORY)-solo:$(TAG) ../solo
+	docker tag $(REPOSITORY)-solo:$(TAG) $(REPOSITORY)-solo:latest
 
-docker-build-setup-solo:
-	docker build -t $(REPOSITORY)-setup-solo:latest $(SS)setup-solo
-
-docker-push: docker-push-base docker-push-solo docker-push-setup \
-	docker-push-pserver docker-push-setup-solo docker-push-ibc-alpha
+docker-build-ssh-node:
+	$(DOCKER_BUILD) --build-arg=TAG=$(TAG)  -t ghcr.io/agoric/ssh-node:$(TAG) --file=Dockerfile.ssh-node ./docker
+	docker tag ghcr.io/agoric/ssh-node:$(TAG) ghcr.io/agoric/ssh-node:latest
 
 # ./docker is an emptyish directory.
 docker-build-ibc-alpha:
-	docker build -t $(REPOSITORY_SDK):ibc-alpha --file=Dockerfile.ibc-alpha ./docker
-
-docker-push-ibc-alpha: docker-build-ibc-alpha
-	docker push $(REPOSITORY_SDK):ibc-alpha
-
-docker-push-setup:
-	docker tag $(REPOSITORY)-setup:latest $(REPOSITORY)-setup:$(TAG)
-	$(DONT_PUSH_LATEST) docker push $(REPOSITORY)-setup:latest
-	docker push $(REPOSITORY)-setup:$(TAG)
-
-docker-push-base:
-	docker tag $(REPOSITORY_SDK):latest $(REPOSITORY_SDK):$(TAG)
-	$(DONT_PUSH_LATEST) docker push $(REPOSITORY_SDK):latest
-	docker push $(REPOSITORY_SDK):$(TAG)
-
-docker-push-pserver:
-	docker tag $(REPOSITORY)-pserver:latest $(REPOSITORY)-pserver:$(TAG)
-	$(DONT_PUSH_LATEST) docker push $(REPOSITORY)-pserver:latest
-	docker push $(REPOSITORY)-pserver:$(TAG)
-
-docker-push-solo:
-	docker tag $(REPOSITORY)-solo:latest $(REPOSITORY)-solo:$(TAG)
-	$(DONT_PUSH_LATEST) docker push $(REPOSITORY)-solo:latest
-	docker push $(REPOSITORY)-solo:$(TAG)
-
-docker-push-setup-solo:
-	docker tag $(REPOSITORY)-setup-solo:latest $(REPOSITORY)-setup-solo:$(TAG)
-	$(DONT_PUSH_LATEST) docker push $(REPOSITORY)-setup-solo:latest
-	docker push $(REPOSITORY)-setup-solo:$(TAG)
+	$(DOCKER_BUILD) --build-arg=SDK_TAG=$(TAG) -t $(REPOSITORY_SDK):ibc-alpha --file=Dockerfile.ibc-alpha ./docker

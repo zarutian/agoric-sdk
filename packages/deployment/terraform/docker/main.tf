@@ -13,6 +13,11 @@ variable "SSH_KEY_FILE" {
   type = "string"
 }
 
+variable "ROLE" {
+  description = "Role of this cluster"
+  default = "node"
+}
+
 variable "SERVERS" {
   description = "Number of nodes in cluster"
   default = "5"
@@ -25,12 +30,7 @@ variable "OFFSET" {
 
 variable "VOLUMES" {
   description = "Volumes to mount"
-  default = [
-    {
-      host_path = "/sys/fs/cgroup"
-      container_path = "/sys/fs/cgroup"
-    }
-  ]
+  default = []
 }
 
 provider "docker" {
@@ -42,6 +42,7 @@ module "cluster" {
   name             = "${var.CLUSTER_NAME}"
   offset           = "${var.OFFSET}"
   ssh_key          = "${var.SSH_KEY_FILE}"
+  role             = "${var.ROLE}"
   servers          = "${var.SERVERS}"
   volumes          = "${var.VOLUMES}"
 }

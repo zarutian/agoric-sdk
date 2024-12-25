@@ -1,52 +1,50 @@
 
-@startuml Zoe communication with Zcf
-scale 8
+@startuml Zoe communication with ZCF
 
-participant CosmicSwingset
+participant "packages/vats"
 actor Alice
-actor Bob
-participant Zoe
-box new vat per contract
-collections Zcf
-database contract
+participant "Zoe Service"
+box new vat per contract instance
+collections ZCF
+database "contract instance"
 end box
 
-CosmicSwingset -> Zoe : makeZoe(adminVat)
-Alice -> Zoe : install(bundle)
-Alice //-- Zoe : <font color=gray><size:12> installation
-Alice -> Zoe : startInstance(installation...)
-Zoe -> Zoe : startInstance()
-Zoe -> Zoe : makeZoeInstanceAdminForZcf()
-Zoe -> Zoe : createVat()
-Zoe -> Zcf : E(zcfRoot).executeContract
-Zcf -> Zcf : evalContractBundle()
-Zcf -> Zcf : makeZcf
-Zcf -> contract : start(zcf)
-contract -> Zcf : makeInvitation(...)
-Zcf -> Zoe : makeInvitation(...)
+"packages/vats" -> "Zoe Service" : makeZoeKit(...)
+"packages/vats" //-- "Zoe Service" : <font color=gray><size:12>feeMintAccess
+Alice -> "Zoe Service" : install(bundle)
+Alice //-- "Zoe Service" : <font color=gray><size:12> installation
+Alice -> "Zoe Service" : startInstance(installation...)
+"Zoe Service" -> "Zoe Service" : makeInstanceAdmin()
+"Zoe Service" -> "Zoe Service" : createZCFVat()
+"Zoe Service" -> ZCF : E(zcfRoot).executeContract()
+ZCF -> ZCF : makeZCFZygote()
+ZCF -> ZCF : evaluateContract(bundle)
+ZCF -> "contract instance" : start(zcf)
+"contract instance" -> ZCF : [optional] makeInvitation(...)
+ZCF -> "Zoe Service" : makeInvitation(...)
 note left
 mint invitation payment
 end note
-Zoe --\\ Zcf : <font color=gray><size:12> invitation
-Zcf --\\ Contract : <font color=gray><size:12> invitation
-contract --\\ Zcf : <font color=gray><size:12> {creatorFacet, creatorInvitation, publicFacet }
-Zcf --\\ Zoe : <font color=gray><size:12> {creatorFacet, creatorInvitation, addSeatObj}
-Alice //-- Zoe : <font color=gray><size:12> {creatorFacet, creatorInvitation}
+"Zoe Service" --\\ ZCF : <font color=gray><size:12> invitation
+ZCF --\\ "contract instance" : <font color=gray><size:12> invitation
+"contract instance" --\\ ZCF : <font color=gray><size:12> {creatorFacet?, creatorInvitation?, publicFacet? }
+ZCF --\\ "Zoe Service" : <font color=gray><size:12> {creatorFacet?\n <font color=gray><size:12>creatorInvitation?\n <font color=gray><size:12>publicFacet?\n <font color=gray><size:12>handleOfferObj}
+Alice //-- "Zoe Service" : <font color=gray><size:12>{creatorFacet,\n <font color=gray><size:12>creatorInvitation\n <font color=gray><size:12>instance\n <font color=gray><size:12>publicFacet\n <font color=gray><size:12>adminFacet}
 
 ====
 
-Alice -> Zoe : offer(invitation...)
-Zoe -> Zoe : makeUserSeat
-Zoe -> Alice : <font color=gray><size:12> userSeat
-Zoe -> Zcf : addSeat
+Alice -> "Zoe Service" : offer(invitation...)
+"Zoe Service" -> "Zoe Service" : makeUserSeat
+"Zoe Service" -> Alice : <font color=gray><size:12> userSeat
+"Zoe Service" -> ZCF : E(handleOfferObj).handleOffer()
 note left
 deposit payments
 end note
-Zcf -> Zcf : makeZCFSeat
-Zcf -> Contract : offerHandler(ZCFSeat)
-Contract -> Zcf : <font color=gray><size:12> offerResult
-Zcf --\\ Zoe : <font color=gray><size:12> { offerResult, exitObj }
+ZCF -> ZCF : makeZCFSeat
+ZCF -> "contract instance" : offerHandler(ZCFSeat)
+"contract instance" -> ZCF : <font color=gray><size:12> offerResult
+ZCF --\\ "Zoe Service" : <font color=gray><size:12> { offerResult, exitObj }
 
-Zoe --\\ Zoe : <font color=gray><size:12> userSeat promises updated
+"Zoe Service" --\\ "Zoe Service" : <font color=gray><size:12> userSeat promises updated
 
 @enduml

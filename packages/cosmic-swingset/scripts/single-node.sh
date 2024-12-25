@@ -5,7 +5,7 @@ set -e
 DAEMON=${DAEMON-gaiad}
 CLI=${CLI-gaiacli}
 STAKE=${STAKE-10000000000stake}
-coins="${STAKE},100000000000samoleans,10000000000000000000000000uag"
+coins="${STAKE},100000000000samoleans,1000000000ubld,100provisionpass"
 
 CHAINID=$1
 GENACCT=$2
@@ -23,32 +23,20 @@ fi
 # Build genesis file incl account for passed address
 $DAEMON init --chain-id $CHAINID $CHAINID
 $CLI keys add validator --keyring-backend="test"
-$DAEMON add-genesis-account validator $coins --keyring-backend="test"
+$DAEMON add-genesis-account validator $STAKE --keyring-backend="test"
 $DAEMON add-genesis-account $GENACCT $coins --keyring-backend="test"
-$DAEMON gentx --name validator --amount=$STAKE --keyring-backend="test"
+$DAEMON gentx --name validator $STAKE --keyring-backend="test"
 $DAEMON collect-gentxs
 
-# Silly old Darwin 
-case `sed --help 2>&1 | sed -n 2p` in
-"usage: sed script"*"[-i extension]"*) sedi () {
-    sed -i '' ${1+"$@"}
-  }
-  ;;
-*) sedi () {
-    sed -i ${1+"$@"}
-  }
-  ;;
-esac
+# Silly old Darwin
+alias sedi="sed -i $(sed --help 2>&1 | sed 2q | grep -qe '-i ' && echo "''")"
 
 case $DAEMON in
-ag-chain-cosmos)
-  # For Agoric
-  DIR=$(dirname -- "${BASH_SOURCE[0]}")
-  "$DIR/../../agoric-cli/bin/agoric" set-defaults ag-chain-cosmos ~/.$DAEMON/config
-  
-  export BOOTSTRAP_ADDRESS=$GENACCT
-  export ROLE=two_chain
-  ;;
+  ag-chain-cosmos)
+    # For Agoric
+    DIR=$(dirname -- "${BASH_SOURCE[0]}")
+    "$DIR/../../agoric-cli/bin/agoric" set-defaults --bootstrap-address=$GENACCT ag-chain-cosmos ~/.$DAEMON/config
+    ;;
 esac
 
 # Set proper defaults and change ports
@@ -59,4 +47,4 @@ sedi 's/timeout_propose = "3s"/timeout_propose = "1s"/g' ~/.$DAEMON/config/confi
 sedi 's/index_all_keys = false/index_all_keys = true/g' ~/.$DAEMON/config/config.toml
 
 # Start the chain
-$DAEMON start --pruning=nothing
+$DAEMON start

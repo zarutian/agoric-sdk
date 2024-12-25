@@ -1,0 +1,20 @@
+name: Multichain E2E Tests
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  orchestration-api-test:
+    name: Multichain E2E (Orchestration API)
+    uses: ./.github/workflows/multichain-e2e-template.yml
+    with:
+      config: config.yaml
+      test_command: test:main
+
+  fast-usdc-test:
+    name: Multichain E2E (Fast USDC)
+    uses: ./.github/workflows/multichain-e2e-template.yml
+    with:
+      config: config.fusdc.yaml
+      test_command: test:fast-usdc

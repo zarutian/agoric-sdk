@@ -1,23 +1,22 @@
-/* global harden */
-
-import { buildPatterns } from '../message-patterns';
+import { Far } from '@endo/far';
+import { buildPatterns } from '../message-patterns.js';
 
 export function buildRootObject(vatPowers) {
-  const amy = harden({ toString: () => 'obj-amy' });
+  const amy = Far('amy', {});
   let alice;
 
-  const root = harden({
-    init(bob, bert) {
-      const { setA, setB, objA } = buildPatterns(vatPowers.testLog);
+  const root = Far('root', {
+    init(bob, bert, carol) {
+      const { setA, setB, setC, objA } = buildPatterns(vatPowers.testLog);
       alice = objA;
       const a = harden({ alice, amy });
       setA(a);
       setB(harden({ bob, bert }));
+      setC(harden({ carol }));
       return a;
     },
 
     async run(which) {
-      console.log(`running alice[${which}]`);
       await alice[which]();
     },
   });

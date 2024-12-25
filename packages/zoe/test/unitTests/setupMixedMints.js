@@ -1,20 +1,18 @@
-import { makeIssuerKit } from '@agoric/ertp';
-import { makeZoe } from '../../src/zoeService/zoe';
-import fakeVatAdmin from './contracts/fakeVatAdmin';
+import { makeIssuerKit, AmountMath, AssetKind } from '@agoric/ertp';
+import { makeZoeForTest } from '../../tools/setup-zoe.js';
+import { makeFakeVatAdmin } from '../../tools/fakeVatAdmin.js';
 
 const setupMixed = () => {
-  const ccBundle = makeIssuerKit('CryptoCats', 'strSet');
+  const ccBundle = makeIssuerKit('CryptoCats', AssetKind.SET);
   const moolaBundle = makeIssuerKit('moola');
   const allBundles = { cc: ccBundle, moola: moolaBundle };
   const mints = new Map();
   const issuers = new Map();
-  const amountMaths = new Map();
   const brands = new Map();
 
   for (const k of Object.getOwnPropertyNames(allBundles)) {
     mints.set(k, allBundles[k].mint);
     issuers.set(k, allBundles[k].issuer);
-    amountMaths.set(k, allBundles[k].amountMath);
     brands.set(k, allBundles[k].brand);
   }
 
@@ -22,10 +20,11 @@ const setupMixed = () => {
   const moolaIssuer = issuers.get('moola');
   const ccMint = mints.get('cc');
   const moolaMint = mints.get('moola');
-  const cryptoCats = allBundles.cc.amountMath.make;
-  const moola = allBundles.moola.amountMath.make;
+  const cryptoCats = value => AmountMath.make(allBundles.cc.brand, value);
+  const moola = value => AmountMath.make(allBundles.moola.brand, value);
 
-  const zoe = makeZoe(fakeVatAdmin);
+  const { admin: fakeVatAdmin, vatAdminState } = makeFakeVatAdmin();
+  const zoe = makeZoeForTest(fakeVatAdmin);
   return {
     zoe,
     ccIssuer,
@@ -34,8 +33,8 @@ const setupMixed = () => {
     moolaMint,
     cryptoCats,
     moola,
-    amountMaths,
     brands,
+    vatAdminState,
   };
 };
 harden(setupMixed);

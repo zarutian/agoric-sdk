@@ -1,6 +1,8 @@
+# TODO REWRITE
+
 # Store
 
-A wrapper around JavaScript Map. 
+A wrapper around JavaScript Map.
 
 Store adds some additional functionality on top of Map.
 
@@ -18,4 +20,8 @@ Store adds some additional functionality on top of Map.
    Map, because the Map methods are not tied to a particular
    Map instance.
 
-See @agoric/weak-store for the wrapper around JavaScript's WeakMap abstraction.
+See `makeScalarWeakMapStore` for the wrapper around JavaScript's WeakMap abstraction.
+
+---
+
+Be aware that both `@agoric/base-zone` and this package `@agoric/store` will move from the agoric-sdk repository to the endo repository and likely renamed `@endo/zone` and `@endo/store`. At that time, we will first deprecate the versions here, then replace them with deprecated stubs that reexport from their new home. We hope to eventually remove even these stubs, depending on the compat cost at that time.

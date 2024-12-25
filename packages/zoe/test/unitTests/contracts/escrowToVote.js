@@ -1,15 +1,15 @@
-// @ts-check
+// @ts-nocheck
 
-import { assert, details, q } from '@agoric/assert';
-import makeStore from '@agoric/store';
+import { X, q } from '@endo/errors';
+import { Far } from '@endo/marshal';
+import { makeScalarMapStore } from '@agoric/store';
+import { AmountMath } from '@agoric/ertp';
 // Eventually will be importable from '@agoric/zoe-contract-support'
 import {
   assertIssuerKeywords,
   assertProposalShape,
-  assertUsesNatMath,
-} from '../../../src/contractSupport';
-
-import '../../../exported';
+  assertNatAssetKind,
+} from '../../../src/contractSupport/index.js';
 
 /**
  * This contract implements coin voting. There are two roles: the
@@ -21,41 +21,43 @@ import '../../../exported';
  * issuerKeywordRecord. The instantiator gets the only Secretary
  * access through the creatorFacet.
  *
- * @type {ContractStartFn}
+ * @type {ContractStartFn<undefined, {closeElection: unknown, makeVoterInvitation: unknown}>}
  */
 const start = zcf => {
   const {
     question,
     brands: { Assets: assetsBrand },
-    maths: { Assets: amountMath },
   } = zcf.getTerms();
   let electionOpen = true;
   assertIssuerKeywords(zcf, harden(['Assets']));
   assert.typeof(question, 'string');
-  assertUsesNatMath(zcf, assetsBrand);
+  assertNatAssetKind(zcf, assetsBrand);
 
-  const seatToResponse = makeStore('seat');
+  const seatToResponse = makeScalarMapStore('seat');
 
   // We assume the only valid responses are 'YES' and 'NO'
   const assertResponse = response => {
-    assert(
-      response === 'NO' || response === 'YES',
-      details`the answer ${q(response)} was not 'YES' or 'NO'`,
-    );
+    response === 'NO' ||
+      response === 'YES' ||
+      assert.fail(X`the answer ${q(response)} was not 'YES' or 'NO'`);
     // Throw an error if the response is not valid, but do not
     // exit the seat. We should allow the voter to recast their vote.
   };
 
   const voteHandler = voterSeat => {
-    const voter = harden({
+    assertProposalShape(voterSeat, {
+      give: { Assets: null },
+    });
+    const voter = Far('voter', {
       /**
        * Vote on a particular issue
+       *
        * @param {string} response - 'YES' || 'NO'
        */
       vote: response => {
         // Throw if the offer is no longer active, i.e. the user has
         // completed their offer and the assets are no longer escrowed.
-        assert(!voterSeat.hasExited(), details`the voter seat has exited`);
+        assert(!voterSeat.hasExited(), 'the voter seat has exited');
 
         assertResponse(response);
 
@@ -71,24 +73,20 @@ const start = zcf => {
     return voter;
   };
 
-  const expectedVoterProposal = harden({
-    give: { Assets: null },
-  });
-
-  const creatorFacet = harden({
+  const creatorFacet = Far('creatorFacet', {
     closeElection: () => {
       assert(electionOpen, 'the election is already closed');
       // YES | NO to Nat
       const tally = new Map();
-      tally.set('YES', amountMath.getEmpty());
-      tally.set('NO', amountMath.getEmpty());
+      tally.set('YES', AmountMath.makeEmpty(assetsBrand));
+      tally.set('NO', AmountMath.makeEmpty(assetsBrand));
 
       for (const [seat, response] of seatToResponse.entries()) {
         if (!seat.hasExited()) {
           const escrowedAmount = seat.getAmountAllocated('Assets');
           const sumSoFar = tally.get(response);
-          tally.set(response, amountMath.add(escrowedAmount, sumSoFar));
-          seat.exit();
+          tally.set(response, AmountMath.add(escrowedAmount, sumSoFar));
+          seat.exit('Thank you for voting');
         }
       }
       electionOpen = false;
@@ -100,10 +98,7 @@ const start = zcf => {
     },
     makeVoterInvitation: () => {
       assert(electionOpen, 'the election is closed');
-      return zcf.makeInvitation(
-        assertProposalShape(voteHandler, expectedVoterProposal),
-        'voter',
-      );
+      return zcf.makeInvitation(voteHandler, 'voter');
     },
   });
 

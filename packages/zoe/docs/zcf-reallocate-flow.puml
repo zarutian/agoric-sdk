@@ -18,12 +18,8 @@ package ZCF <<Rectangle>> {
   object ZCFSeatAdmin
   ZCFSeatAdmin : commit()
 
-  object SeatStaging
-  SeatStaging : getSeat()
-  SeatStaging : getStagedAllocation()
 }
 
-SeatStaging --|> ZCFSeat : 1) getSeat
 ZCFSeat --|> ZCFSeatAdmin : 2) looked up in internal map
 ZCFSeatAdmin --|> ZoeSeatAdmin : 3) commit()
 ZoeSeatAdmin --|> ZoeSeatAdmin : 4) replaceAllocation()

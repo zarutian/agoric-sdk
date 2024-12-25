@@ -1,3 +1,4 @@
-import setup from '../../src/devices/timer-src';
+// @ts-nocheck
+import setup from '../../src/devices/timer/device-timer.js';
 
 export { setup };

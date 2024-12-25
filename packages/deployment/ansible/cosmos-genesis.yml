@@ -1,17 +1,17 @@
 ---
-
-- hosts: "{{ STAKER_NODE }}"
+- hosts: '{{ STAKER_NODE }}'
   user: root
   strategy: free
   vars:
-    - data: "{{ SETUP_HOME }}/{{ service }}/data"
+    - data: '{{ SETUP_HOME }}/{{ service }}/data'
     - service: ag-chain-cosmos
-    - BOOTSTRAP_TOKENS: "{{ lookup('file', SETUP_HOME + '/boot-tokens.txt') }},100provisionpass"
-    - BOOTSTRAP_ADDRESS: "{{ lookup('file', SETUP_HOME + '/ag-pserver/data/node0/boot-address.txt') }}"
+    - BOOTSTRAP_TOKENS: 100provisionpass
+    - CHAIN_NAME: "{{ lookup('file', SETUP_HOME + '/ag-chain-cosmos/chain-name.txt') }}"
+    - NETWORK_CONFIG_URL: https://testnet.agoric.com/network-config
+    - FAUCET_TOKENS: "{{ lookup('file', SETUP_HOME + '/boot-tokens.txt') }}"
     - STAKER: ag-staker
-    - STAKER_TOKENS: 10000000000000000000000000uagstake
-    - STAKER_IDENTITY_FLAGS: "--website=https://testnet.agoric.com --identity=https://keybase.io/team/agoric.testnet.validators"
-    - STAKER_AMOUNT: 50000000uagstake
-    - STAKER_NODE: node0
+    - STAKER_INIT_COINS: 62000000ubld
+    - STAKER_SELF_DELEGATION: 50000000ubld
+    - STAKER_NODE: validator0
   roles:
     - cosmos-genesis

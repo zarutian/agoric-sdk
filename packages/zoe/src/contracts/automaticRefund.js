@@ -1,6 +1,4 @@
-// @ts-check
-
-import '../../exported';
+import { Far } from '@endo/marshal';
 
 /**
  * This is a very trivial contract to explain and test Zoe.
@@ -13,22 +11,21 @@ import '../../exported';
  * Since the contract doesn't attempt any reallocation, the offer can contain
  * anything in `give` and `want`. The amount in `give` will be returned, and
  * `want` will be ignored.
- * @type {ContractStartFn}
- * @param {ContractFacet} zcf
+ *
+ * @param {ZCF<{}>} zcf
  */
 const start = zcf => {
-  let offersCount = 0;
+  let offersCount = 0n;
 
   /** @type {OfferHandler} */
   const refund = seat => {
-    offersCount += 1;
+    offersCount += 1n;
     seat.exit();
     return `The offer was accepted`;
   };
   const makeRefundInvitation = () => zcf.makeInvitation(refund, 'getRefund');
 
-  /** @type {AutomaticRefundPublicFacet} */
-  const publicFacet = harden({
+  const publicFacet = Far('publicFacet', {
     getOffersCount: () => offersCount,
     makeInvitation: makeRefundInvitation,
   });

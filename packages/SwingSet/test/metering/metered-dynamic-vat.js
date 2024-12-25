@@ -1,11 +1,13 @@
-/* global harden */
-import { importBundle } from '@agoric/import-bundle';
-import { meterMe } from './metered-code';
+import { makePromiseKit } from '@endo/promise-kit';
+import { Far } from '@endo/far';
+import { meterMe } from './metered-code.js';
 
 export function buildRootObject(_dynamicVatPowers) {
-  let grandchildNS;
+  return Far('root', {
+    never() {
+      return makePromiseKit().promise;
+    },
 
-  return harden({
     async run() {
       meterMe([], 'no');
       return 42;
@@ -14,17 +16,6 @@ export function buildRootObject(_dynamicVatPowers) {
     async explode(how) {
       meterMe([], how);
       return -1;
-    },
-
-    async load(bundle) {
-      const require = harden(() => 0);
-      grandchildNS = await importBundle(bundle, {
-        endowments: { console, require },
-      });
-    },
-
-    async meterThem(explode) {
-      grandchildNS.meterThem(explode);
     },
   });
 }

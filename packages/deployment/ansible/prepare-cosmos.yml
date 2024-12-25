@@ -1,22 +1,14 @@
 ---
-
-- hosts: "{{ service }}"
+- hosts: '{{ service }}'
   user: root
   #any_errors_fatal: true
   gather_facts: yes
   strategy: free
   vars:
     - service: ag-chain-cosmos
-    - data: "{{ SETUP_HOME }}/{{ service }}/data"
-    - BOOTSTRAP_TOKENS: "{{ lookup('file', SETUP_HOME + '/boot-tokens.txt') }}"
-    - BOOTSTRAP_ADDRESS: "{{ lookup('file', SETUP_HOME + '/ag-pserver/data/node0/boot-address.txt') }}"
     - CHAIN_NAME: "{{ lookup('file', SETUP_HOME + '/' + service + '/chain-name.txt') }}"
-    - STAKER: ag-staker
-    - STAKER_AMOUNT: 50000000uagstake
-    - HELPER_BINARY: "{{lookup('env', 'GOPATH') or '/usr/local'}}/bin/ag-cosmos-helper"
     - APPDIR: "{{lookup('pipe', 'pwd')}}/../.."
   roles:
     - copy
     - init
     - init-cosmos
-    - fetch-cosmos

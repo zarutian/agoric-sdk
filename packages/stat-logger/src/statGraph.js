@@ -1,6 +1,8 @@
+/* eslint-env node */
 import fs from 'fs';
 import path from 'path';
-import * as vega from 'vega';
+
+import { Fail } from '@endo/errors';
 
 function scanMax(filePath, fields) {
   const lines = fs.readFileSync(filePath, { encoding: 'utf8' }).split('\n');
@@ -16,7 +18,7 @@ function scanMax(filePath, fields) {
       }
     }
     if (hit < 0) {
-      throw new Error(`field ${field} not found in ${filePath}`);
+      Fail`field ${field} not found in ${filePath}`;
     } else {
       headerMap[hit] = field;
     }
@@ -152,13 +154,13 @@ export function addGraphToGraphSpec(spec, tag, statsPath, yField, color) {
 
 export async function renderGraph(spec, outputPath, type = 'png') {
   if (spec.data.length === 0) {
-    throw new Error('graph spec contains no data');
+    throw Error('graph spec contains no data');
   } else if (spec.marks.length === 0) {
-    throw new Error('graph spec has no graphs defined');
+    throw Error('graph spec has no graphs defined');
   }
-  if (type !== 'png' && type !== 'pdf') {
-    throw new Error(`invalid output type ${type}, valid types are png or pdf`);
-  }
+  type === 'png' ||
+    type === 'pdf' ||
+    Fail`invalid output type ${type}, valid types are png or pdf`;
 
   let loadDir = '.';
   let out = process.stdout;
@@ -169,6 +171,11 @@ export async function renderGraph(spec, outputPath, type = 'png') {
     }
     out = fs.createWriteStream(outputPath);
   }
+
+  // NOTE: If this import expression fails, you need to install the
+  // peerDependencies.
+  // Dynamic version of `import * as vega from 'vega';`
+  const vega = await import('vega');
 
   const view = new vega.View(vega.parse(spec, null), {
     loader: vega.loader({ baseURL: loadDir }),

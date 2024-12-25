@@ -1,7 +1,9 @@
+import { Far } from '@endo/marshal';
+
 const log = console.log;
 
-export function buildRootObject(_vatPowers) {
-  return harden({
+export function buildRootObject() {
+  return Far('root', {
     thisIsYourPromise(parr) {
       const p = parr[0];
       log('=> Bob: thisIsYourPromise begins');

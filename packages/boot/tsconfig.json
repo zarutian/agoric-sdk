@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "checkJs": true,
+  },
+  "include": [
+    "*.js",
+    "scripts/**/*.js",
+    "src/**/*.js",
+    "test/**/*.js",
+    "test/**/*.ts",
+    "tools/**/*.js",
+    "tools/**/*.ts",
+  ],
+}

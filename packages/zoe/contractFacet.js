@@ -1,1 +1,3 @@
-export * from './src/contractFacet/contractFacet';
+// @jessie-check
+
+export * from './src/contractFacet/vatRoot.js';

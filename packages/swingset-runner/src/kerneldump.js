@@ -2,12 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 
-import { openSwingStore as openLMDBSwingStore } from '@agoric/swing-store-lmdb';
-import { openSwingStore as openSimpleSwingStore } from '@agoric/swing-store-simple';
+import { openSwingStore } from '@agoric/swing-store';
 
-import { dumpStore } from './dumpstore';
-import { auditRefCounts } from './auditstore';
-import { printStats } from './printStats';
+import { dumpStore } from './dumpstore.js';
+import { auditRefCounts } from './auditstore.js';
+import { organizeMainStats, printMainStats } from './printStats.js';
 
 function usage() {
   console.log(`
@@ -17,13 +16,13 @@ Command line:
 FLAGS may be:
   --raw       - dump the kernel state database as key/value pairs,
                 alphabetically without annotation
-  --lmdb      - read an LMDB state database (default)
   --refcounts - audit kernel promise reference counts
+  --refdump   - dump reference count analysis
   --auditonly - only audit, don't dump
-  --filedb    - read a simple file-based (aka .jsonlines) data store
   --help      - print this helpful usage information
   --out PATH  - output dump to PATH ("-" indicates stdout, the default)
   --stats     - just print summary stats and exit
+  --wide      - don't truncate unreadably long values
 
 TARGET is one of: the base directory where a swingset's vats live, a swingset
 data store directory, or the path to a swingset database file.  If omitted, it
@@ -54,13 +53,13 @@ function dirContains(dirpath, suffix) {
 }
 
 export function main() {
-  const argv = process.argv.splice(2);
+  const argv = process.argv.slice(2);
   let rawMode = false;
   let refCounts = false;
   let justStats = false;
   let doDump = true;
-  let dbMode = '--lmdb';
-  let dbSuffix = '.mdb';
+  let refDump = false;
+  let wideMode = false;
   let outfile;
   while (argv[0] && argv[0].startsWith('-')) {
     const flag = argv.shift();
@@ -68,12 +67,21 @@ export function main() {
       case '--raw':
         rawMode = true;
         break;
+      case '--wide':
+        wideMode = true;
+        break;
       case '--refcounts':
       case '--refCounts':
         refCounts = true;
         break;
       case '--auditonly':
+        refCounts = true;
         doDump = false;
+        break;
+      case '--refdump':
+        refCounts = true;
+        doDump = false;
+        refDump = true;
         break;
       case '--stats':
         justStats = true;
@@ -81,14 +89,6 @@ export function main() {
       case '--help':
         usage();
         process.exit(0);
-        break;
-      case '--filedb':
-        dbMode = '--filedb';
-        dbSuffix = '.jsonlines';
-        break;
-      case '--lmdb':
-        dbMode = '--lmdb';
-        dbSuffix = '.mdb';
         break;
       case '-o':
       case '--out':
@@ -105,6 +105,7 @@ export function main() {
 
   const target = argv.shift();
   let kernelStateDBDir;
+  const dbSuffix = '.mdb';
   if (target.endsWith(dbSuffix)) {
     kernelStateDBDir = path.dirname(target);
   } else if (dirContains(target, dbSuffix)) {
@@ -118,27 +119,17 @@ export function main() {
   if (!kernelStateDBDir) {
     fail(`can't find a database at ${target}`, false);
   }
-  let store;
-  switch (dbMode) {
-    case '--filedb':
-      store = openSimpleSwingStore(kernelStateDBDir);
-      break;
-    case '--lmdb':
-      store = openLMDBSwingStore(kernelStateDBDir);
-      break;
-    default:
-      fail(`invalid database mode ${dbMode}`, true);
-  }
+  const kernelStorage = openSwingStore(kernelStateDBDir).kernelStorage;
   if (justStats) {
-    const stats = JSON.parse(store.storage.get('kernelStats'));
-    const cranks = Number(store.storage.get('crankNumber'));
-    printStats(stats, cranks);
+    const rawStats = JSON.parse(kernelStorage.kvStore.get('kernelStats'));
+    const cranks = Number(kernelStorage.kvStore.get('crankNumber'));
+    printMainStats(organizeMainStats(rawStats, cranks));
   } else {
     if (doDump) {
-      dumpStore(store.storage, outfile, rawMode);
+      dumpStore(kernelStorage, outfile, rawMode, !wideMode);
     }
     if (refCounts) {
-      auditRefCounts(store.storage);
+      auditRefCounts(kernelStorage.kvStore, refDump, doDump);
     }
   }
 }

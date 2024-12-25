@@ -1,10 +1,9 @@
-// @ts-check
+import { assert } from '@endo/errors';
+import { makeIssuerKit, AssetKind, AmountMath } from '@agoric/ertp';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/marshal';
 
-import { makeIssuerKit, MathKind } from '@agoric/ertp';
-import { E } from '@agoric/eventual-send';
-
-import '../../exported';
-import { assert } from '@agoric/assert';
+import { notForProductionUse } from '@agoric/internal/src/magic-cookie-test-only.js';
 
 /**
  * This contract mints non-fungible tokens and creates a selling contract
@@ -15,27 +14,37 @@ import { assert } from '@agoric/assert';
  * specification of what is being sold, such as:
  * {
  *   customValueProperties: { ...arbitrary },
- *   count: 3,
+ *   count: 3n,
  *   moneyIssuer: moolaIssuer,
  *   sellItemsInstallationHandle,
- *   pricePerItem: moolaAmountMath.make(20),
+ *   pricePerItem: AmountMath.make(moolaBrand, 20n),
  * }
  * The payouts are returned as an offerResult in the `outcome`, and an API that
  * allows selling the tickets that were produced. You can reuse the ticket maker
  * to mint more tickets (e.g. for a separate show.)
  *
- * @type {ContractStartFn}
+ * @param {ZCF<{
+ * tokenName: string,
+ * }>} zcf
  */
 const start = zcf => {
+  notForProductionUse();
+
   const { tokenName = 'token' } = zcf.getTerms();
   // Create the internal token mint
-  const { issuer, mint, amountMath: tokenMath } = makeIssuerKit(
-    tokenName,
-    MathKind.SET,
-  );
+  // makeIssuerKit fails upgrade, this contract is for demo only
+  const { issuer, mint, brand } = makeIssuerKit(tokenName, AssetKind.SET);
 
   const zoeService = zcf.getZoeService();
 
+  /**
+   * @param {object} obj
+   * @param {Installation<import('./sellItems.js').start>} obj.sellItemsInstallation
+   * @param {*} obj.customValueProperties
+   * @param {number} obj.count
+   * @param {*} obj.moneyIssuer
+   * @param {*} obj.pricePerItem
+   */
   const sellTokens = ({
     customValueProperties,
     count,
@@ -43,7 +52,8 @@ const start = zcf => {
     sellItemsInstallation,
     pricePerItem,
   }) => {
-    const tokenAmount = tokenMath.make(
+    const tokenAmount = AmountMath.make(
+      brand,
       harden(
         Array(count)
           .fill(undefined)
@@ -78,14 +88,6 @@ const start = zcf => {
     const sellItemsTerms = harden({
       pricePerItem,
     });
-    /**
-     * @type {Promise<{
-     *   creatorInvitation: Invitation | undefined,
-     *   creatorFacet: SellItemsCreatorFacet,
-     *   instance: Instance,
-     *   publicFacet: SellItemsPublicFacet,
-     * }>}
-     */
     const instanceRecordP = E(zoeService).startInstance(
       sellItemsInstallation,
       issuerKeywordRecord,
@@ -109,7 +111,10 @@ const start = zcf => {
   };
 
   /** @type {MintAndSellNFTCreatorFacet} */
-  const creatorFacet = harden({ sellTokens, getIssuer: () => issuer });
+  const creatorFacet = Far('creatorFacet', {
+    sellTokens,
+    getIssuer: () => issuer,
+  });
 
   return harden({ creatorFacet });
 };
